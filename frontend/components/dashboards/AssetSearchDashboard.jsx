@@ -53,11 +53,16 @@ const CONV_SPECS = {
   conv_byWeek:    (conv) => C.conversionByWeek(conv),
   conv_byCat:     (conv) => C.investByCategory(conv),
 };
-// Launch-week visitor cohort (Apr 2–9) — run when the deep export's 14_/10_ tables
-// are loaded (conv.cohortOk). This is the only source with the non-searcher population.
+// Visitor cohorts (searchers vs non-searchers). conv_cohortW = full W1–W6 window,
+// built from the weekly assets-page-views (conv.pageViewsOk). conv_cohort/conv_daily =
+// the launch-week deep export's pre-computed Apr 2–9 cohort (conv.cohortOk) — kept as a
+// fallback when the weekly page-views aren't loaded.
 const COHORT_SPECS = {
   conv_cohort: (conv) => C.cohortCvr(conv),
   conv_daily:  (conv) => C.cohortDaily(conv),
+};
+const COHORT_W_SPECS = {
+  conv_cohortW: (conv) => C.weeklyCohortCvr(conv),
 };
 
 function useDashboard(project) {
@@ -86,6 +91,7 @@ function useDashboard(project) {
         ...Object.entries(QUERY_SPECS).map(([key, build]) => run(key, build(ctx))),
         ...(conv.ok ? Object.entries(CONV_SPECS).map(([key, build]) => run(key, build(conv))) : []),
         ...(conv.cohortOk ? Object.entries(COHORT_SPECS).map(([key, build]) => run(key, build(conv))) : []),
+        ...(conv.pageViewsOk ? Object.entries(COHORT_W_SPECS).map(([key, build]) => run(key, build(conv))) : []),
       ];
       const entries = await Promise.all(jobs);
       if (!cancelled) setState({ loading: false, fatal: null, data: Object.fromEntries(entries) });
@@ -147,11 +153,16 @@ export default function AssetSearchDashboard({ project }) {
   const ctrLast = suggestions.length ? suggestions[suggestions.length - 1].ctr_pct : null;
   const zrrFirst = health.length ? health[0].zrr_pct : null;
   const zrrLast = health.length ? health[health.length - 1].zrr_pct : null;
-  // launch-week conversion cohort (Apr 2–9, anon-id level) from the deep export's
-  // pre-computed 14_conversion_cohort_summary — gives the real searcher-vs-non-searcher
-  // lift. Surfaced as a "Conversion impact" block at the top of the Overview tab.
-  const cohort = rowsOf(data, "conv_cohort")[0] || null;
-  const daily = rowsOf(data, "conv_daily");
+  // Searcher-vs-non-searcher conversion cohort, surfaced as a "Conversion impact" block
+  // at the top of the Overview tab. Prefer the full W1–W6 cohort (built from the weekly
+  // assets-page-views); fall back to the launch-week deep-export cohort (Apr 2–9, anon-id).
+  const cohortW = rowsOf(data, "conv_cohortW")[0] || null;
+  const cohort8 = rowsOf(data, "conv_cohort")[0] || null;
+  const cohort = cohortW || cohort8;
+  const cohortLabel = cohortW
+    ? `${weeks[0]}–${lastWeek} · Apr 2 – May 11 2026 · user-id level`
+    : "launch week · Apr 2–9 2026 · anon-id level";
+  const daily = cohortW ? [] : rowsOf(data, "conv_daily");
 
   // chart-ready series
   const healthSeries = health.map((r) => ({
@@ -210,7 +221,7 @@ export default function AssetSearchDashboard({ project }) {
 
         {/* ── OVERVIEW ─────────────────────────────────────────────────── */}
         <TabPanel value="overview" className="mt-5 flex flex-col gap-6">
-          {cohort && <LaunchWeekConversion cohort={cohort} daily={daily} />}
+          {cohort && <ConversionImpactCard cohort={cohort} daily={daily} label={cohortLabel} />}
           <ChartCard
             title={<Metric k="zrr">Zero-result rate &amp; query volume by feature week</Metric>}
             subtitle="Bars: queries run. Line: % of queries returning zero results."
@@ -739,12 +750,12 @@ const pct1 = (v) => (v == null || !isFinite(v) ? "—" : `${Math.round(v * 10) /
 const lift1 = (x) => (x == null || !isFinite(x) ? "—" : `${Math.round(x * 100) / 100}×`);
 
 /**
- * "Conversion impact" block for the Overview tab — searchers vs non-searchers CVR
- * and the real search lift, from the deep launch-week export's pre-computed
- * 14_conversion_cohort_summary (+ 10_daily_funnel_summary). Apr 2–9 2026, anon-id level.
- * This is the only slice that carries the non-searcher (browse-only) population.
+ * "Conversion impact" block for the Overview tab — searchers vs non-searchers CVR and
+ * the real search lift. Fed either the full W1–W6 cohort (built from the weekly
+ * assets-page-views) or the launch-week deep-export cohort; same column shape either way.
+ * `label` describes the window/grain; `daily` (the launch-week funnel) is optional.
  */
-function LaunchWeekConversion({ cohort, daily }) {
+function ConversionImpactCard({ cohort, daily, label }) {
   if (!cohort) return null;
   const n = (k) => Number(cohort[k]) || 0;
   const cvr = (a, b) => (b ? (100 * a) / b : null);
@@ -755,43 +766,57 @@ function LaunchWeekConversion({ cohort, daily }) {
   const lift = srch != null && nonsrch ? srch / nonsrch : null;
   const clkLift = clk != null && nonsrch ? clk / nonsrch : null;
   const maxCvr = Math.max(clk || 0, srch || 0, nonsrch || 0, 1);
+  const isFullWindow = !(daily && daily.length); // the 8-day cohort ships a daily funnel; the W1–W6 one doesn't
   const cvrVals = (daily || []).map((d) => Number(d.overall_cvr_pct)).filter((x) => isFinite(x));
   const dRange = cvrVals.length ? `${Math.min(...cvrVals)}–${Math.max(...cvrVals)}%` : null;
+  const liftGood = lift != null && lift >= 1.5;
   const rows = [
-    { label: "Non-searchers (browsed, didn't search)", n: n("n_nonsearchers"), conv: n("conv_nonsearchers"), cvr: nonsrch, fill: color.navy[300], badge: null },
-    { label: "Searchers (focused the search box)", n: n("n_searchers"), conv: n("conv_searchers"), cvr: srch, fill: color.teal[500], badge: lift },
-    { label: "↳ and clicked a result", n: n("n_clicked"), conv: n("conv_clicked"), cvr: clk, fill: color.teal[600], badge: clkLift },
+    { key: "non", label: "Non-searchers — browsed, never searched", n: n("n_nonsearchers"), conv: n("conv_nonsearchers"), cvr: nonsrch, fill: color.neutral[400], lift: null },
+    { key: "srch", label: "Searchers — focused the search box", n: n("n_searchers"), conv: n("conv_searchers"), cvr: srch, fill: color.teal[500], lift },
+    { key: "clk", label: "…and clicked a search result", n: n("n_clicked"), conv: n("conv_clicked"), cvr: clk, fill: color.teal[700], lift: clkLift, indent: true },
   ];
   return (
     <Card pad="lg">
-      <CardHeader><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <CardTitle>Conversion impact</CardTitle>
-        <span className="t-body-sm text-tertiary">launch week · Apr&nbsp;2–9&nbsp;2026 · anonymous-id level</span>
-      </div></CardHeader>
-      <CardBody className="grid gap-x-10 gap-y-6 lg:grid-cols-[auto_1fr] lg:items-center">
-        <div>
-          <div className="t-overline text-tertiary"><Metric k="searchLift">Search lift</Metric></div>
-          <div className="t-display-lg t-num mt-0.5" style={{ color: color.teal[600] }}>{lift1(lift)}</div>
-          <div className="mt-1 t-body-sm text-secondary max-w-[15rem]">searchers convert {lift1(lift)} the rate of non-searchers&nbsp;&mdash;&nbsp;target&nbsp;&gt;&nbsp;1.5×</div>
+      <CardHeader>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <CardTitle>Conversion impact</CardTitle>
+          <span className="t-body-sm text-tertiary">{label}</span>
         </div>
-        <div className="flex flex-col gap-3">
+      </CardHeader>
+      <CardBody className="grid gap-x-12 gap-y-7 lg:grid-cols-[minmax(11rem,auto)_1fr] lg:items-center">
+        {/* hero: the lift */}
+        <div className="lg:border-r lg:border-border-default lg:pr-12">
+          <div className="t-overline text-tertiary"><Metric k="searchLift">Search lift</Metric></div>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="t-display-xl t-num leading-none" style={{ color: color.teal[700] }}>{lift1(lift)}</span>
+            <Badge tone={liftGood ? "success" : "warning"} variant="soft">{liftGood ? "above target" : "below 1.5× target"}</Badge>
+          </div>
+          <p className="mt-2 t-body-sm text-secondary max-w-[15rem]">Searchers convert {lift1(lift)} the rate of visitors who never searched. Clicking a result pushes it to {lift1(clkLift)}.</p>
+        </div>
+        {/* the three cohorts as proportional bars */}
+        <div className="flex flex-col gap-3.5">
           {rows.map((row) => (
-            <div key={row.label}>
+            <div key={row.key} className={row.indent ? "pl-4" : ""}>
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
                 <span className="t-emphasis-md text-heading">{row.label}</span>
-                <span className="inline-flex items-baseline gap-2">
-                  {row.badge != null && <Badge tone="success" variant="soft">↑ {lift1(row.badge)}</Badge>}
-                  <span className="t-emphasis-md t-num text-body">{pct1(row.cvr)}</span>
-                  <span className="t-body-xs t-num text-tertiary">({nf.format(row.conv)} / {nf.format(row.n)})</span>
+                <span className="inline-flex items-baseline gap-2.5">
+                  {row.lift != null && <span className="t-emphasis-sm t-num" style={{ color: color.teal[700] }}>↑ {lift1(row.lift)}</span>}
+                  <span className="t-emphasis-md t-num text-heading w-14 text-right">{pct1(row.cvr)}</span>
+                  <span className="t-body-xs t-num text-tertiary w-28 text-right">{nf.format(row.conv)} / {nf.format(row.n)}</span>
                 </span>
               </div>
-              <div className="mt-1 h-2 rounded-full bg-muted"><div className="h-full rounded-full" style={{ width: `${Math.round(((row.cvr || 0) / maxCvr) * 100)}%`, background: row.fill }} /></div>
+              <div className="mt-1.5 h-2 rounded-full bg-muted">
+                <div className="h-full rounded-full" style={{ width: `${Math.max(2, Math.round(((row.cvr || 0) / maxCvr) * 100))}%`, background: row.fill }} />
+              </div>
             </div>
           ))}
         </div>
       </CardBody>
-      <p className="mt-1 t-body-xs text-tertiary">
-        Overall visitor CVR <span className="t-emphasis-sm">{pct1(overall)}</span> ({nf.format(n("conv_total"))} of {nf.format(n("n_total"))} visitors clicked Invest&nbsp;Now / Quick&nbsp;Checkout{dRange ? `; daily CVR ranged ${dRange}` : ""}). From the deep launch-week export's pre-computed cohort &amp; daily funnel &mdash; the only slice that carries the non-searcher (browse-only) population, so the only place a true lift is measurable. The <span className="t-emphasis-sm">Conversion</span> tab has the full W1–W6 same-day-attribution breakdown.
+      <p className="mt-2 t-body-xs text-tertiary">
+        Overall visitor CVR <span className="t-emphasis-sm">{pct1(overall)}</span> &mdash; {nf.format(n("conv_total"))} of {nf.format(n("n_total"))} visitors clicked Invest&nbsp;Now / Quick&nbsp;Checkout{dRange ? `; daily CVR ranged ${dRange}` : ""}.{" "}
+        {isFullWindow
+          ? <>Visitors = anyone who viewed an assets page (or initiated a search) in the window; converted = appeared in an invest event. <code className="font-mono">invest_now</code> is intent, not a paid order. The <span className="t-emphasis-sm">Conversion</span> tab has the per-week trend, top converting queries, and asset-level detail.</>
+          : <>From the launch-week deep export's pre-computed cohort &amp; daily funnel (Apr 2–9, anon-id level). The <span className="t-emphasis-sm">Conversion</span> tab has the W1–W6 view; load the weekly assets-page-views to extend this card to the full window.</>}
       </p>
     </Card>
   );
@@ -803,12 +828,13 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
   const byWeek = rowsOf(data, "conv_byWeek");
   const queries = rowsOf(data, "conv_queries");
   const byCat = rowsOf(data, "conv_byCat");
-  const cohort = rowsOf(data, "conv_cohort")[0] || null;
+  const cohort = rowsOf(data, "conv_cohortW")[0] || rowsOf(data, "conv_cohort")[0] || null;
+  const cohortIsFullWindow = !!rowsOf(data, "conv_cohortW")[0];
   const headlineErr = errOf(data, "conv_headline");
-  // real searcher-vs-non-searcher lift, from the deep launch-week cohort (Apr 2–9)
-  const cohortLift = cohort && Number(cohort.n_searchers) && Number(cohort.n_nonsearchers) && Number(cohort.conv_nonsearchers)
-    ? (Number(cohort.conv_searchers) / Number(cohort.n_searchers)) / (Number(cohort.conv_nonsearchers) / Number(cohort.n_nonsearchers))
-    : null;
+  // real searcher-vs-non-searcher lift + CVRs, from the cohort (W1–W6 if available, else launch week)
+  const cohortSrchCvr = cohort && Number(cohort.n_searchers) ? (100 * Number(cohort.conv_searchers)) / Number(cohort.n_searchers) : null;
+  const cohortNonCvr = cohort && Number(cohort.n_nonsearchers) ? (100 * Number(cohort.conv_nonsearchers)) / Number(cohort.n_nonsearchers) : null;
+  const cohortLift = cohortSrchCvr != null && cohortNonCvr ? cohortSrchCvr / cohortNonCvr : null;
 
   const searchers = Number(h.searchers) || 0;
   const clickers = Number(h.clickers) || 0;
@@ -897,9 +923,9 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
             </div>
             <p className="mt-2 t-body-xs text-tertiary">
               {cohortLift != null ? (
-                <>A true search <span className="t-emphasis-sm">lift</span> is measurable on the launch-week deep slice (Apr&nbsp;2–9, anon-id level): <span className="t-emphasis-sm">{lift1(cohortLift)}</span> &mdash; searchers convert ~30.7% vs ~18.7% for non-searchers. See <span className="t-emphasis-sm">Conversion impact</span> on the Overview tab. This W1–W6 panel uses the stricter same-day <code className="font-mono">user_id</code> join, which doesn't carry the browse-only population.</>
+                <>A true search <span className="t-emphasis-sm">lift</span> &mdash; searchers vs visitors who never searched &mdash; is <span className="t-emphasis-sm">{lift1(cohortLift)}</span> ({pct1(cohortSrchCvr)} vs {pct1(cohortNonCvr)}{cohortIsFullWindow ? ", W1–W6" : ", launch week"}). The full breakdown is in <span className="t-emphasis-sm">Conversion impact</span> on the Overview tab; this panel is the stricter same-day <code className="font-mono">user_id</code> view. Also: search touches {pct1(searchPenetration)} of all converters, and {pct1(assetRate)} of result clicks become a same-day invest on that exact asset.</>
               ) : (
-                <>A non-searcher <span className="t-emphasis-sm">CVR</span> &mdash; and a true search lift &mdash; needs a total-visitor / page-view event, which isn't in the W1–W6 export. What <em>is</em> measurable here: search touches {pct1(searchPenetration)} of all converters, and {pct1(assetRate)} of result clicks become a same-day invest on that exact asset.</>
+                <>A non-searcher <span className="t-emphasis-sm">CVR</span> &mdash; and a true search lift &mdash; needs a total-visitor / page-view event, which isn't loaded. What <em>is</em> measurable here: search touches {pct1(searchPenetration)} of all converters, and {pct1(assetRate)} of result clicks become a same-day invest on that exact asset.</>
               )}
             </p>
           </div>

@@ -50,13 +50,16 @@ export function conversionTables(tableNames = []) {
   const weeks = initiated.map((t) => weekTag(t));
   const ok = investNow.length > 0 && initiated.length > 0 && investNow.length === initiated.length;
   // From the deep launch-week export (asset-search/): a pre-computed visitor cohort
-  // (anonymous_id × is_searcher × clicked_search_result × converted) and a daily funnel.
-  // These carry the visitor population the weekly export lacks, so a real searcher-vs-
-  // non-searcher CVR / lift is computable from them.
+  // (anonymous_id × is_searcher × clicked_search_result × converted) and a daily funnel
+  // — covers only Apr 2–9.
   const cohort = one("_14_conversion_cohort_summary");
   const dailyFunnel = one("_10_daily_funnel_summary");
   const cohortOk = !!cohort;
-  return { investNow, quickCheckout, initiated, resultClicked, weeks, ok, cohort, dailyFunnel, cohortOk };
+  // Weekly assets-page-views (W1–W6): the visitor population per week. With these we can
+  // build the searcher-vs-non-searcher cohort over the full window, not just launch week.
+  const pageViews = pick("_assets_page_views");
+  const pageViewsOk = pageViews.length > 0 && pageViews.length === initiated.length;
+  return { investNow, quickCheckout, initiated, resultClicked, weeks, ok, cohort, dailyFunnel, cohortOk, pageViews, pageViewsOk };
 }
 
 /** UNION ALL `SELECT <cols> FROM <t>` across tables; <cols> is raw column SQL. */
@@ -190,14 +193,41 @@ export function cohortDaily({ dailyFunnel }) {
     FROM ${qi(dailyFunnel)} ORDER BY day`;
 }
 
+/* ── 7b. full-window cohort (W1–W6) from the weekly assets-page-views ────────── */
+// visitors = anyone who viewed the assets page (∪ anyone who initiated a search);
+// searchers = initiated a search; non-searchers = visited but never searched;
+// converted = appeared in invest_now / quick_checkout. user_id-level, whole window.
+// Same column shape as cohortCvr() so the UI renders either interchangeably.
+export function weeklyCohortCvr(conv) {
+  const { pageViews, initiated, resultClicked, investNow, quickCheckout } = conv;
+  const distinctUids = (tables, extraCol = "user_id") =>
+    `SELECT DISTINCT ${UID()} AS uid FROM (${unionP(tables, extraCol)}) _r WHERE ${NOTEST}`;
+  return `WITH
+  pv  AS (${distinctUids(pageViews)}),
+  ini AS (${distinctUids(initiated)}),
+  clk AS (${distinctUids(resultClicked)}),
+  inv AS (${distinctUids([...investNow, ...quickCheckout])}),
+  vis AS (SELECT uid FROM pv UNION SELECT uid FROM ini),
+  nons AS (SELECT uid FROM pv EXCEPT SELECT uid FROM ini)
+SELECT
+  (SELECT COUNT(*) FROM vis) AS n_total,
+  (SELECT COUNT(*) FROM (SELECT uid FROM vis INTERSECT SELECT uid FROM inv)) AS conv_total,
+  (SELECT COUNT(*) FROM ini) AS n_searchers,
+  (SELECT COUNT(*) FROM (SELECT uid FROM ini INTERSECT SELECT uid FROM inv)) AS conv_searchers,
+  (SELECT COUNT(*) FROM clk) AS n_clicked,
+  (SELECT COUNT(*) FROM (SELECT uid FROM clk INTERSECT SELECT uid FROM inv)) AS conv_clicked,
+  (SELECT COUNT(*) FROM nons) AS n_nonsearchers,
+  (SELECT COUNT(*) FROM (SELECT uid FROM nons INTERSECT SELECT uid FROM inv)) AS conv_nonsearchers`;
+}
+
 // Info-tooltip definitions for the conversion metrics (mirrors METRIC_DEFS shape).
 export const CONV_METRIC_DEFS = {
   searchLift: { title: "Search lift", live: true,
-    body: "Searchers' conversion rate ÷ non-searchers' conversion rate, at anonymous-id level over the launch week (Apr 2–9 2026), from the deep export's pre-computed visitor cohort. 'Searcher' = focused the search box at least once; 'converted' = clicked Invest Now / Quick Checkout in the window. This is the only slice that carries the non-searcher (browse-only) population, so it's the only place a true lift is measurable. Target > 1.5×.",
-    source: "14_conversion_cohort_summary: CVR(is_searcher) / CVR(NOT is_searcher)" },
-  overallCvr: { title: "Overall CVR (launch week)", live: true,
-    body: "Of every visitor to the assets surfaces in the launch week (Apr 2–9 2026), the share who clicked Invest Now / Quick Checkout — deduped by anonymous_id. The denominator search lift is measured against.",
-    source: "14_conversion_cohort_summary / 10_daily_funnel_summary" },
+    body: "Searchers' conversion rate ÷ non-searchers' conversion rate. 'Searcher' = focused the search box at least once in the window; 'non-searcher' = viewed an assets page but never searched; 'converted' = appeared in invest_now_button_clicked / quick_checkout_invest_clicked. Computed over W1–W6 when the weekly assets-page-views are loaded (user-id level), otherwise over the launch week from the deep export's pre-computed cohort (anon-id level). invest_now is an intent event, not a paid order. Target > 1.5×.",
+    source: "assets_page_views ∪ asset_search_initiated as the visitor base; CVR(searcher) / CVR(non-searcher)" },
+  overallCvr: { title: "Overall visitor CVR", live: true,
+    body: "Of everyone who viewed an assets page (or initiated a search) in the window, the share who clicked Invest Now / Quick Checkout — deduped by user. This is the denominator the search lift is measured against.",
+    source: "assets_page_views ∪ asset_search_initiated ⋈ invest events" },
   searchersCvr: { title: "Searchers CVR (same-day)", live: true,
     body: "Of users who focused the search box (asset_search_initiated), the share who clicked the Invest Now CTA — or a Quick Checkout invest — on the same calendar day (IST). 'Any day in the window' rides alongside as the upper bound; true considered-window conversion sits between the two.",
     source: "asset_search_initiated ⋈ (invest_now_button_clicked ∪ quick_checkout_invest_clicked) on user_id + IST calendar day" },
