@@ -749,6 +749,12 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
   const assetClicks = Number(a.click_events) || 0;
   const assetMatched = Number(a.matched) || 0;
   const assetRate = assetClicks ? (100 * assetMatched) / assetClicks : null;
+  // Investor-base split: of everyone who hit an invest event in the window, how many
+  // also used search ("search-influenced") vs never searched. A true non-searcher CVR
+  // would need a total-visitor / page-view table, which this 8-event export doesn't have.
+  const browseOnlyInvestors = Math.max(0, investUsers - everSearchers);
+  const searchPenetration = investUsers ? (100 * everSearchers) / investUsers : null;
+  const round2 = (x) => (x == null || !isFinite(x) ? "—" : `${Math.round(x * 100) / 100}×`);
 
   const investEvents = byWeek.reduce((s, r) => s + (Number(r.invest_events) || 0), 0);
   const weekSeries = byWeek.map((r) => {
@@ -781,27 +787,55 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
   return (
     <div className="flex flex-col gap-6">
       <Card pad="lg">
-        <StatStrip>
-          <Stat label={<Metric k="searchersCvr">Searchers CVR</Metric>}
-            value={pct1(searchersCvr)} valueColor={color.teal[600]}
-            hint={`${nf.format(convSearchers)} of ${nf.format(searchers)} searchers invested same-day · up to ${pct1(everCvr)} within the window`} />
-          <Stat label={<Metric k="clickedCvr">Clicked a result → CVR</Metric>}
-            value={pct1(clickedCvr)}
-            hint={`${nf.format(convClickers)} of ${nf.format(clickers)} result-clickers`}
-            delta={ratio != null ? <Badge tone="success" variant="soft">{Math.round(ratio * 100) / 100}× vs no-click</Badge> : null} />
+        {/* Searchers vs everyone who invested — the headline comparison */}
+        <div className="grid gap-x-10 gap-y-8 lg:grid-cols-[1.05fr_1px_1fr]">
+          <div>
+            <div className="t-overline text-tertiary"><Metric k="searchersCvr">Searchers → invest · same-day</Metric></div>
+            <div className="mt-1.5 flex flex-wrap items-end gap-x-3 gap-y-1">
+              <span className="t-display-md t-num" style={{ color: color.teal[600] }}>{pct1(searchersCvr)}</span>
+              <span className="t-body-sm text-tertiary pb-0.5">of the {nf.format(searchers)} who focused the search box · up to {pct1(everCvr)} within the window</span>
+            </div>
+            <div className="mt-3 flex flex-col gap-1.5 t-body-sm">
+              <span className="text-body">{nf.format(convSearchers)} invested the same day</span>
+              <span className="inline-flex items-center gap-2 text-body">
+                <Badge tone="success" variant="soft">↑ {round2(ratio)}</Badge>
+                when they click a result&nbsp;&mdash;&nbsp;{pct1(clickedCvr)} vs {pct1(noclickCvr)} for no click
+              </span>
+            </div>
+          </div>
+          <div className="hidden lg:block w-px bg-border-default" />
+          <div>
+            <div className="t-overline text-tertiary">Everyone who invested · {weeks[0]}–{lastWeek}</div>
+            <div className="mt-1.5 flex flex-wrap items-end gap-x-3 gap-y-1">
+              <span className="t-display-md t-num text-heading">{nf.format(investUsers)}</span>
+              <span className="t-body-sm text-tertiary pb-0.5">distinct users hit Invest&nbsp;Now / Quick&nbsp;Checkout ({nf.format(investEvents)} events)</span>
+            </div>
+            <div className="mt-3 h-2.5 rounded-full bg-muted overflow-hidden">
+              <div className="h-full" style={{ width: `${searchPenetration ?? 0}%`, background: color.teal[500] }} />
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1 t-body-sm">
+              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: color.teal[500] }} /> <span className="t-emphasis-md text-heading">{pct1(searchPenetration)}</span> <span className="text-secondary">search-influenced ({nf.format(everSearchers)})</span></span>
+              <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ background: color.neutral[400] }} /> <span className="text-body">{pct1(searchPenetration == null ? null : 100 - searchPenetration)}</span> <span className="text-secondary">never searched ({nf.format(browseOnlyInvestors)})</span></span>
+            </div>
+            <p className="mt-2 t-body-xs text-tertiary">
+              A non-searcher <span className="t-emphasis-sm">CVR</span> &mdash; and a true search lift &mdash; needs a total-visitor / page-view event, which isn't in this 8-event export. What <em>is</em> measurable: search touches {pct1(searchPenetration)} of all converters, and {pct1(assetRate)} of result clicks become a same-day invest on that exact asset.
+            </p>
+          </div>
+        </div>
+
+        {/* supporting CVRs — fixed 3-up grid, no awkward wrap */}
+        <div className="mt-6 border-t border-border-default pt-5 grid gap-x-8 gap-y-5 sm:grid-cols-3">
+          <Stat label={<Metric k="clickedCvr">Clicked a result → CVR</Metric>} value={pct1(clickedCvr)} valueColor={color.teal[700]}
+            hint={`${nf.format(convClickers)} of ${nf.format(clickers)} result-clickers invested same-day`} />
           <Stat label="Searched, no click → CVR" value={pct1(noclickCvr)}
-            hint={`${nf.format(convNoclick)} of ${nf.format(noclick)} — the floor`} />
-          <Stat label={<Metric k="searchToInvest">Search → invest rate</Metric>}
-            value={pct1(assetRate)}
+            hint={`${nf.format(convNoclick)} of ${nf.format(noclick)} — the conversion floor for searchers`} />
+          <Stat label={<Metric k="searchToInvest">Search → invest rate · asset-level</Metric>} value={pct1(assetRate)}
             hint={`${nf.format(assetMatched)} of ${nf.format(assetClicks)} result clicks → same-day invest on that asset`} />
-          <Stat label={<Metric k="invest">Invest events (intent)</Metric>}
-            value={investEvents ? nf.format(investEvents) : "—"}
-            hint={`${nf.format(investUsers)} distinct users · ${weeks[0]}–${lastWeek}`} />
-        </StatStrip>
+        </div>
+
         <p className="mt-4 t-body-xs text-tertiary">
-          "Converted" = the user clicked the <span className="t-emphasis-sm">Invest Now</span> CTA (or a Quick Checkout invest) on the same calendar day as the search activity, joined on <code className="font-mono">user_id</code>.
-          <code className="font-mono">invest_now_button_clicked</code> is an <span className="t-emphasis-sm">intent</span> event, not a paid order. Same-day attribution undercounts multi-day journeys, so the true number sits between the same-day figure and the in-window upper bound.
-          A search <span className="t-emphasis-sm">lift</span> vs non-searchers isn't shown: there's no browse-population (page / asset-view) table loaded, so the only honest "does search help" read is the clicked vs no-click gap on the right.
+          "Converted" = clicked the <span className="t-emphasis-sm">Invest Now</span> CTA (or a Quick Checkout invest) on the same calendar day (IST) as the search activity, joined on <code className="font-mono">user_id</code>.
+          <code className="font-mono">invest_now_button_clicked</code> is an <span className="t-emphasis-sm">intent</span> event, not a paid order; same-day attribution undercounts multi-day journeys, so the real searcher conversion sits between {pct1(searchersCvr)} and {pct1(everCvr)}.
         </p>
       </Card>
 
