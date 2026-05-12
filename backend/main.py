@@ -27,11 +27,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Grip Analytics API", lifespan=lifespan)
 
-# Always allow local dev; add deployed frontends via the ALLOWED_ORIGINS env var
-# (comma-separated, e.g. "https://grip-analytics.vercel.app,https://grip-analytics-git-main.vercel.app").
+# Always allow local dev and the known Vercel deploys; add more (preview URLs,
+# custom domains) via the ALLOWED_ORIGINS env var (comma-separated).
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "https://grip-analytics.vercel.app",
+    "https://grip-analytics-psi.vercel.app",
 ] + [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()]
 
 app.add_middleware(
