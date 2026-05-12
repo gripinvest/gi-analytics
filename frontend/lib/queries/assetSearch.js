@@ -114,21 +114,25 @@ export function topSearchTerms({ tables }, limit = 18, minCount = 25) {
     ORDER BY searches DESC LIMIT ${limit}`;
 }
 
-/** Most-clicked assets from result_clicked. */
+// NOTE: result_position in the raw events is 0-indexed (0 = the top result).
+// We expose it 1-based here as `rank` so the dashboard reads naturally (rank 1 =
+// top slot) and the position-bias chart actually includes the top slot.
+
+/** Most-clicked assets from result_clicked, with the avg 1-based rank they were clicked at. */
 export function topClickedAssets({ tables }, limit = 12) {
   return `SELECT clicked_asset_name AS asset, ANY_VALUE(clicked_asset_type) AS type,
-      COUNT(*) AS clicks, ROUND(AVG(result_position), 1) AS avg_position
+      COUNT(*) AS clicks, ROUND(AVG(result_position) + 1, 1) AS avg_rank
     FROM (${unionAll(tables.result_clicked, "clicked_asset_name, clicked_asset_type, result_position")}) t
-    WHERE clicked_asset_name IS NOT NULL
+    WHERE clicked_asset_name IS NOT NULL AND result_position IS NOT NULL
     GROUP BY asset ORDER BY clicks DESC LIMIT ${limit}`;
 }
 
-/** Click distribution by result position (position bias). */
-export function clicksByPosition({ tables }, maxPos = 10) {
-  return `SELECT result_position AS position, COUNT(*) AS clicks
+/** Click distribution by 1-based result rank (position bias). */
+export function clicksByPosition({ tables }, maxRank = 10) {
+  return `SELECT result_position + 1 AS rank, COUNT(*) AS clicks
     FROM (${unionAll(tables.result_clicked, "result_position")}) t
-    WHERE result_position IS NOT NULL AND result_position BETWEEN 1 AND ${maxPos}
-    GROUP BY position ORDER BY position`;
+    WHERE result_position IS NOT NULL AND result_position BETWEEN 0 AND ${maxRank - 1}
+    GROUP BY rank ORDER BY rank`;
 }
 
 /** Top zero-result queries (from the dedicated empty_state event = unique-query level). */

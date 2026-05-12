@@ -133,7 +133,7 @@ export default function AssetSearchDashboard({ project }) {
     week: r.week, Focused: Number(r.initiated), Queried: Number(r.queried), Clicked: Number(r.clicked),
   }));
   const suggSeries = suggestions.map((r) => ({ week: r.week, clicks: Number(r.suggestion_clicks), ctr: Number(r.ctr_pct) }));
-  const posSeries = positions.map((r) => ({ position: `#${r.position}`, clicks: Number(r.clicks) }));
+  const posSeries = positions.map((r) => ({ rank: `#${r.rank}`, clicks: Number(r.clicks) }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -341,7 +341,7 @@ export default function AssetSearchDashboard({ project }) {
                       <li key={r.asset} className="flex items-center gap-3 py-2">
                         <span className="t-emphasis-md text-heading min-w-0 flex-1 truncate">{r.asset}</span>
                         {r.type && <Badge tone="navy" variant="soft" className="shrink-0">{r.type}</Badge>}
-                        <span className="t-body-sm text-tertiary shrink-0">pos {r.avg_position ?? "—"}</span>
+                        <span className="t-body-sm text-tertiary shrink-0">avg rank {r.avg_rank ?? "—"}</span>
                         <span className="t-emphasis-md t-num text-body w-12 text-right shrink-0">{nf.format(r.clicks)}</span>
                       </li>
                     ))}
@@ -350,12 +350,12 @@ export default function AssetSearchDashboard({ project }) {
               </CardBody>
             </Card>
 
-            <ChartCard title="Click position bias" subtitle="Clicks by 1-based position in the result list."
+            <ChartCard title="Click position bias" subtitle="Where in the result list clicks land (rank 1 = top result). The top slot dominates."
               loading={loading} error={errOf(data, "positions")} height={240}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={posSeries} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
                   <CartesianGrid {...gridProps} />
-                  <XAxis dataKey="position" {...axisProps} />
+                  <XAxis dataKey="rank" {...axisProps} />
                   <YAxis {...axisProps} width={48} />
                   <Tooltip cursor={{ fill: color.neutral[100] }} content={<TooltipBox valueFmt={(v) => nf.format(v)} />} />
                   <Bar dataKey="clicks" name="Clicks" fill={color.navy[500]} radius={[3, 3, 0, 0]} maxBarSize={34}>
