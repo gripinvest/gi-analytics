@@ -1,0 +1,38 @@
+# ── secrets — never commit ────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+
+# ── python ────────────────────────────────────────────────────────────────
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ── node / next ───────────────────────────────────────────────────────────
+node_modules/
+.next/
+.turbo/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# ── misc ──────────────────────────────────────────────────────────────────
+.DS_Store
+*.log
+.vercel
+.idea/
+.vscode/
+coverage/
+.playwright-mcp/
+
+# ── data ──────────────────────────────────────────────────────────────────
+# The CSVs in backend/data/<project>/ are committed so they ship with the deploy.
+# If you'd rather NOT commit the raw event data, uncomment the next line and
+# upload sanitized CSVs via the app UI after deploying (note: on Render's free
+# tier those uploads live on ephemeral disk and are lost on each redeploy).
+# backend/data/*/*.csv

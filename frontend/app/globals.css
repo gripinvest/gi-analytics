@@ -1,0 +1,146 @@
+/* Grip Analytics — design tokens + base styles.
+   Tokens mirror grip-code/design-tokens.tokens.json (Grip Invest Figma export).
+   Edit tokens here first, then tailwind.config.js, then components. Never hard-code hex. */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* ── color primitives ──────────────────────────────────────────────── */
+  --gi-navy-50: #e7f1fe;  --gi-navy-100: #c8defa; --gi-navy-200: #94bbf2;
+  --gi-navy-300: #6096e3; --gi-navy-400: #2b6bd4; --gi-navy-500: #1552b0;
+  --gi-navy-600: #2b5895; --gi-navy-700: #00357c; --gi-navy-800: #002456; --gi-navy-900: #001533;
+
+  --gi-teal-50: #e5f8f8;  --gi-teal-100: #ccf1f1; --gi-teal-200: #99e3e3;
+  --gi-teal-300: #4dd4d3; --gi-teal-400: #00cccb; --gi-teal-500: #00b8b7;
+  --gi-teal-600: #00a3a2; --gi-teal-700: #008584; --gi-teal-800: #005c5c; --gi-teal-900: #003838;
+
+  --gi-success-50: #e6f7f0;  --gi-success-100: #c2ecd9; --gi-success-200: #8cddb8;
+  --gi-success-300: #52cc95; --gi-success-400: #28b87a; --gi-success-500: #12a46e;
+  --gi-success-600: #0a8b65; --gi-success-700: #076e4f; --gi-success-800: #05523b; --gi-success-900: #033627;
+
+  --gi-error-50: #fdecec;  --gi-error-100: #fbd5d5; --gi-error-200: #f7abab;
+  --gi-error-300: #f38080; --gi-error-400: #f15b5b; --gi-error-500: #ef3c3c;
+  --gi-error-600: #d42b2b; --gi-error-700: #b02020; --gi-error-800: #871919; --gi-error-900: #5e1212;
+
+  --gi-warning-50: #fff5e0;  --gi-warning-100: #ffecc4; --gi-warning-200: #ffd88a;
+  --gi-warning-300: #ffc554; --gi-warning-400: #ffbe3e; --gi-warning-500: #ffb629;
+  --gi-warning-600: #e59e14; --gi-warning-700: #c0840f; --gi-warning-800: #966709; --gi-warning-900: #6b4a06;
+
+  --gi-neutral-0: #ffffff;  --gi-neutral-50: #fcfcfc;  --gi-neutral-100: #f7f7fc;
+  --gi-neutral-200: #ecedef; --gi-neutral-300: #e6e6e6; --gi-neutral-400: #d9d9d9;
+  --gi-neutral-500: #a1a3ad; --gi-neutral-550: #767880; --gi-neutral-600: #696b74;
+  --gi-neutral-700: #555770; --gi-neutral-800: #373a46; --gi-neutral-900: #282c3f;
+
+  /* ── semantic ──────────────────────────────────────────────────────── */
+  --gi-bg-surface: var(--gi-neutral-0);
+  --gi-bg-page: var(--gi-neutral-50);
+  --gi-bg-muted: var(--gi-neutral-100);
+  --gi-bg-subtle: var(--gi-neutral-200);
+  --gi-bg-tint-navy: var(--gi-navy-50);
+  --gi-bg-tint-teal: var(--gi-teal-50);
+
+  --gi-text-heading: var(--gi-neutral-900);
+  --gi-text-subheading: var(--gi-neutral-800);
+  --gi-text-body: var(--gi-neutral-700);
+  --gi-text-secondary: var(--gi-neutral-600);
+  --gi-text-tertiary: var(--gi-neutral-550);
+  --gi-text-link: var(--gi-navy-700);
+  --gi-text-on-primary: var(--gi-neutral-0);
+  --gi-text-on-accent: var(--gi-teal-900);
+
+  --gi-border-default: var(--gi-neutral-300);
+  --gi-border-strong: var(--gi-neutral-400);
+  --gi-border-accessible: var(--gi-neutral-500);
+  --gi-border-focus: var(--gi-navy-700);
+
+  --gi-action-primary: var(--gi-navy-700);
+  --gi-action-primary-hover: var(--gi-navy-500);
+  --gi-action-primary-pressed: var(--gi-navy-800);
+  --gi-action-accent: var(--gi-teal-500);
+  --gi-action-accent-hover: var(--gi-teal-600);
+  --gi-action-disabled-bg: var(--gi-neutral-200);
+  --gi-action-disabled-text: var(--gi-neutral-500);
+
+  --gi-status-success: var(--gi-success-600);  --gi-status-success-bg: var(--gi-success-50);
+  --gi-status-error: var(--gi-error-500);      --gi-status-error-bg: var(--gi-error-50);
+  --gi-status-warning: var(--gi-warning-500);  --gi-status-warning-bg: var(--gi-warning-50);
+  --gi-status-info: var(--gi-teal-600);        --gi-status-info-bg: var(--gi-teal-50);
+
+  --gi-focus-ring: var(--gi-navy-700);
+
+  /* ── radius ────────────────────────────────────────────────────────── */
+  --gi-radius-none: 0px; --gi-radius-xs: 4px; --gi-radius-2xs: 6px; --gi-radius-sm: 8px;
+  --gi-radius-md: 12px; --gi-radius-lg: 16px; --gi-radius-xl: 20px; --gi-radius-2xl: 24px;
+  --gi-radius-full: 9999px;
+
+  /* ── elevation (shadow color = tinted navy-black, #282c3f) ─────────── */
+  --gi-shadow-xs: 0 1px 2px rgba(40, 44, 63, 0.15);
+  --gi-shadow-sm: 0 2px 6px rgba(40, 44, 63, 0.22);
+  --gi-shadow-md: 0 0 12px rgba(40, 44, 63, 0.10);
+  --gi-shadow-lg: 0 5px 30px rgba(40, 44, 63, 0.14);
+  --gi-shadow-nav: 0 -3px 8px rgba(40, 44, 63, 0.08);
+
+  /* ── type ──────────────────────────────────────────────────────────── */
+  --gi-font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --gi-font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+}
+
+@layer base {
+  * { border-color: var(--gi-border-default); }
+  html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  body {
+    background: var(--gi-bg-page);
+    color: var(--gi-text-body);
+    font-family: var(--gi-font-sans);
+    font-feature-settings: 'cv05', 'cv09', 'ss01';
+  }
+  ::selection { background: var(--gi-navy-100); color: var(--gi-navy-900); }
+  :focus-visible { outline: 2px solid var(--gi-focus-ring); outline-offset: 2px; border-radius: 2px; }
+  /* Recharts: stop the default focus outline on chart wrappers */
+  .recharts-wrapper:focus, .recharts-surface:focus { outline: none; }
+}
+
+@layer components {
+  /* Brand typography styles. Apply directly: <h1 className="t-display-md">.
+     Sizes/weights mirror the `typography` tokens (desktop base scale). */
+  .t-display-xl { font-size: 40px; line-height: 48px; font-weight: 800; letter-spacing: -0.01em; }
+  .t-display-lg { font-size: 28px; line-height: 34px; font-weight: 800; letter-spacing: -0.01em; }
+  .t-display-md { font-size: 20px; line-height: 26px; font-weight: 700; letter-spacing: -0.005em; }
+  .t-display-sm { font-size: 18px; line-height: 24px; font-weight: 700; }
+  .t-heading-xl { font-size: 18px; line-height: 24px; font-weight: 700; }
+  .t-heading-lg { font-size: 16px; line-height: 22px; font-weight: 700; }
+  .t-heading-md { font-size: 14px; line-height: 20px; font-weight: 600; }
+  .t-heading-sm { font-size: 12px; line-height: 18px; font-weight: 600; }
+  .t-heading-xs { font-size: 10px; line-height: 14px; font-weight: 700; }
+  .t-body-lg { font-size: 16px; line-height: 24px; font-weight: 400; }
+  .t-body-md { font-size: 14px; line-height: 20px; font-weight: 400; }
+  .t-body-sm { font-size: 12px; line-height: 18px; font-weight: 400; }
+  .t-body-xs { font-size: 10px; line-height: 14px; font-weight: 400; }
+  .t-label-lg { font-size: 14px; line-height: 18px; font-weight: 500; }
+  .t-label-md { font-size: 12px; line-height: 16px; font-weight: 500; }
+  .t-label-sm { font-size: 10px; line-height: 14px; font-weight: 500; }
+  .t-emphasis-lg { font-size: 14px; line-height: 20px; font-weight: 600; }
+  .t-emphasis-md { font-size: 12px; line-height: 18px; font-weight: 600; }
+  .t-emphasis-sm { font-size: 10px; line-height: 14px; font-weight: 600; }
+  .t-overline {
+    font-size: 10px; line-height: 14px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .t-num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+}
+
+@layer utilities {
+  .animate-shimmer {
+    background: linear-gradient(90deg, var(--gi-neutral-100) 0%, var(--gi-neutral-200) 50%, var(--gi-neutral-100) 100%);
+    background-size: 200% 100%;
+    animation: gi-shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes gi-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  .animate-rise {
+    animation: gi-rise 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes gi-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+}

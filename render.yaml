@@ -1,0 +1,20 @@
+# Render blueprint for the Grip Analytics backend.
+# CSV data ships in the repo (backend/data/<project>/), so the app loads it on
+# startup with no extra setup. Uploads via the app UI write to the instance's
+# ephemeral disk and are lost on redeploy — to add data permanently, commit it.
+services:
+  - type: web
+    name: grip-analytics-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false                       # paste this in the Render dashboard
+      - key: ALLOWED_ORIGINS
+        sync: false                       # set to your Vercel URL once the frontend deploys
+      - key: PYTHON_VERSION
+        value: "3.12.8"

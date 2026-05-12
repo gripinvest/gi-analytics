@@ -1,0 +1,10 @@
+{
+  "name": "Asset Search",
+  "description": "Post-launch analytics for the asset search feature (v21.9.0, launched Apr 2 2026). Tracks search intent, zero-result rates, abandonment, and conversational Q&A on 6 weeks of raw event data.",
+  "status": "active",
+  "tags": ["search", "product", "W1-W6"],
+  "updated_at": "2026-05-11",
+  "dashboard_component": "AssetSearch",
+  "owner": "Puru",
+  "jira_ticket": "PT-37543"
+}
