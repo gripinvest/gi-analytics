@@ -141,6 +141,12 @@ export default function AssetSearchDashboard({ project }) {
   const ctrLast = suggestions.length ? suggestions[suggestions.length - 1].ctr_pct : null;
   const zrrFirst = health.length ? health[0].zrr_pct : null;
   const zrrLast = health.length ? health[health.length - 1].zrr_pct : null;
+  // conversion headline (only meaningful when the invest tables are loaded) —
+  // surfaced in the always-visible strip so leadership sees it without a click.
+  const convH = rowsOf(data, "conv_headline")[0] || {};
+  const cvrPct = (num, den) => (convOk && Number(den) ? Math.round((1000 * Number(num)) / Number(den)) / 10 : null);
+  const searchersCvr = cvrPct(convH.conv_searchers, convH.searchers);
+  const searchersCvrEver = cvrPct(convH.searchers_invested_ever, convH.searchers);
 
   // chart-ready series
   const healthSeries = health.map((r) => ({
@@ -169,6 +175,11 @@ export default function AssetSearchDashboard({ project }) {
           <StatStrip>
             <Stat label={<Metric k="sessions">Search sessions</Metric>} value={sessions != null ? nf.format(sessions) : "—"}
               hint={`${weeks.length} feature weeks · ${weeks[0]}–${lastWeek}`} />
+            {convOk && (
+              <Stat label={<Metric k="searchersCvr">Searchers → invest</Metric>}
+                value={searchersCvr != null ? `${searchersCvr}%` : "—"} valueColor={color.teal[600]}
+                hint={`same-day · up to ${searchersCvrEver ?? "—"}% in-window — see Conversion tab`} />
+            )}
             <Stat label={<Metric k="zrr">Query-level ZRR</Metric>} value={pct(overallZrr)}
               valueColor={overallZrr != null ? zrrColor(overallZrr) : undefined}
               hint={`${nf.format(totalQueries)} queries`}
@@ -268,7 +279,8 @@ export default function AssetSearchDashboard({ project }) {
             </ChartCard>
 
             <Card pad="md">
-              <CardHeader><div><CardTitle>Queries by tab</CardTitle><CardSubtitle>Volume and ZRR per active tab.</CardSubtitle></div></CardHeader>
+              <CardHeader><div><CardTitle>Searches by tab the user was on</CardTitle>
+                <CardSubtitle>Search is <span className="t-emphasis-sm">global</span> — it returns every asset type regardless of tab. <code className="font-mono">active_tab</code> is just the surface the user happened to be on; the ZRR / volume split here is <span className="t-emphasis-sm">who searches from where</span>, not the engine being scoped to a tab.</CardSubtitle></div></CardHeader>
               <CardBody>
                 {loading ? <div className="space-y-2">{[0,1,2].map(i => <Skeleton key={i} className="h-8 w-full" />)}</div> : errOf(data, "tabs") ? (
                   <p className="t-body-sm text-tertiary">Could not load.</p>
