@@ -1,28 +1,32 @@
-// Basic-auth gate for the entire app. The credentials are server-only env vars
-// (BASIC_AUTH_USER / BASIC_AUTH_PASS) — they are NEVER exposed to the browser
-// bundle. The Authorization header the user enters via the browser's prompt is
-// the only thing checked here.
+// Auth gate — cookie-based now (replaces the earlier WWW-Authenticate flow).
 //
-// Why edge middleware: it runs before any page render OR API route, so the same
-// credentials gate the dashboard, the /api/proxy reverse-proxy, and static
-// metadata routes (icon.svg, robots.txt) in one place.
+// On every request we validate the `grip-auth` cookie against the expected
+// credentials (env vars, or the hardcoded demo defaults). When the cookie is
+// missing or invalid, the user is redirected to /login. /login itself and
+// the /api/login + /api/logout endpoints are public so the redirect loop
+// doesn't form.
 //
-// When the env vars are unset (local dev), middleware skips entirely.
+// Why cookie-validate-on-every-request instead of issuing a signed session
+// token: a 2-credential demo doesn't justify the secret-rotation surface
+// area of a real session system. The cookie holds the same base64("u:p")
+// payload as Basic Auth and is HTTP-only + SameSite=Lax + Secure (in prod),
+// so it's not addressable from JS.
 
 import { NextRequest, NextResponse } from "next/server";
 
-const REALM = 'Basic realm="grip-analytics"';
+const DEFAULT_USER = "gripper";
+const DEFAULT_PASS = "unicorn@grip.status";
+const COOKIE_NAME = "grip-auth";
 
-function unauthorized() {
-  return new NextResponse("Authentication required.", {
-    status: 401,
-    headers: { "WWW-Authenticate": REALM },
-  });
-}
+// Routes that bypass auth so the redirect-to-login flow can complete.
+const PUBLIC_PATHS = new Set<string>([
+  "/login",
+  "/api/login",
+  "/api/logout",
+]);
 
-// Constant-time compare. Edge runtime doesn't ship Node's `crypto.timingSafeEqual`
-// but lengths-and-XOR is good enough for a 2-credential gate; the threat model
-// here is "stop random pokers", not "defeat a nation-state".
+// Constant-time compare. Edge runtime: no Node crypto.timingSafeEqual,
+// length-and-XOR is good enough for this threat model.
 function safeEqual(a: string, b: string) {
   if (a.length !== b.length) return false;
   let mismatch = 0;
@@ -31,31 +35,37 @@ function safeEqual(a: string, b: string) {
 }
 
 export function middleware(req: NextRequest) {
-  const user = process.env.BASIC_AUTH_USER;
-  const pass = process.env.BASIC_AUTH_PASS;
-  // Auth disabled when either env var is missing (local dev convenience).
-  if (!user || !pass) return NextResponse.next();
+  const { pathname, search } = req.nextUrl;
+  if (PUBLIC_PATHS.has(pathname)) return NextResponse.next();
 
-  const header = req.headers.get("authorization") || "";
-  if (!header.toLowerCase().startsWith("basic ")) return unauthorized();
+  const user = process.env.BASIC_AUTH_USER || DEFAULT_USER;
+  const pass = process.env.BASIC_AUTH_PASS || DEFAULT_PASS;
 
-  let decoded = "";
-  try {
-    decoded = atob(header.slice(6).trim());
-  } catch {
-    return unauthorized();
+  const token = req.cookies.get(COOKIE_NAME)?.value || "";
+  if (token) {
+    try {
+      const decoded = atob(token);
+      const idx = decoded.indexOf(":");
+      if (idx > 0) {
+        const u = decoded.slice(0, idx);
+        const p = decoded.slice(idx + 1);
+        if (safeEqual(u, user) && safeEqual(p, pass)) return NextResponse.next();
+      }
+    } catch { /* malformed cookie → fall through to redirect */ }
   }
-  const idx = decoded.indexOf(":");
-  if (idx < 0) return unauthorized();
-  const u = decoded.slice(0, idx);
-  const p = decoded.slice(idx + 1);
-  if (!safeEqual(u, user) || !safeEqual(p, pass)) return unauthorized();
 
-  return NextResponse.next();
+  // Redirect to /login, preserving where the user was headed so we can
+  // bounce them back after a successful sign-in.
+  const url = req.nextUrl.clone();
+  url.pathname = "/login";
+  url.search = "";
+  const next = pathname + (search || "");
+  if (next && next !== "/") url.searchParams.set("next", next);
+  return NextResponse.redirect(url);
 }
 
-// Skip Next internals + the public _vercel paths. Everything else (pages, API
-// routes, static favicons under /app, etc.) gets gated.
+// Skip Next internals + static assets so they can render before login.
+// /icon.svg and the Google Fonts CSS go through the public path.
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|_vercel).*)"],
+  matcher: ["/((?!_next/static|_next/image|_vercel|favicon\\.ico).*)"],
 };

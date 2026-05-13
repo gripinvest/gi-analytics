@@ -43,12 +43,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Basic-auth gate (no-op locally unless env vars are set; required on Render).
-# Added after CORS so OPTIONS pre-flights still get the CORS response.
+# Basic-auth gate. Required on Render. Falls back to demo defaults (gripper /
+# unicorn@grip.status) when env vars are unset — so the deployed demo works
+# without env config, but a real install can override with proper credentials.
 app.add_middleware(
     BasicAuthMiddleware,
-    user=os.getenv("BASIC_AUTH_USER"),
-    password=os.getenv("BASIC_AUTH_PASS"),
+    user=os.getenv("BASIC_AUTH_USER", "gripper"),
+    password=os.getenv("BASIC_AUTH_PASS", "unicorn@grip.status"),
 )
 
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
