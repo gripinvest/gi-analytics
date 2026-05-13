@@ -1,0 +1,9 @@
+day,unique_visitors,unique_initiators,total_initiations,initiation_rate_pct,unique_queriers,total_queries,unique_query_terms,query_rate_pct,refinement_queries,refinement_users,refinement_event_rate_pct,queries_with_results,queries_zero_results,zero_result_rate_pct,avg_results_when_found,zero_result_users,zero_result_events,unique_zero_terms,pct_users_hit_zero,result_clickers,result_click_events,suggestion_clickers,suggestion_click_events,search_to_result_click_pct,users_cleared,clear_events,cleared_after_zero,cleared_after_results,converters,overall_cvr_pct
+2026-04-02,3403,40,93,1.2,31,191,130,0.9,101,22,52.9,128,63,33.0,3.6,20,63,57,64.5,14,20,12,33,45.2,18,52,23,29,681,20.0
+2026-04-03,3423,152,183,4.4,119,591,463,3.5,416,83,70.4,237,354,59.9,3.0,81,336,300,68.1,54,64,16,17,45.4,54,77,62,15,727,21.2
+2026-04-04,2964,172,217,5.8,137,673,504,4.6,463,100,68.8,283,390,57.9,2.0,92,368,313,67.2,55,71,22,25,40.1,67,96,64,32,577,19.5
+2026-04-05,3234,167,224,5.2,136,721,524,4.2,514,105,71.3,297,424,58.8,1.8,104,400,334,76.5,54,65,19,19,39.7,60,85,62,23,541,16.7
+2026-04-06,3515,177,271,5.0,141,692,426,4.0,447,110,64.6,358,334,48.3,2.6,92,324,252,65.2,60,82,28,29,42.6,71,116,76,40,758,21.6
+2026-04-07,3616,160,233,4.4,128,690,487,3.5,486,95,70.4,369,321,46.5,2.2,82,305,272,64.1,57,82,18,22,44.5,46,62,46,16,745,20.6
+2026-04-08,3533,155,206,4.4,134,639,452,3.8,440,103,68.9,334,305,47.7,2.6,75,290,249,56.0,75,94,13,14,56.0,47,63,48,15,877,24.8
+2026-04-09,3471,154,216,4.4,119,670,514,3.4,466,83,69.6,330,340,50.7,3.3,65,333,295,54.6,65,83,16,18,54.6,39,78,51,27,818,23.6
