@@ -1,0 +1,288 @@
+/* Editorial design — "The Weekly Report"
+   ─────────────────────────────────────────────────────────────────────────
+   A complete parallel system. Tokens scoped to [data-design="editorial"]
+   on <body> (or the [data-force-editorial] attribute used by /login),
+   so the classic system stays untouched when this isn't active.
+
+   The aesthetic: a printed financial weekly. Warm paper, ink-black ruled
+   typography, IBM Plex Mono for figures, Fraunces (variable, opsz 144,
+   SOFT 100) for the masthead and section heads, Newsreader (variable italic)
+   for body text. Sharp accents only — rust for warnings, forest for
+   positives, deep gold for highlights. No glassmorphism, no card stacks. */
+
+[data-design="editorial"],
+[data-force-editorial="true"] {
+  /* ── paper + ink ─────────────────────────────────────────────────── */
+  --ed-paper:        #f2ebdb;   /* warm cream — the page itself */
+  --ed-paper-deep:   #ece2cd;   /* slightly darker card surface */
+  --ed-paper-edge:   #ddd0b3;   /* a thin paper-fold edge */
+  --ed-ink:          #1b1818;   /* near-black, warm-shifted */
+  --ed-ink-soft:     #2c2926;   /* body */
+  --ed-ink-muted:    #5d5752;   /* captions */
+  --ed-ink-faint:    #8a847d;   /* italicised metadata */
+  --ed-rule:         #1b1818;   /* hairline + headline rules */
+  --ed-rule-faint:   #c8bfa9;   /* the ledger gridlines */
+
+  /* ── editorial accents (used sparingly) ──────────────────────────── */
+  --ed-rust:         #a6242b;   /* negative deltas, warnings */
+  --ed-rust-soft:    #c14a51;
+  --ed-forest:       #3b5e3d;   /* positive deltas */
+  --ed-forest-soft:  #5a7d5c;
+  --ed-gold:         #b8870a;   /* highlight, key callouts */
+  --ed-gold-soft:    #d0a13d;
+  --ed-ink-tint:     rgba(27, 24, 24, 0.06);    /* hairline tint */
+  --ed-rust-tint:    rgba(166, 36, 43, 0.08);
+  --ed-gold-tint:    rgba(184, 135, 10, 0.10);
+
+  /* ── type ────────────────────────────────────────────────────────── */
+  /* Fraunces variable: opsz [9..144], SOFT [0..100], WONK [0..1].
+     Newsreader variable: opsz [6..72] across roman + italic. */
+  --ed-display: 'Fraunces', 'Times New Roman', serif;
+  --ed-body:    'Newsreader', 'Iowan Old Style', Charter, 'Times New Roman', Georgia, serif;
+  --ed-mono:    'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* ── grain (subtle paper-fibre noise overlay) ────────────────────── */
+  --ed-grain:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.08 0 0 0 0 0.06 0 0 0 0 0.05 0 0 0 0.10 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+[data-design="editorial"] body,
+body[data-design="editorial"],
+[data-force-editorial="true"] {
+  background-color: var(--ed-paper);
+  background-image: var(--ed-grain);
+  background-blend-mode: multiply;
+  color: var(--ed-ink-soft);
+  font-family: var(--ed-body);
+  font-feature-settings: 'kern' 1, 'liga' 1, 'tnum' 0;
+  font-variation-settings: 'opsz' 18;
+}
+
+/* Editorial type classes — kept distinct from .t-* so the classic system
+   isn't perturbed. Use directly: <h1 className="ed-headline">. */
+.ed-masthead {
+  font-family: var(--ed-display);
+  font-variation-settings: 'opsz' 144, 'SOFT' 100, 'WONK' 1;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 0.88;
+  color: var(--ed-ink);
+}
+.ed-headline {
+  font-family: var(--ed-display);
+  font-variation-settings: 'opsz' 96, 'SOFT' 60, 'WONK' 0;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+  line-height: 0.98;
+  color: var(--ed-ink);
+}
+.ed-section-no {
+  font-family: var(--ed-display);
+  font-style: italic;
+  font-variation-settings: 'opsz' 24, 'SOFT' 30;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ed-ink-muted);
+}
+.ed-overline {
+  font-family: var(--ed-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ed-ink-muted);
+  font-weight: 500;
+}
+.ed-dateline {
+  font-family: var(--ed-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ed-ink-muted);
+}
+.ed-lede {
+  font-family: var(--ed-body);
+  font-variation-settings: 'opsz' 32;
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--ed-ink-soft);
+}
+.ed-prose {
+  font-family: var(--ed-body);
+  font-variation-settings: 'opsz' 18;
+  font-size: 15px;
+  line-height: 1.62;
+  color: var(--ed-ink-soft);
+}
+.ed-prose-italic {
+  font-family: var(--ed-body);
+  font-style: italic;
+  font-variation-settings: 'opsz' 18;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ed-ink-muted);
+}
+.ed-caption {
+  font-family: var(--ed-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ed-ink-muted);
+  font-weight: 500;
+}
+.ed-pullnum {
+  font-family: var(--ed-display);
+  font-variation-settings: 'opsz' 144, 'SOFT' 30, 'WONK' 0;
+  font-feature-settings: 'tnum' 1, 'ss01' 1;
+  font-weight: 500;
+  font-size: clamp(56px, 12vw, 144px);
+  letter-spacing: -0.04em;
+  line-height: 0.9;
+  color: var(--ed-ink);
+}
+.ed-stat-num {
+  font-family: var(--ed-display);
+  font-variation-settings: 'opsz' 48, 'SOFT' 30;
+  font-feature-settings: 'tnum' 1;
+  font-weight: 500;
+  font-size: 38px;
+  letter-spacing: -0.022em;
+  line-height: 1;
+  color: var(--ed-ink);
+}
+.ed-num {
+  font-family: var(--ed-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  color: var(--ed-ink);
+}
+.ed-byline {
+  font-family: var(--ed-body);
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ed-ink-faint);
+}
+
+/* Rules. The editorial system uses HR-style horizontal rules generously. */
+.ed-rule {
+  border: 0; border-top: 1px solid var(--ed-rule); margin: 0;
+}
+.ed-rule-thick { border: 0; border-top: 3px solid var(--ed-rule); margin: 0; }
+.ed-rule-faint { border: 0; border-top: 1px solid var(--ed-rule-faint); margin: 0; }
+.ed-rule-double {
+  border: 0;
+  border-top: 1px solid var(--ed-rule);
+  border-bottom: 1px solid var(--ed-rule);
+  height: 4px;
+  margin: 0;
+}
+
+/* Drop cap — first paragraph of each section's lede. */
+.ed-dropcap::first-letter {
+  font-family: var(--ed-display);
+  font-variation-settings: 'opsz' 144, 'SOFT' 80, 'WONK' 1;
+  font-weight: 600;
+  float: left;
+  font-size: 4.6em;
+  line-height: 0.86;
+  padding: 0.08em 0.10em 0 0;
+  color: var(--ed-ink);
+}
+
+/* Editorial figure (chart wrapper) — black rules top + bottom, captioned. */
+.ed-figure {
+  border-top: 1px solid var(--ed-rule);
+  border-bottom: 1px solid var(--ed-rule);
+  padding: 16px 0 12px;
+  background: transparent;
+}
+
+/* Editorial primary button — paper-on-ink, with a slight squeeze on press. */
+.ed-btn {
+  font-family: var(--ed-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 500;
+  padding: 12px 20px;
+  background: var(--ed-ink);
+  color: var(--ed-paper);
+  border: 1px solid var(--ed-ink);
+  cursor: pointer;
+  transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
+              background-color 140ms ease,
+              color 140ms ease;
+}
+.ed-btn:hover { background: var(--ed-paper); color: var(--ed-ink); }
+.ed-btn:active { transform: scale(0.97); }
+.ed-btn-ghost {
+  background: transparent;
+  color: var(--ed-ink);
+}
+.ed-btn-ghost:hover { background: var(--ed-ink); color: var(--ed-paper); }
+
+/* Editorial input — bottom-ruled, no box. */
+.ed-input {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--ed-rule);
+  font-family: var(--ed-body);
+  font-size: 18px;
+  padding: 8px 0;
+  color: var(--ed-ink);
+  outline: none;
+  transition: border-color 160ms ease;
+}
+.ed-input:focus { border-color: var(--ed-gold); }
+.ed-input::placeholder { color: var(--ed-ink-faint); font-style: italic; }
+
+/* Footnote — small monospaced number ref. */
+.ed-footnote-ref {
+  font-family: var(--ed-mono);
+  font-size: 0.7em;
+  vertical-align: super;
+  line-height: 0;
+  color: var(--ed-ink-muted);
+  text-decoration: none;
+  margin-left: 0.1em;
+}
+.ed-footnote-ref:hover { color: var(--ed-rust); }
+
+/* Tabs/sections nav for the editorial dashboard. */
+.ed-section-link {
+  font-family: var(--ed-display);
+  font-style: italic;
+  font-variation-settings: 'opsz' 24, 'SOFT' 60;
+  font-size: 17px;
+  color: var(--ed-ink-muted);
+  letter-spacing: -0.005em;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: color 160ms ease;
+}
+.ed-section-link[aria-selected="true"] { color: var(--ed-ink); }
+.ed-section-link[aria-selected="true"]::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -1px;
+  height: 2px; background: var(--ed-rule);
+}
+.ed-section-link:not([aria-selected="true"]):hover { color: var(--ed-ink-soft); }
+
+/* The page-fade entrance — type "sets" itself in. */
+@keyframes ed-set { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.ed-set { animation: ed-set 480ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+.ed-set-delay-1 { animation-delay: 60ms; }
+.ed-set-delay-2 { animation-delay: 120ms; }
+.ed-set-delay-3 { animation-delay: 180ms; }
+.ed-set-delay-4 { animation-delay: 240ms; }
+.ed-set-delay-5 { animation-delay: 300ms; }
+
+/* Reduced-motion: stop animations. */
+@media (prefers-reduced-motion: reduce) {
+  .ed-set { animation: none; }
+  .ed-btn { transition: none; }
+}

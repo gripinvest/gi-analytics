@@ -1,4 +1,6 @@
 import "./globals.css";
+import "./editorial.css";
+import { DesignProvider } from "@/lib/design";
 
 // metadataBase keeps openGraph image URLs absolute on every deploy URL.
 // Templated titles give per-page pages (like /projects/[id]) a "<page> · Grip
@@ -44,12 +46,17 @@ export default function RootLayout({ children }) {
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* Inter + IBM Plex Mono (Classic) + Fraunces + Newsreader (Editorial).
+            Variable axes requested for Fraunces (opsz/SOFT/WONK) and Newsreader
+            (opsz roman + italic). One request keeps the network cost low. */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,400..800,0..100,0..1;1,9..144,400..800,0..100,0..1&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&display=swap"
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <DesignProvider>{children}</DesignProvider>
+      </body>
     </html>
   );
 }

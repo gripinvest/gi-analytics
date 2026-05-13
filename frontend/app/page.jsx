@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { fetchProjects, uploadCSVs } from "@/lib/api";
 import { ChatPanel } from "@/components/ChatPanel";
+import { DesignSwitcher } from "@/components/DesignSwitcher";
 import {
   PageHeader, Card, CardHeader, CardTitle, CardBody, Button, Badge, Stat, Skeleton,
 } from "@/components/ui";
@@ -32,6 +33,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-page">
+      <DesignSwitcher />
       <div className="mx-auto max-w-[1180px] px-6 py-7 md:px-8">
         <PageHeader
           overline="Grip Invest · Internal"
