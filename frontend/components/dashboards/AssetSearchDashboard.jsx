@@ -73,7 +73,8 @@ const COHORT_SPECS = {
   conv_daily:  (conv) => C.cohortDaily(conv),
 };
 const COHORT_W_SPECS = {
-  conv_cohortW: (conv) => C.weeklyCohortCvr(conv),
+  conv_cohortW:  (conv) => C.weeklyCohortCvr(conv),
+  conv_adoption: (conv) => C.weeklyAdoption(conv),
 };
 
 function useDashboard(project) {
@@ -175,6 +176,22 @@ export default function AssetSearchDashboard({ project }) {
     : "launch week · Apr 2–9 2026 · anon-id level";
   const daily = cohortW ? [] : rowsOf(data, "conv_daily");
 
+  // Search adoption — the reach metric framing the entire funnel. Only available when
+  // assets_page_views are loaded (same gate as cohortW). Compute overall as sum-of-
+  // searchers ÷ sum-of-visitors so weeks with more traffic count proportionally; this
+  // does double-count repeat visitors across weeks, which is the right denominator for
+  // "weekly adoption" (same person counted each week they came back).
+  const adoption = rowsOf(data, "conv_adoption");
+  const adoptionSeries = adoption.map((r) => ({
+    week: r.week, visitors: Number(r.visitors), searchers: Number(r.searchers), adoption: Number(r.adoption_pct),
+  }));
+  const adoptionOverallPct = (() => {
+    const v = sum(adoption, "visitors"); const s = sum(adoption, "searchers");
+    return v ? Math.round((1000 * s) / v) / 10 : null;
+  })();
+  const adoptionFirst = adoption.length ? Number(adoption[0].adoption_pct) : null;
+  const adoptionLast = adoption.length ? Number(adoption[adoption.length - 1].adoption_pct) : null;
+
   // chart-ready series
   const healthSeries = health.map((r) => ({
     week: r.week, queries: Number(r.queries), zrr: Number(r.zrr_pct), refinement: Number(r.refinement_pct),
@@ -202,6 +219,11 @@ export default function AssetSearchDashboard({ project }) {
           <StatStrip>
             <Stat label={<Metric k="sessions">Search sessions</Metric>} value={sessions != null ? nf.format(sessions) : "—"}
               hint={`${weeks.length} feature weeks · ${weeks[0]}–${lastWeek}`} />
+            {adoptionOverallPct != null && (
+              <Stat label={<Metric k="adoption">Search adoption</Metric>} value={pct(adoptionOverallPct)}
+                hint={`${nf.format(sum(adoption, "searchers"))} of ${nf.format(sum(adoption, "visitors"))} visitors used search`}
+                delta={<DeltaChip from={adoptionFirst} to={adoptionLast} goodIsDown={false} suffix="pt" />} />
+            )}
             <Stat label={<Metric k="zrr">Query-level ZRR</Metric>} value={pct(overallZrr)}
               valueColor={overallZrr != null ? zrrColor(overallZrr) : undefined}
               hint={`${nf.format(totalQueries)} queries`}
@@ -233,6 +255,29 @@ export default function AssetSearchDashboard({ project }) {
         {/* ── OVERVIEW ─────────────────────────────────────────────────── */}
         <TabPanel value="overview" className="mt-5 flex flex-col gap-6">
           {cohort && <ConversionImpactCard cohort={cohort} daily={daily} label={cohortLabel} />}
+          {adoption.length > 0 && (
+            <ChartCard
+              title={<Metric k="adoption">Search adoption by week</Metric>}
+              subtitle="Bars: weekly visitors to the assets page. Line: share that focused the search box at least once."
+              loading={loading} error={errOf(data, "conv_adoption")} height={260}
+              footer={`Adoption: ${pct(adoptionFirst)} (${weeks[0]}) → ${pct(adoptionLast)} (${lastWeek}). A 1pt move ≈ 160 more searchers/wk.`}
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={adoptionSeries} margin={{ top: 28, right: 8, bottom: 0, left: -12 }}>
+                  <CartesianGrid {...gridProps} />
+                  <XAxis dataKey="week" {...axisProps} />
+                  <YAxis yAxisId="v" {...axisProps} width={48} />
+                  <YAxis yAxisId="a" orientation="right" {...axisProps} width={40} unit="%" domain={[0, "dataMax + 2"]} />
+                  <Tooltip cursor={{ fill: color.neutral[100] }}
+                    content={<TooltipBox valueFmt={(v, p) => (p.dataKey === "adoption" ? `${v}%` : nf.format(v))} />} />
+                  <Legend {...legendProps} />
+                  <Bar yAxisId="v" dataKey="visitors" name="Visitors" fill={color.navy[200]} radius={[3, 3, 0, 0]} maxBarSize={46} />
+                  <Line yAxisId="a" dataKey="adoption" name="Adoption rate" stroke={color.teal[600]} strokeWidth={2.5}
+                    dot={{ r: 3, fill: color.teal[600], strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )}
           <ChartCard
             title={<Metric k="zrr">Zero-result rate &amp; query volume by feature week</Metric>}
             subtitle="Bars: queries run. Line: % of queries returning zero results."
