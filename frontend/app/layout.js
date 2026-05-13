@@ -20,7 +20,7 @@ const designBootstrap =
 // Templated titles give per-page pages (like /projects/[id]) a "<page> · Grip
 // Analytics" tab title without each page having to remember the suffix.
 export const metadata = {
-  metadataBase: new URL("https://grip-analytics.vercel.app"),
+  metadataBase: new URL("https://grip-analytics-psi.vercel.app"),
   title: {
     default: "Grip Analytics",
     template: "%s · Grip Analytics",
