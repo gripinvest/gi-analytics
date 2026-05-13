@@ -3,8 +3,19 @@
 import * as React from "react";
 import {
   ResponsiveContainer, ComposedChart, BarChart, LineChart, AreaChart,
-  Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Cell, LabelList,
+  Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Cell, LabelList, Legend,
 } from "recharts";
+
+// Compact top-aligned legend props for multi-series charts. Centralised so
+// every chart reads the same on mobile (small swatches, wraps cleanly).
+const legendProps = {
+  verticalAlign: "top",
+  align: "left",
+  height: 28,
+  iconType: "circle",
+  iconSize: 8,
+  wrapperStyle: { paddingBottom: 6, fontSize: 12, color: "var(--gi-text-tertiary)" },
+};
 import { runQuery } from "@/lib/api";
 import * as Q from "@/lib/queries/assetSearch";
 import { ISSUER_MAP, ISSUER_CATEGORY, METRIC_DEFS } from "@/lib/queries/assetSearch";
@@ -229,14 +240,15 @@ export default function AssetSearchDashboard({ project }) {
             footer={`${lastWeek} is a partial week.  Launch baseline ${pct(zrrFirst)} → latest ${pct(zrrLast)}.`}
           >
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={healthSeries} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+              <ComposedChart data={healthSeries} margin={{ top: 28, right: 8, bottom: 0, left: -12 }}>
                 <CartesianGrid {...gridProps} />
                 <XAxis dataKey="week" {...axisProps} />
                 <YAxis yAxisId="v" {...axisProps} width={48} />
                 <YAxis yAxisId="z" orientation="right" {...axisProps} width={40} unit="%" domain={[0, "dataMax + 10"]} />
                 <Tooltip cursor={{ fill: color.neutral[100] }}
                   content={<TooltipBox valueFmt={(v, p) => (p.dataKey === "zrr" ? `${v}%` : nf.format(v))} />} />
-                <Bar yAxisId="v" dataKey="queries" name="Queries" radius={[3, 3, 0, 0]} maxBarSize={46}>
+                <Legend {...legendProps} />
+                <Bar yAxisId="v" dataKey="queries" name="Queries" fill={color.navy[400]} radius={[3, 3, 0, 0]} maxBarSize={46}>
                   {healthSeries.map((d, i) => <Cell key={i} fill={i === healthSeries.length - 1 ? color.navy[200] : color.navy[400]} />)}
                 </Bar>
                 <Line yAxisId="z" dataKey="zrr" name="Zero-result rate" stroke={color.error[500]} strokeWidth={2.5}
@@ -249,11 +261,12 @@ export default function AssetSearchDashboard({ project }) {
             <ChartCard title={<Metric k="sessions">Search funnel by week</Metric>} subtitle="Distinct sessions: focused search → ran a query → clicked a result."
               loading={loading} error={errOf(data, "funnel")} height={260}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={funnelSeries} margin={{ top: 8, right: 8, bottom: 0, left: -12 }} barGap={2}>
+                <BarChart data={funnelSeries} margin={{ top: 28, right: 8, bottom: 0, left: -12 }} barGap={2}>
                   <CartesianGrid {...gridProps} />
                   <XAxis dataKey="week" {...axisProps} />
                   <YAxis {...axisProps} width={48} />
                   <Tooltip cursor={{ fill: color.neutral[100] }} content={<TooltipBox valueFmt={(v) => nf.format(v)} />} />
+                  <Legend {...legendProps} />
                   <Bar dataKey="Focused" fill={color.navy[200]} radius={[3, 3, 0, 0]} maxBarSize={18} />
                   <Bar dataKey="Queried" fill={color.navy[400]} radius={[3, 3, 0, 0]} maxBarSize={18} />
                   <Bar dataKey="Clicked" fill={color.teal[500]} radius={[3, 3, 0, 0]} maxBarSize={18} />
@@ -572,6 +585,21 @@ function IssuersView({ rows, weeks, lastWeek, loading, error }) {
   const issuers = React.useMemo(() => buildIssuers(rows, weeks), [rows, weeks]);
   const [filter, setFilter] = React.useState("all");
   const [selected, setSelected] = React.useState(null);
+  // Scroll the detail panel into view when the user picks an issuer. Mobile
+  // would otherwise leave the chart far below the fold — the cards take the
+  // whole viewport, so a tap appears to "do nothing" until you scroll. We skip
+  // the initial render so the detail of the auto-picked first issuer doesn't
+  // hijack the page on load.
+  const detailRef = React.useRef(null);
+  const userInteractedRef = React.useRef(false);
+  const pickIssuer = React.useCallback((name) => {
+    userInteractedRef.current = true;
+    setSelected(name);
+  }, []);
+  React.useEffect(() => {
+    if (!userInteractedRef.current || !detailRef.current) return;
+    detailRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [selected]);
 
   const shown = filter === "all" ? issuers : issuers.filter((i) => i.category === filter);
   const current = issuers.find((i) => i.name === selected) || shown[0] || issuers[0] || null;
@@ -625,8 +653,8 @@ function IssuersView({ rows, weeks, lastWeek, loading, error }) {
         {shown.map((iss) => {
           const active = current && current.name === iss.name;
           return (
-            <div key={iss.name} role="button" tabIndex={0} onClick={() => setSelected(iss.name)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(iss.name); } }}
+            <div key={iss.name} role="button" tabIndex={0} onClick={() => pickIssuer(iss.name)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pickIssuer(iss.name); } }}
               className={`cursor-pointer rounded-md border bg-surface p-4 text-left transition-shadow duration-200 outline-none ${active ? "border-navy-300 shadow-md ring-1 ring-navy-200" : "border-border-default shadow-sm hover:shadow-md focus-visible:ring-2 focus-visible:ring-navy-300"}`}>
               <div className="flex items-start justify-between gap-2">
                 <span className="t-heading-md text-heading">{iss.name}</span>
@@ -651,7 +679,7 @@ function IssuersView({ rows, weeks, lastWeek, loading, error }) {
       </div>
 
       {current && (
-        <Card pad="lg">
+        <Card pad="lg" ref={detailRef}>
           <CardHeader>
             <div className="flex flex-wrap items-center gap-2">
               <span className="t-display-md text-heading">{current.name}</span>
@@ -667,13 +695,14 @@ function IssuersView({ rows, weeks, lastWeek, loading, error }) {
                 </div>
                 <div className="h-60">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={current.series} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+                    <ComposedChart data={current.series} margin={{ top: 28, right: 8, bottom: 0, left: -12 }}>
                       <CartesianGrid {...gridProps} />
                       <XAxis dataKey="week" {...axisProps} />
                       <YAxis yAxisId="s" {...axisProps} width={40} />
                       <YAxis yAxisId="z" orientation="right" {...axisProps} width={42} unit="%" domain={[0, (m) => Math.max(20, Math.ceil((m + 10) / 10) * 10)]} />
                       <Tooltip cursor={{ fill: color.neutral[100] }}
                         content={<TooltipBox valueFmt={(v, p) => (p.dataKey === "zrr" || p.dataKey === "refinement" ? `${v}%` : nf.format(v))} />} />
+                      <Legend {...legendProps} />
                       <Area yAxisId="s" dataKey="sessions" name="Sessions" stroke={color.navy[400]} strokeWidth={2} fill={color.navy[100]} fillOpacity={0.6} />
                       <Line yAxisId="z" dataKey="zrr" name="Zero-result rate" stroke={color.neutral[400]} strokeWidth={2} dot={<ZrrDot />} activeDot={false} />
                     </ComposedChart>
@@ -686,11 +715,12 @@ function IssuersView({ rows, weeks, lastWeek, loading, error }) {
                 </div>
                 <div className="h-44">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={abandSeries} margin={{ top: 8, right: 8, bottom: 0, left: -16 }} barGap={2}>
+                    <BarChart data={abandSeries} margin={{ top: 28, right: 8, bottom: 0, left: -16 }} barGap={2}>
                       <CartesianGrid {...gridProps} />
                       <XAxis dataKey="week" {...axisProps} />
                       <YAxis {...axisProps} width={36} allowDecimals={false} />
                       <Tooltip cursor={{ fill: color.neutral[100] }} content={<TooltipBox valueFmt={(v) => nf.format(v)} />} />
+                      <Legend {...legendProps} />
                       <Bar dataKey="True abandonment" stackId="a" fill={color.error[400]} radius={[0, 0, 0, 0]} maxBarSize={26} />
                       <Bar dataKey="Relevance gap" stackId="a" fill={color.warning[400]} radius={[3, 3, 0, 0]} maxBarSize={26} />
                     </BarChart>
@@ -986,14 +1016,15 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
           loading={false} error={errOf(data, "conv_byWeek")} height={280}
           footer={`${lastWeek} is a partial week.  Searcher CVR ${pct1(cvrEarly)} → ${pct1(cvrLate)}.`}>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={weekSeries} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+            <ComposedChart data={weekSeries} margin={{ top: 28, right: 8, bottom: 0, left: -12 }}>
               <CartesianGrid {...gridProps} />
               <XAxis dataKey="week" {...axisProps} />
               <YAxis yAxisId="cvr" {...axisProps} width={44} unit="%" domain={[0, "dataMax + 10"]} />
               <YAxis yAxisId="ev" orientation="right" {...axisProps} width={48} />
               <Tooltip cursor={{ fill: color.neutral[100] }}
                 content={<TooltipBox valueFmt={(v, p) => (p.dataKey === "investEvents" ? nf.format(v) : `${v}%`)} />} />
-              <Bar yAxisId="ev" dataKey="investEvents" name="Invest events" radius={[3, 3, 0, 0]} maxBarSize={40}>
+              <Legend {...legendProps} />
+              <Bar yAxisId="ev" dataKey="investEvents" name="Invest events" fill={color.navy[200]} radius={[3, 3, 0, 0]} maxBarSize={40}>
                 {weekSeries.map((d, i) => <Cell key={i} fill={i === weekSeries.length - 1 ? color.navy[100] : color.navy[200]} />)}
               </Bar>
               <Line yAxisId="cvr" dataKey="searcherCvr" name="Searcher CVR" stroke={color.teal[600]} strokeWidth={2.5}
