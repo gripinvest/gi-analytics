@@ -14,7 +14,7 @@ in (integrations), lowers what it costs to author a new dashboard
 (multi-project), makes the result more durable (PWA / offline), or guards the
 quality bar at small viewports (mobile-first).
 
-## The four threads
+## The threads
 
 | Thread | One-line | Doc |
 |---|---|---|
@@ -22,6 +22,7 @@ quality bar at small viewports (mobile-first).
 | **Mobile-first, always** | Standing principle. Every UI starts at ≤375px. | [mobile-first.md](./mobile-first.md) |
 | **PWA + installable + offline** | Goal: installable home-screen app + offline-resilient reading. Chat offline is **not** a goal. | [pwa-offline.md](./pwa-offline.md) |
 | **Data integrations + refresh** | Pluggable adapters per source (Metabase today; Sentry, Google Play, YouTube, custom DBs next). Platform owns canonical raw data. | [data-integrations.md](./data-integrations.md) |
+| **Issuer deep-dive** | Per-keyword breakdown inside each issuer, a "leaving on the table" view for unavailable issuers, explicit answers to Nikhil's three questions. | [issuer-deepdive.md](./issuer-deepdive.md) |
 
 ## How they interact
 
