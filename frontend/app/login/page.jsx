@@ -7,8 +7,31 @@ import { useRouter, useSearchParams } from "next/navigation";
 // that sets the tone before the dashboard's design preference even applies.
 // The data-force-editorial attribute on <main> opts this page into the
 // editorial token system regardless of the user's saved design choice.
+//
+// Suspense wrapper: useSearchParams forces CSR bailout on this route. Next's
+// production build refuses to prerender any component that reads it unless
+// it's inside a Suspense boundary. The form is the only Suspense child so
+// the fallback can be a near-empty masthead.
 
 export default function LoginPage() {
+  return (
+    <React.Suspense fallback={<LoginFallback />}>
+      <LoginInner />
+    </React.Suspense>
+  );
+}
+
+function LoginFallback() {
+  return (
+    <main
+      data-force-editorial="true"
+      className="min-h-screen"
+      style={{ background: "var(--ed-paper)", backgroundImage: "var(--ed-grain)", backgroundBlendMode: "multiply" }}
+    />
+  );
+}
+
+function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/";
