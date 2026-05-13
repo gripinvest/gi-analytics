@@ -6,6 +6,7 @@ import { fetchProject } from "@/lib/api";
 import { getDashboard } from "@/components/dashboards";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DesignSwitcher } from "@/components/DesignSwitcher";
+import { SignOut } from "@/components/SignOut";
 import { useDesign } from "@/lib/design";
 import { PageHeader, Button, Badge, Card, Skeleton } from "@/components/ui";
 
@@ -39,6 +40,7 @@ export default function ProjectPage({ params }) {
     return (
       <main className="min-h-screen">
         <DesignSwitcher />
+        <SignOut />
         <div className="mx-auto max-w-[920px] px-5 py-12 sm:px-8 sm:py-16">
           {error ? (
             <section>
@@ -72,6 +74,7 @@ export default function ProjectPage({ params }) {
   return (
     <main className="min-h-screen bg-page">
       <DesignSwitcher />
+      <SignOut />
       <div className="mx-auto max-w-[1180px] px-4 py-5 sm:px-6 sm:py-7 md:px-8">
         <PageHeader
           breadcrumb={<Link href="/" className="text-link hover:underline">← Grip Analytics</Link>}
