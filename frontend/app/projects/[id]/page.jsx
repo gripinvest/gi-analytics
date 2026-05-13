@@ -30,19 +30,20 @@ export default function ProjectPage({ params }) {
 
   return (
     <main className="min-h-screen bg-page">
-      <div className="mx-auto max-w-[1180px] px-6 py-7 md:px-8">
+      <div className="mx-auto max-w-[1180px] px-4 py-5 sm:px-6 sm:py-7 md:px-8">
         <PageHeader
           breadcrumb={<Link href="/" className="text-link hover:underline">← Grip Analytics</Link>}
           overline="Project"
           title={project?.name || (error ? "Project not found" : <Skeleton className="h-8 w-56 inline-block align-middle" />)}
           description={
             project?.description ||
-            (error ? <span className="text-error-700">{error}</span> : <Skeleton className="h-4 w-[34rem] inline-block align-middle" />)
+            (error ? <span className="text-error-700">{error}</span> : <Skeleton className="h-4 w-full max-w-[34rem] inline-block align-middle" />)
           }
           actions={
             project && (
               <>
-                <Button variant="secondary" size="md" onClick={() => window.open(`http://localhost:8000/api/projects/${id}`, "_blank")}>
+                <Button variant="secondary" size="md"
+                  onClick={() => window.open(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/projects/${id}`, "_blank")}>
                   Project JSON
                 </Button>
                 <Button variant="primary" size="md" onClick={() => setChatOpen(true)}>

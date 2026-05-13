@@ -42,10 +42,16 @@ export function Tabs({ value, defaultValue, onValueChange, children, className }
 }
 
 export function TabList({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  // Mobile-first: scroll horizontally when tabs overflow, hidden scrollbar.
   return (
     <div
       role="tablist"
-      className={cn("flex items-stretch gap-5 border-b border-border-default", className)}
+      className={cn(
+        "flex items-stretch gap-4 sm:gap-5 border-b border-border-default",
+        "overflow-x-auto whitespace-nowrap",
+        "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        className
+      )}
       {...props}
     >
       {children}
@@ -70,7 +76,7 @@ export function Tab({ value, className, children, ...props }: TabProps) {
       tabIndex={selected ? 0 : -1}
       onClick={() => setValue(value)}
       className={cn(
-        "relative -mb-px border-b-2 pb-2 pt-1 t-heading-sm transition-colors duration-150 ease-out",
+        "relative -mb-px border-b-2 pb-2 pt-1 t-heading-sm whitespace-nowrap shrink-0 transition-colors duration-150 ease-out",
         selected
           ? "border-action text-heading"
           : "border-transparent text-tertiary hover:text-body",
