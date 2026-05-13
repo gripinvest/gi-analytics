@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from services.duck import db
 from routers import projects, upload, chat
+from middleware.basic_auth import BasicAuthMiddleware
 
 
 @asynccontextmanager
@@ -40,6 +41,14 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Basic-auth gate (no-op locally unless env vars are set; required on Render).
+# Added after CORS so OPTIONS pre-flights still get the CORS response.
+app.add_middleware(
+    BasicAuthMiddleware,
+    user=os.getenv("BASIC_AUTH_USER"),
+    password=os.getenv("BASIC_AUTH_PASS"),
 )
 
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])

@@ -43,7 +43,7 @@ export default function ProjectPage({ params }) {
             project && (
               <>
                 <Button variant="secondary" size="md"
-                  onClick={() => window.open(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/projects/${id}`, "_blank")}>
+                  onClick={() => window.open(`/api/proxy/api/projects/${id}`, "_blank")}>
                   Project JSON
                 </Button>
                 <Button variant="primary" size="md" onClick={() => setChatOpen(true)}>

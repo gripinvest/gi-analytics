@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!--
+    Grip Analytics mark — a slim 3-bar histogram inside a tinted-neutral square.
+    Bars rise left→right (data trending up). Brand navy + a teal accent on the
+    tallest bar to echo the in-app palette (navy[700] surface, teal[500] accent).
+  -->
+  <rect width="64" height="64" rx="12" fill="#0F2F4D"/>
+  <rect x="14" y="36" width="9" height="14" rx="1.5" fill="#7FA9C9"/>
+  <rect x="27.5" y="24" width="9" height="26" rx="1.5" fill="#A8C8DD"/>
+  <rect x="41" y="14" width="9" height="36" rx="1.5" fill="#3CB7B2"/>
+</svg>
