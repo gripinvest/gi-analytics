@@ -344,7 +344,8 @@ export default function AssetSearchDashboard({ project }) {
             </CardHeader>
             <CardBody>
               {loading ? <TableSkeleton cols={4} /> : errOf(data, "terms") ? <p className="t-body-sm text-tertiary">Could not load.</p> : (
-                <table className="w-full border-collapse">
+                <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+                <table className="w-full min-w-[28rem] border-collapse">
                   <thead>
                     <tr className="t-overline text-tertiary text-left">
                       <th className="pb-2 font-semibold">Term</th>
@@ -376,6 +377,7 @@ export default function AssetSearchDashboard({ project }) {
                     })}
                   </tbody>
                 </table>
+                </div>
               )}
             </CardBody>
           </Card>
@@ -796,13 +798,14 @@ function ConversionImpactCard({ cohort, daily, label }) {
         {/* the three cohorts as proportional bars */}
         <div className="flex flex-col gap-3.5">
           {rows.map((row) => (
-            <div key={row.key} className={row.indent ? "pl-4" : ""}>
-              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+            <div key={row.key} className={row.indent ? "pl-3 sm:pl-4" : ""}>
+              {/* mobile: stack label over metrics; sm+: same row, right-aligned columns */}
+              <div className="flex flex-col gap-0.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3">
                 <span className="t-emphasis-md text-heading">{row.label}</span>
-                <span className="inline-flex items-baseline gap-2.5">
+                <span className="inline-flex items-baseline gap-2 sm:gap-2.5">
                   {row.lift != null && <span className="t-emphasis-sm t-num" style={{ color: color.teal[700] }}>↑ {lift1(row.lift)}</span>}
-                  <span className="t-emphasis-md t-num text-heading w-14 text-right">{pct1(row.cvr)}</span>
-                  <span className="t-body-xs t-num text-tertiary w-28 text-right">{nf.format(row.conv)} / {nf.format(row.n)}</span>
+                  <span className="t-emphasis-md t-num text-heading sm:w-14 sm:text-right">{pct1(row.cvr)}</span>
+                  <span className="t-body-xs t-num text-tertiary sm:w-28 sm:text-right">{nf.format(row.conv)} / {nf.format(row.n)}</span>
                 </span>
               </div>
               <div className="mt-1.5 h-2 rounded-full bg-muted">
@@ -1010,7 +1013,8 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
           </div></CardHeader>
           <CardBody>
             {errOf(data, "conv_queries") ? <p className="t-body-sm text-tertiary">Could not load.</p> : (
-              <table className="w-full border-collapse">
+              <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+              <table className="w-full min-w-[28rem] border-collapse">
                 <thead><tr className="t-overline text-tertiary text-left">
                   <th className="pb-2 font-semibold">Query</th>
                   <th className="pb-2 font-semibold text-right">Clickers</th>
@@ -1040,6 +1044,7 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </CardBody>
         </Card>
