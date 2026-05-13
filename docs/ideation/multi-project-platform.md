@@ -1,104 +1,135 @@
 # Multi-project platform
 
+> **Status update (2026-05-13, user input):** the ambition is bigger than "a few projects." Goal is **"some semblance of an analytics platform — an editorial of all data for our company"**: feature analytics, core journeys, investment metrics, AOMs, marketing numbers, customer support, even external-vs-internal comparisons like our YouTube channel against popular ones. **Anyone should be able to create a dashboard** by pointing at an integration. This document is rewritten against that ambition.
+
 ## Why
 
-Today the platform is one project (`asset_search`) deeply wired in. Adding a
-second project means touching ~6 places: `project.json`, CSV folder, a
-dashboard component (×2 for classic+editorial), query helpers, the dashboards
-registry, and likely the chat schema prompt. The platform should make adding
-a project a 1-file change. Otherwise "more projects" stalls on its own
-boilerplate.
+The platform exists to let *anyone in the company* turn data from a source
+(Metabase, Sentry, Google Play Console, YouTube, …) into a readable analytical
+issue. The asset_search dashboard is the proof-of-concept; the platform is
+what makes the next 30 dashboards a configuration exercise rather than a
+codebase change.
+
+This thread is the spine the rest of the docs hang off:
+- Each project type defines its own source/integration → [data-integrations.md](./data-integrations.md)
+- Each project's data must be cache-able for offline → [pwa-offline.md](./pwa-offline.md)
+- Each project's UI must clear the mobile-first bar → [mobile-first.md](./mobile-first.md)
 
 ## Pointers
 
-### A. The data contract per project
+### A. The project model
 
-Each project should be a directory under `backend/data/<project_id>/` with:
+A project is **(definition, data, presentation)**:
 
-- **`project.json`** — metadata. Today: `name`, `description`, `status`, `tags`, `owner`, `dashboard_component`, `jira_ticket`. Add:
-  - `weeks` (display label, optional — used by the home-page "issue" metadata)
-  - `events` (display label, optional — same)
-  - `tagline` (one-line editorial blurb, optional — falls back to `description`)
-  - `refresh` (object describing the refresh pipeline; see [data-refresh.md](./data-refresh.md))
-- **CSV files** — DuckDB tables, name pattern is up to the project. Keep the `{project_id}__{filename_stem}` table-naming convention.
-- **Optional `schema.md`** — a short narrative description of the tables/columns, used as the chat system prompt. Today schema comes from `db.get_schema()` (DESCRIBE + sample rows). Letting the project author write a tighter description improves the chat experience.
+- **Definition** — `project.json` carries identity (`name`, `description`, `status`, `tags`), classification (`category` — see §B), data binding (`integrations` — see [data-integrations.md](./data-integrations.md)), and presentation (`dashboard` — see §C).
+- **Data** — raw rows landed in DuckDB tables. Today via hand-dropped CSVs; the end state is integrations writing them directly.
+- **Presentation** — the dashboard. Either generic (config-driven) or bespoke (a React component). At platform scale, **generic is the default**; bespoke is the exception.
 
-### B. The dashboard contract
+### B. Project taxonomy (category)
 
-Each project ships one or more dashboard variants. Two paths to pick from:
+With many projects coming, flat listing breaks fast. Suggested first taxonomy
+— refine as projects accumulate:
 
-**B1. Per-project bespoke dashboards** (current pattern)
-- `components/dashboards/<Project>Dashboard.jsx` + `<Project>DashboardEditorial.jsx`
-- Project-specific `lib/queries/<project>.js`
-- Registry entry: `DASHBOARDS[key] = { classic: …, editorial: … }`
-- *Best when:* the project has its own narrative (like asset_search). Highest ceiling, highest floor.
+| Category | Examples |
+|---|---|
+| `feature` | Asset Search, Quick Checkout, KYC funnel |
+| `journey` | First-time investor, Repeat investor, Cross-product upgrade |
+| `domain` | Investments (AUM, AOMs), Marketing (channels, attribution), Support (CSAT, ticket times) |
+| `external` | YouTube channel vs competitors, App Store ranking, Sentry error volume |
 
-**B2. Generic / schema-driven dashboard**
-- A single configurable dashboard that reads `project.json` for what to render (stat cards, time-series, top-N tables)
-- The project author writes a JSON config, not React
-- *Best when:* the project is "show me trends + a leaderboard" with no narrative. Lower ceiling, much lower floor.
+Stored on `project.json` as `category: "feature" | "journey" | "domain" | "external"`. Drives:
+- Home page grouping ("In this volume — Features. In this volume — Journeys. …")
+- Sidebar filtering once there's enough to warrant a sidebar
+- Editorial section titles in the home page (each category becomes a "section" of the weekly issue)
 
-The right answer is probably **both**: bespoke when the project earns it, generic as the default for the long tail. The generic one is the unbuilt thing. `GenericDashboard.jsx` already exists as a stub — it's the natural place to grow this.
+### C. Two dashboard paths — rebalanced
 
-### C. Query helpers
+**C1. Generic / config-driven dashboard (default for new projects)**
+- One configurable React component (`GenericDashboard.jsx` — already stubbed).
+- Reads `project.json.dashboard` for what to render. Schema sketch:
 
-Today `lib/queries/<project>.js` defines:
-- `groupTables(tables)` — partitions a project's tables by week / event family
-- A function per metric (e.g. `queryHealthByWeek`, `funnelByWeek`)
-- `METRIC_DEFS` — tooltip definitions
+  ```json
+  "dashboard": {
+    "headline": "Six weeks in, conversion holds.",
+    "lede": "…",
+    "exhibits": [
+      { "label": "Sessions", "query_key": "total_sessions", "format": "number" },
+      { "label": "Conversion", "query_key": "cvr_overall", "format": "pct", "delta": { "from": "first", "to": "last" } }
+    ],
+    "sections": [
+      {
+        "title": "The Overview",
+        "figures": [
+          { "type": "composed", "query_key": "by_week", "bars": ["visitors"], "lines": ["adoption_pct"] },
+          { "type": "table", "query_key": "top_terms", "columns": ["term", "searches", "zrr_pct"] }
+        ]
+      }
+    ]
+  }
+  ```
 
-For new projects, follow the same shape. Worth extracting:
-- A common helper like `unionByWeek(tables, cols, weekFromName)` that any project can reuse
-- A common `weekTag(name)` parser
+- Each `query_key` is resolved against `project.json.queries` (which lives alongside `integrations` — see [data-integrations.md](./data-integrations.md)).
+- Renders in both Classic and Editorial design modes from the same config.
+- *Trade-off:* the ceiling is whatever the config schema can express. Adding new chart types means updating both the schema and the generic dashboard.
 
-### D. The chat panel
+**C2. Bespoke (today's asset_search shape)**
+- Project ships its own React component(s) + queries module.
+- Registered in `DASHBOARDS` registry, keyed by `dashboard_component`.
+- *When to use:* a flagship project that earns the engineering investment (asset_search did because of the editorial design + the search-lift narrative).
+- *Default expectation:* most projects do NOT go this route.
 
-`backend/services/claude.py` (the chat handler) reads `db.get_schema(project_id)`
-and passes it as the system prompt. For each new project, **either**:
-- Let `get_schema` auto-generate from DuckDB DESCRIBE (current behaviour) — works, but the prompt gets noisy
-- **Recommended:** if `data/<project_id>/schema.md` exists, prepend that to the auto-generated schema. It costs the project author 30 minutes and improves chat answers a lot.
+**Migration plan:**
+- Keep asset_search bespoke (it set the bar).
+- Build the **second project** bespoke too — that gives the second concrete example to extract patterns from.
+- The **third project onward** uses the generic path.
+- *Refactor:* once 3+ generic projects exist, see what they keep configuring around. Those are the missing config keys; bake them into the schema.
 
-### E. The home page / index
+### D. Self-serve dashboard creation
 
-Already lists every project; nothing structural to change. Bigger N could justify:
-- **Filter / search** on the home page (e.g. by tag, owner, status) — only worth doing past ~6 projects
-- **Project groupings** — e.g. "Search & Discovery" vs "Conversion & Retention" — driven by a `category` field in `project.json`
+If "anyone can create a dashboard," the creation flow needs a UI, not a PR.
+Probable shape (in roughly buildable order):
 
-### F. Project creation flow
+1. **CLI / scripted creation** (week-1 capability): a `scripts/new-project.mjs` that takes a project ID, asks for category + integration kind, scaffolds `project.json` + an empty `dashboard` config, drops it under `backend/data/<id>/`. Reload, project appears. **Builders use this; non-builders don't.**
 
-Today the "New project" button on the home page just shows an alert. Two paths:
+2. **Authoring page in-app** (later): `/projects/new` — a multi-step form that walks through Identity → Category → Integration → First query → First figure. Behind the scenes, writes the same `project.json` the CLI would. Goes through Vercel-side write to the backend.
 
-**F1. CSV-driven creation** (closer to current)
-- The upload panel already exists. Extend it to optionally create a *new* `project_id` when the dropdown's chosen value doesn't exist.
-- Backend creates `data/<new_id>/` and a minimal `project.json` on first upload.
-- Dashboard component defaults to `GenericDashboard`.
+3. **Live dashboard editor** (much later): inline edit mode on a project page; click on a figure to change which query feeds it, drag stats to reorder, etc. The Notion-of-dashboards vision. **Don't build this until §1 and §2 have been used in anger.**
 
-**F2. Form-driven creation**
-- A modal that collects name / description / tags / dashboard_component, then writes the directory.
-- More explicit, more clicks.
+### E. The chat panel for many projects
 
-F1 is simpler and matches "drop CSVs, get a dashboard." F2 is closer to "real product."
+The chat (`backend/services/claude.py`) currently reads `db.get_schema(project_id)`. At platform scale:
+- Auto-generated schema becomes noisy with 50+ tables.
+- Each project should be able to ship a hand-tuned **`schema.md`** that prepends to (or replaces) the auto-schema in the system prompt. 50 words from the project owner beats 50 columns of DESCRIBE output.
+- Eventually: per-project "example questions" that seed the chat panel with starters.
+
+### F. Permissions & ownership
+
+Out of scope for the first slice but worth flagging:
+- Read access: the basic-auth gate is one credential for everyone today. A real platform needs OAuth + roles eventually.
+- Project-level ownership: each `project.json` has `owner`, but no enforcement. Future: only the owner (or admins) can edit the dashboard config or trigger refresh.
+- Audit trail: who refreshed, who edited the config, who created the project. Just-enough logging on those mutations.
 
 ## Trade-offs
 
-- **B1 (bespoke) compounds**: every new bespoke dashboard is a maintenance liability. Mitigate by extracting shared chart primitives + the data hook pattern that `AssetSearchDashboardEditorial` already follows.
-- **B2 (generic) flattens**: every project starts looking the same. Mitigate by letting `project.json` set the dashboard's headline + lede so at least the framing differs.
-- **Schema files** (D) drift from reality unless someone owns them. If you go this way, add a CI check that compares the listed columns to the live DuckDB DESCRIBE.
-- **F1** lets users create projects without a name — fine for an internal tool, would be weird in a real product.
+- **Bespoke per project compounds maintenance cost.** Rebalancing to generic-by-default avoids this — but generic-by-default means accepting that most dashboards look similar. That's correct at scale; uniformity *is* the platform's value.
+- **Config-driven dashboards have a real ceiling.** Some narratives (the asset_search drop-cap, the editorial lede, the pull-quote) won't translate to a config schema cleanly. Solution: a tiny `prose` block in the config holds the editor's note text, and config-driven dashboards inherit a sensible default visual treatment.
+- **Many projects means many DuckDB tables.** Memory is the binding constraint on Render free tier (~512MB). At ~50 projects × ~10 tables each, we will hit it. Mitigations: per-project lazy load, tier-based load (only load active projects), or move off Render free.
+- **Category-driven home page** is more cognitive overhead than a flat list when N is small (2–5). Defer the grouping UI until there are ≥6 projects.
 
 ## Open questions
 
-1. Will there be many projects (10+) or a few (3–4)? Drives whether to invest in the generic dashboard.
-2. Is asset_search the model for what "good" looks like, or is the editorial-style ambitious for most future projects? Drives whether editorial is a default or an opt-in per project.
-3. Who creates new projects — engineers or PMs? Drives F1 vs F2 (or a CLI-only creation path).
-4. How tightly tied to Grip's product taxonomy should projects be? E.g. one project per feature, or one big "discovery" project with sub-sections?
+1. ~~Will there be many projects (10+) or a few (3–4)?~~ **Answered: many.** Plan for 30+.
+2. **What integrations are highest-priority after Metabase?** (Sentry, Google Play, YouTube were called out — order matters because it shapes [data-integrations.md](./data-integrations.md)'s first adapters.)
+3. **Who owns dashboard creation week-1?** If the answer is "you (Puru)" until the CLI / authoring page lands, the urgency on §D is lower. If non-builders need to create dashboards next month, the in-app authoring page is the gating piece.
+4. **How tightly coupled to Grip's internal product taxonomy** should the `category` enum be? Generic ("feature/journey/domain/external") vs Grip-specific ("Investments/KYC/Marketing/Support") — the more Grip-specific, the more obvious the home page reads; the less reusable if Grip's structure changes.
+5. **Is editorial mode the default for new generic dashboards**, or does classic stay default? Editorial is the brand differentiator but heavier visually; classic is denser, useful for stakeholder reviews.
 
 ## Suggested first slice
 
-The smallest move that materially helps a second project:
+1. **Pick the second project.** Concretely: a real one you'd want next month. Marketing funnel? First-time-investor cohort? YouTube channel comparison? The choice affects which integration to wire first.
+2. **Build it bespoke** alongside the asset_search pattern. One more bespoke project gives the second data point to extract the generic dashboard from.
+3. **In parallel, scaffold `GenericDashboard.jsx`** to read a minimal config and render a StatStrip + a single ChartCard. Don't try to express asset_search's editorial energy yet — start with classic, simple.
+4. **Add the `category` field** to `project.json` and the home page grouping (collapse to flat list when N≤3, group by category when N>3).
+5. After (1)–(4) land, the path to the next 5 projects is mostly config.
 
-1. Decide on the next project (concretely: which event tables / which metrics).
-2. Build it bespoke (path B1) — that gives you the second data point to extract shared primitives from. **Don't generalize on one example.**
-3. After it ships, extract the truly shared pieces (week-tagging, the `useDashboard` hook shape, the StatStrip pattern) into `lib/dashboard-kit.ts` or similar. Use the *editorial-vs-classic* split as the test: anything used by both modes is a real primitive.
-
-Resist the urge to design the generic dashboard before the second project ships. The wrong abstractions are the most expensive code in this repo.
+The bottleneck is not code; it's **(1) — picking the second project**. Everything else follows from that choice.

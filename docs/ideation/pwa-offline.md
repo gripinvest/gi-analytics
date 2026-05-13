@@ -1,5 +1,7 @@
 # PWA + offline
 
+> **Status update (2026-05-13, user input):** **installable on the home screen is a goal** (not just offline-resilience). **Chat offline is not a goal** — when offline, the chat panel shows a clear "the editor needs to be online" message and stays hidden / disabled. Other open questions in §F still need user input.
+
 ## Why
 
 The data this app shows is mostly **historical product analytics** — weekly
@@ -99,10 +101,10 @@ Service workers ship a notoriously confusing update model. Use the standard
 
 ## Open questions
 
-1. Is "installable" a goal in itself (icon on the home screen, full-screen on launch), or is offline-resilience the only goal? The first justifies the icon work + manifest tuning; the second can be done without ever showing an install prompt.
-2. How important is the chat working offline? If important, we'd need to keep a local conversation history and replay on reconnect — significant complexity. Recommend: **not important** for the demo. Be honest: when offline, no chat.
-3. Should refresh be available offline (queued for when reconnect)? Or strictly online-only? Recommend: online-only, because the Metabase API isn't reachable offline anyway.
-4. Per-design theme color on install — worth the JS swap, or accept one theme for the install screen?
+1. ~~Is "installable" a goal in itself?~~ **Answered: yes.** Icon on the home screen, standalone display, full manifest tuning. The first slice (§ Suggested first slice) is unchanged but the install banner now matters.
+2. ~~How important is the chat working offline?~~ **Answered: not a goal.** When offline, the chat trigger renders disabled with a short italic line: *"The editor needs to be online — try again when connected."* No queueing, no local conversation store. One less moving part.
+3. Should refresh be available offline (queued for when reconnect)? Recommend: online-only, because the Metabase / Sentry / etc. APIs are unreachable offline anyway. Show the Refresh button greyed out with a tooltip.
+4. Per-design theme color on install — worth the JS swap, or accept one theme for the install screen? With editorial likely to be the chosen install impression, recommend defaulting `theme_color` to the editorial paper-cream + ink. The classic dashboard still works perfectly on the cream background.
 
 ## Suggested first slice
 
