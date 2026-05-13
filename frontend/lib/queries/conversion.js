@@ -199,6 +199,26 @@ export function cohortDaily({ dailyFunnel }) {
     FROM ${qi(dailyFunnel)} ORDER BY day`;
 }
 
+/* ── 7a. search adoption by week ─────────────────────────────────────────────── */
+// Of all visitors in a week, what share actually focused the search box?
+// Visitor base mirrors weeklyCohortCvr: pageViews ∪ initiated per week (a few users
+// initiate a search without a page-view row — usually deep-link / SPA nav). Searcher
+// = initiated. Returns one row per week with the absolute counts so the chart can
+// label "947 of 14,928 (6.3%)" rather than just a bare percentage.
+export function weeklyAdoption(conv) {
+  const { pageViews, initiated } = conv;
+  return `WITH
+  pv  AS (SELECT DISTINCT week, ${UID()} AS uid FROM (${unionW(pageViews, "user_id")}) _r WHERE ${NOTEST}),
+  ini AS (SELECT DISTINCT week, ${UID()} AS uid FROM (${unionW(initiated, "user_id")}) _r WHERE ${NOTEST}),
+  vis AS (SELECT week, uid FROM pv UNION SELECT week, uid FROM ini),
+  v   AS (SELECT week, COUNT(DISTINCT uid) AS visitors  FROM vis GROUP BY week),
+  s   AS (SELECT week, COUNT(DISTINCT uid) AS searchers FROM ini GROUP BY week)
+SELECT v.week, v.visitors, COALESCE(s.searchers, 0) AS searchers,
+  ROUND(100.0 * COALESCE(s.searchers, 0) / NULLIF(v.visitors, 0), 1) AS adoption_pct
+FROM v LEFT JOIN s USING (week)
+ORDER BY v.week`;
+}
+
 /* ── 7. full-window cohort (W1–W6) from the weekly assets-page-views ─────────── */
 // visitors = anyone who viewed the assets page (∪ anyone who initiated a search);
 // searchers = initiated a search; non-searchers = visited but never searched;
@@ -226,6 +246,9 @@ SELECT
 
 // Info-tooltip definitions for the conversion metrics (mirrors METRIC_DEFS shape).
 export const CONV_METRIC_DEFS = {
+  adoption: { title: "Search adoption", live: true,
+    body: "Of all visitors in the week, the share who focused the search box at least once. 'Visitor' = appears in assets_page_views OR asset_search_initiated for that week (the few users who land directly into search via deep-link don't drop out of the base). 'Searcher' = appears in asset_search_initiated. Test users excluded. This is the reach metric the search lift (2.1× conversion) is multiplied against — a 1% adoption gain across ~16K weekly visitors is ≈160 more searchers, ≈18 more invest CTAs.",
+    source: "COUNT(DISTINCT user_id) in asset_search_initiated ÷ COUNT(DISTINCT user_id) in (assets_page_views ∪ asset_search_initiated), per week" },
   searchLift: { title: "Search lift", live: true,
     body: "Searchers' conversion rate ÷ non-searchers' conversion rate. 'Searcher' = focused the search box at least once in the window; 'non-searcher' = viewed an assets page but never searched; 'converted' = appeared in invest_now_button_clicked / quick_checkout_invest_clicked. Computed over W1–W6 when the weekly assets-page-views are loaded (user-id level), otherwise over the launch week from the deep export's pre-computed cohort (anon-id level). invest_now is an intent event, not a paid order. Target > 1.5×.",
     source: "assets_page_views ∪ asset_search_initiated as the visitor base; CVR(searcher) / CVR(non-searcher)" },
