@@ -1,8 +1,14 @@
 """
 DuckDB service.
-On startup: scans DATA_DIR/{project_id}/*.csv and registers each as a table.
-Table names: {project_id}__{filename_stem}
-  e.g.  asset_search__W4_apr23-apr29_asset_search_query
+On startup: scans DATA_DIR/{project_id}/*.csv and materialises each into an
+in-memory DuckDB table. Table names: {project_id}__{filename_stem}
+  e.g.  asset_search__W4_apr23_apr29_asset_search_query
+
+These used to be views (`CREATE VIEW ... AS SELECT * FROM read_csv_auto(...)`),
+which meant every SELECT re-parsed the CSV from disk. Queries that unioned 6
+weekly page-views + 12 invest tables ended up re-parsing ~25 MB of CSV per call,
+and on Render free tier that took minutes per query. As tables, the parse happens
+once at startup; subsequent queries hit RAM in tens of milliseconds.
 """
 
 import os
@@ -18,14 +24,14 @@ class DuckService:
         self.con = duckdb.connect(database=":memory:")
         self._tables: list[str] = []
         # A single DuckDB connection is not safe for concurrent use. FastAPI runs
-        # sync route handlers in a threadpool, and the dashboard fires several
-        # /query requests at once — without this lock those threads race on the
-        # one connection and the process can wedge. Each query is sub-100ms, so
-        # serializing them is invisible to the user.
+        # sync route handlers in a threadpool, and the dashboard fires ~24 /query
+        # requests at once — without this lock those threads race on the one
+        # connection and the process can wedge. With CSVs materialised as tables
+        # each query is tens of milliseconds, so serialising them is invisible.
         self._lock = threading.RLock()
 
     def load_all_projects(self):
-        """Scan DATA_DIR and load every CSV as a DuckDB view."""
+        """Scan DATA_DIR and materialise every CSV into an in-memory table."""
         for project_dir in sorted(DATA_DIR.iterdir()):
             if not project_dir.is_dir() or project_dir.name.startswith("."):
                 continue
@@ -35,7 +41,7 @@ class DuckService:
                 table_name = table_name.replace("-", "_").replace(" ", "_")
                 try:
                     self.con.execute(
-                        f"CREATE OR REPLACE VIEW {table_name} AS "
+                        f"CREATE OR REPLACE TABLE {table_name} AS "
                         f"SELECT * FROM read_csv_auto('{csv_path}', ignore_errors=true)"
                     )
                     self._tables.append(table_name)
@@ -49,7 +55,7 @@ class DuckService:
             for csv_path in sorted(csv_dir.glob("*.csv")):
                 table_name = f"{project_id}__{csv_path.stem}".replace("-", "_")
                 self.con.execute(
-                    f"CREATE OR REPLACE VIEW {table_name} AS "
+                    f"CREATE OR REPLACE TABLE {table_name} AS "
                     f"SELECT * FROM read_csv_auto('{csv_path}', ignore_errors=true)"
                 )
                 if table_name not in self._tables:
