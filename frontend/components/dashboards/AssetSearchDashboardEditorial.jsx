@@ -20,7 +20,7 @@ import {
 
 import { runQuery } from "@/lib/api";
 import * as Q from "@/lib/queries/assetSearch";
-import { METRIC_DEFS } from "@/lib/queries/assetSearch";
+import { METRIC_DEFS, ISSUER_MAP, ISSUER_CATEGORY } from "@/lib/queries/assetSearch";
 import * as C from "@/lib/queries/conversion";
 import { CONV_METRIC_DEFS } from "@/lib/queries/conversion";
 
@@ -777,77 +777,378 @@ function CohortCallout({ label, n, c, accent, note }) {
 
 /* ── SECTION III — ISSUERS ────────────────────────────────────────────────── */
 
+// Mirror of classic dashboard's buildIssuers() — joins the per-week DB rows
+// with ISSUER_MAP's curated metadata (category, prefixes, keywords, the
+// abandoned/relgap arrays from analyze_search.py, and the human-written
+// "note"). Identical semantics so the numbers match classic exactly.
+function edBuildIssuers(rows, weeks) {
+  const byIssuer = new Map();
+  for (const r of rows) {
+    if (!byIssuer.has(r.issuer)) byIssuer.set(r.issuer, {});
+    byIssuer.get(r.issuer)[r.week] = r;
+  }
+  const avgOf = (xs) => (xs.length ? Math.round((10 * xs.reduce((a, b) => a + b, 0)) / xs.length) / 10 : null);
+  return ISSUER_MAP.map((meta) => {
+    const wkMap = byIssuer.get(meta.name) || {};
+    const series = weeks.map((w, i) => {
+      const r = wkMap[w] || {};
+      return {
+        week: w,
+        sessions: Number(r.sessions) || 0,
+        queries: Number(r.queries) || 0,
+        zrr: r.zrr_pct == null ? 0 : Number(r.zrr_pct),
+        refinement: r.refinement_pct == null ? 0 : Number(r.refinement_pct),
+        abandoned: (meta.abandoned || [])[i] ?? 0,
+        relgap: (meta.relgap || [])[i] ?? 0,
+      };
+    });
+    const sumKey = (k) => series.reduce((a, s) => a + (s[k] || 0), 0);
+    const totSessions = sumKey("sessions"), totQueries = sumKey("queries");
+    const totAbandoned = sumKey("abandoned"), totRelgap = sumKey("relgap");
+    const avgZrr = totQueries
+      ? Math.round((10 * series.reduce((a, s) => a + s.zrr * s.queries, 0)) / totQueries) / 10
+      : null;
+    const avgRefine = totQueries
+      ? Math.round((10 * series.reduce((a, s) => a + s.refinement * s.queries, 0)) / totQueries) / 10
+      : null;
+    const half = Math.ceil(weeks.length / 2);
+    const early = avgOf(series.slice(0, half).map((s) => s.zrr));
+    const late = avgOf(series.slice(half).map((s) => s.zrr));
+    const zrrDelta = early == null || late == null ? null : Math.round((late - early) * 10) / 10;
+    const peak = series.reduce((m, s) => (s.zrr > (m?.zrr ?? -1) ? s : m), null);
+    return { ...meta, series, totSessions, totQueries, totAbandoned, totRelgap, avgZrr, avgRefine, zrrDelta, peak, early, late };
+  })
+    .filter((i) => i.totSessions > 0)
+    .sort((a, b) => (b.avgZrr ?? 0) - (a.avgZrr ?? 0));
+}
+
+// Editorial category palette — maps classic's tone names to ink/rust/gold/forest
+// so the same colour signal lands in the editorial palette.
+const ED_CAT_COLOR = {
+  healthy:      { ink: ED_FOREST, label: "Healthy" },
+  alias:        { ink: ED_GOLD,   label: "Alias gap" },
+  availability: { ink: ED_GOLD,   label: "Availability" },
+  catalog_gap:  { ink: ED_RUST,   label: "Catalog gap" },
+};
+const ED_CAT_ORDER = ["healthy", "alias", "availability", "catalog_gap"];
+
 function IssuersSection({ rows, weeks, lastWeek, loading, error }) {
-  const issuers = React.useMemo(() => {
-    // Roll up issuer rows by issuer name across weeks
-    const byName = new Map();
-    for (const r of rows) {
-      const name = r.issuer || r.name || "—";
-      if (!byName.has(name)) byName.set(name, { name, queries: 0, zero: 0, weekly: {} });
-      const e = byName.get(name);
-      e.queries += Number(r.queries) || 0;
-      e.zero += Number(r.zero_result) || 0;
-      e.weekly[r.week] = { q: Number(r.queries) || 0, z: Number(r.zero_result) || 0, zrr: Number(r.zrr_pct) || 0 };
-    }
-    return Array.from(byName.values())
-      .map((e) => ({
-        ...e,
-        zrr_pct: e.queries ? Math.round((1000 * e.zero) / e.queries) / 10 : 0,
-        peak_zrr: Math.max(...Object.values(e.weekly).map((w) => w.zrr || 0), 0),
-      }))
-      .sort((a, b) => b.queries - a.queries);
-  }, [rows]);
+  const issuers = React.useMemo(() => edBuildIssuers(rows, weeks), [rows, weeks]);
+  const [filter, setFilter] = React.useState("all");
+  const [selected, setSelected] = React.useState(null);
+
+  // Scroll-to-detail pattern (matches the classic dashboard's UX).
+  const detailRef = React.useRef(null);
+  const userInteractedRef = React.useRef(false);
+  const pickIssuer = React.useCallback((name) => {
+    userInteractedRef.current = true;
+    setSelected(name);
+  }, []);
+  React.useEffect(() => {
+    if (!userInteractedRef.current || !detailRef.current) return;
+    detailRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [selected]);
+
+  const shown = filter === "all" ? issuers : issuers.filter((i) => i.category === filter);
+  const current = issuers.find((i) => i.name === selected) || shown[0] || issuers[0] || null;
+  const counts = ED_CAT_ORDER.reduce((m, c) => ({ ...m, [c]: issuers.filter((i) => i.category === c).length }), {});
+  const totalSessions = issuers.reduce((a, i) => a + i.totSessions, 0);
+  const abandSeries = current
+    ? current.series.map((s) => ({ week: s.week, "True abandonment": s.abandoned, "Relevance gap": s.relgap }))
+    : [];
+
+  if (loading) {
+    return (
+      <section className="ed-set">
+        <SectionHead number="III" italic="The Issuers" deck="Loading…" />
+        <p className="ed-prose-italic py-6">Setting type…</p>
+      </section>
+    );
+  }
+  if (error) {
+    return (
+      <section className="ed-set">
+        <SectionHead number="III" italic="The Issuers" />
+        <p className="ed-prose-italic py-6" style={{ color: ED_RUST }}>Could not load the issuer roll-up. {error}</p>
+      </section>
+    );
+  }
+  if (!issuers.length) {
+    return (
+      <section className="ed-set">
+        <SectionHead number="III" italic="The Issuers" />
+        <p className="ed-prose-italic py-6">No issuer-mappable searches found in this export.</p>
+      </section>
+    );
+  }
 
   return (
     <section className="ed-set">
       <SectionHead
         number="III"
         italic="The Issuers"
-        deck="Issuer-level rollups across the window. The peak weekly ZRR is the cleanest tell for an alias or coverage gap."
+        deck={
+          <>
+            <code style={{ fontFamily: "var(--ed-mono)" }}>query_text</code> mapped to an issuer by leading-prefix / alias rules; prefix variants (aka, akar, akara) collapse into one issuer. Sessions, ZRR and refinement are live from DuckDB. Category, abandonment and relevance-gap counts come from the offline <code style={{ fontFamily: "var(--ed-mono)" }}>analyze_search.py</code> — the richer <code style={{ fontFamily: "var(--ed-mono)" }}>asset_search_cleared</code> payload isn't in this export yet.
+          </>
+        }
       />
-      {loading ? (
-        <p className="ed-prose-italic py-6">Setting type…</p>
-      ) : error ? (
-        <p className="ed-prose-italic py-6" style={{ color: ED_RUST }}>{error}</p>
-      ) : !issuers.length ? (
-        <p className="ed-prose-italic py-6">No issuer-level rows in this export.</p>
-      ) : (
-        <div className="mt-8">
-          <hr className="ed-rule" />
-          <table className="w-full ed-prose" style={{ fontSize: 14, borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ borderBottom: `1px solid ${ED_INK}` }}>
-                <th className="ed-caption text-left py-2">ISSUER</th>
-                <th className="ed-caption text-right py-2">QUERIES</th>
-                <th className="ed-caption text-right py-2">ZRR (POOLED)</th>
-                <th className="ed-caption text-right py-2">PEAK WEEK</th>
-              </tr>
-            </thead>
-            <tbody>
-              {issuers.slice(0, 20).map((iss) => (
-                <tr key={iss.name} style={{ borderBottom: `1px solid ${ED_RULE_FAINT}` }}>
-                  <td className="py-2.5" style={{ fontWeight: 500, color: ED_INK }}>{iss.name}</td>
-                  <td className="py-2.5 text-right ed-num">{nf.format(iss.queries)}</td>
-                  <td className="py-2.5 text-right ed-num"
-                    style={{ color: iss.zrr_pct > 50 ? ED_RUST : iss.zrr_pct > 30 ? ED_GOLD : ED_FOREST, fontWeight: 600 }}>
-                    {iss.zrr_pct}%
-                  </td>
-                  <td className="py-2.5 text-right ed-num" style={{ color: ED_INK_MUTED }}>
-                    {iss.peak_zrr}%
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="ed-prose-italic mt-4" style={{ fontSize: 13 }}>
-            Color coding: <span style={{ color: ED_FOREST, fontWeight: 600 }}>green</span> &lt; 30%,{" "}
-            <span style={{ color: ED_GOLD, fontWeight: 600 }}>gold</span> 30–50%,{" "}
-            <span style={{ color: ED_RUST, fontWeight: 600 }}>rust</span> &gt; 50%. ZRR &gt; 50% almost always
-            indicates an issuer-name alias or coverage gap.
-          </p>
+
+      {/* Filter row + count summary. Mobile: filter chips scroll horizontally,
+          summary line wraps below. */}
+      <div className="mt-4 flex flex-wrap items-baseline gap-x-5 gap-y-2">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+          <FilterCue active={filter === "all"} onClick={() => setFilter("all")} label="All" count={issuers.length} ink={ED_INK} />
+          {ED_CAT_ORDER.filter((c) => counts[c]).map((c) => (
+            <FilterCue
+              key={c}
+              active={filter === c}
+              onClick={() => setFilter(c)}
+              label={ED_CAT_COLOR[c].label}
+              count={counts[c]}
+              ink={ED_CAT_COLOR[c].ink}
+            />
+          ))}
+        </div>
+        <span className="ed-caption ml-auto" style={{ color: ED_INK_MUTED }}>
+          {nf.format(totalSessions)} sessions · {weeks.length} weeks
+        </span>
+      </div>
+
+      {/* Issuer list — print-style rows with thin rules, mono metrics, and a
+          tiny sessions sparkline. Tapping a row selects + scrolls to detail. */}
+      <ol className="mt-6" style={{ listStyle: "none", padding: 0, borderTop: `1px solid ${ED_INK}` }}>
+        {shown.map((iss, idx) => {
+          const active = current && current.name === iss.name;
+          return (
+            <li
+              key={iss.name}
+              style={{ borderBottom: `1px solid ${ED_RULE_FAINT}` }}
+            >
+              <button
+                type="button"
+                onClick={() => pickIssuer(iss.name)}
+                aria-pressed={active}
+                className="w-full text-left py-4 grid gap-4 md:gap-6 md:grid-cols-[44px_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,140px)] md:items-baseline transition-opacity duration-150"
+                style={{ background: "transparent", opacity: active ? 1 : 0.92, cursor: "pointer", border: 0 }}
+              >
+                <div
+                  className="ed-section-no"
+                  style={{ fontSize: 22, color: ED_INK, fontStyle: "normal", fontVariationSettings: "'opsz' 36, 'SOFT' 60" }}
+                >
+                  {String(idx + 1).padStart(2, "0")}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span className="ed-headline" style={{ fontSize: 22, lineHeight: 1.1, margin: 0 }}>{iss.name}</span>
+                    <span className="ed-caption" style={{ color: ED_CAT_COLOR[iss.category].ink, fontWeight: 600 }}>
+                      {ED_CAT_COLOR[iss.category].label}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 ed-caption" style={{ color: ED_INK_MUTED }}>
+                    <span>{nf.format(iss.totSessions)} SESSIONS</span>
+                    <span>·</span>
+                    <span style={{ color: iss.avgZrr == null ? ED_INK_MUTED : iss.avgZrr > 50 ? ED_RUST : iss.avgZrr > 30 ? ED_GOLD : ED_FOREST, fontWeight: 600 }}>
+                      AVG ZRR {iss.avgZrr == null ? "—" : `${iss.avgZrr}%`}
+                    </span>
+                    <span>·</span>
+                    <span>ABANDON {nf.format(iss.totAbandoned)}</span>
+                  </div>
+                </div>
+                {/* Mini sparkline — sessions area, hairline ink. Hidden at very
+                    narrow widths to keep the row readable. */}
+                <div className="hidden md:block h-9" aria-hidden>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={iss.series} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+                      <Area dataKey="sessions" stroke={ED_INK} strokeWidth={1} fill={ED_INK} fillOpacity={0.12} isAnimationActive={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="text-right">
+                  <DeltaInline from={iss.early} to={iss.late} suffix="pt" />
+                </div>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+
+      {/* Detail panel — selected issuer */}
+      {current && (
+        <div ref={detailRef} className="mt-12 ed-set">
+          <hr className="ed-rule-double" />
+          <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <h3 className="ed-headline" style={{ fontSize: "clamp(28px, 4.5vw, 40px)", margin: 0 }}>
+              <em style={{ fontFamily: "var(--ed-display)", fontVariationSettings: "'opsz' 64, 'SOFT' 80" }}>
+                {current.name}
+              </em>
+            </h3>
+            <span className="ed-caption" style={{ color: ED_CAT_COLOR[current.category].ink, fontWeight: 600 }}>
+              {ED_CAT_COLOR[current.category].label}
+            </span>
+            {current.peak && current.peak.zrr > 0 && (
+              <span className="ed-prose-italic" style={{ fontSize: 13 }}>
+                peak ZRR <span className="ed-num">{current.peak.zrr}%</span> in {current.peak.week}
+              </span>
+            )}
+          </div>
+
+          {/* Two figures stacked on mobile; side-by-side on desktop. The
+              composed chart matches classic — sessions area + ZRR line. */}
+          <div className="mt-6 grid gap-10 lg:grid-cols-[1.55fr_1fr]">
+            <div className="flex flex-col gap-8">
+              <Figure
+                figNum={`III·a`}
+                title="Sessions and zero-result rate, by week"
+                caption={<>Area: sessions for <em>{current.name}</em>. Line: query-level zero-result rate.</>}
+                height={240}
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={current.series} margin={{ top: 30, right: 8, bottom: 0, left: -10 }}>
+                    <CartesianGrid {...edGridProps} />
+                    <XAxis dataKey="week" {...edAxisProps} />
+                    <YAxis yAxisId="s" {...edAxisProps} width={42} />
+                    <YAxis
+                      yAxisId="z"
+                      orientation="right"
+                      {...edAxisProps}
+                      width={42}
+                      unit="%"
+                      domain={[0, (m) => Math.max(20, Math.ceil((m + 10) / 10) * 10)]}
+                    />
+                    <Tooltip
+                      cursor={{ fill: "rgba(27,24,24,0.04)" }}
+                      content={<EdTooltip valueFmt={(v, p) => (p.dataKey === "zrr" ? `${v}%` : nf.format(v))} />}
+                    />
+                    <Legend {...edLegendProps} />
+                    <Area yAxisId="s" dataKey="sessions" name="Sessions" stroke={ED_INK} strokeWidth={1.5} fill={ED_INK} fillOpacity={0.18} />
+                    <Line yAxisId="z" dataKey="zrr" name="Zero-result rate" stroke={ED_RUST} strokeWidth={2.2}
+                      dot={{ r: 3, fill: ED_RUST, strokeWidth: 0 }} activeDot={{ r: 5.5, stroke: ED_INK, strokeWidth: 1 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </Figure>
+
+              <Figure
+                figNum={`III·b`}
+                title="True abandonment vs relevance gap"
+                caption="From analyze_search.py. True abandonment = cleared with had_results=false; relevance gap = cleared with had_results=true and no click. Re-export asset_search_cleared with the had_results / any_result_clicked fields to make these live."
+                height={200}
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={abandSeries} margin={{ top: 30, right: 8, bottom: 0, left: -16 }} barGap={2}>
+                    <CartesianGrid {...edGridProps} />
+                    <XAxis dataKey="week" {...edAxisProps} />
+                    <YAxis {...edAxisProps} width={36} allowDecimals={false} />
+                    <Tooltip cursor={{ fill: "rgba(27,24,24,0.04)" }} content={<EdTooltip valueFmt={(v) => nf.format(v)} />} />
+                    <Legend {...edLegendProps} />
+                    <Bar dataKey="True abandonment" stackId="a" fill={ED_RUST} maxBarSize={28} />
+                    <Bar dataKey="Relevance gap" stackId="a" fill={ED_GOLD} maxBarSize={28} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Figure>
+
+              {/* Inline stat strip — one row of numbers, captions in mono. */}
+              <div className="flex flex-wrap gap-x-8 gap-y-3 pt-2" style={{ borderTop: `1px solid ${ED_RULE_FAINT}` }}>
+                <StatLine label="SESSIONS" value={nf.format(current.totSessions)} />
+                <StatLine label="QUERIES" value={nf.format(current.totQueries)} />
+                <StatLine
+                  label="AVG ZRR"
+                  value={current.avgZrr == null ? "—" : `${current.avgZrr}%`}
+                  valueColor={current.avgZrr == null ? ED_INK_MUTED : current.avgZrr > 50 ? ED_RUST : current.avgZrr > 30 ? ED_GOLD : ED_FOREST}
+                />
+                <StatLine label="REFINEMENT" value={current.avgRefine == null ? "—" : `${current.avgRefine}%`} />
+                <StatLine label="ABANDONMENT" value={nf.format(current.totAbandoned)} valueColor={ED_RUST} />
+                <StatLine label="REL. GAP" value={nf.format(current.totRelgap)} valueColor={ED_GOLD} />
+                <StatLine
+                  label="EARLY → LATE ZRR"
+                  value={<DeltaInline from={current.early} to={current.late} suffix="pt" />}
+                />
+              </div>
+            </div>
+
+            {/* Sidebar — the editorial read + matched-on keywords. The "read"
+                is the curated note in ISSUER_MAP, the analyst's interpretation
+                of what's actually happening with this issuer. */}
+            <aside className="flex flex-col gap-7">
+              <div>
+                <p className="ed-overline mb-2">THE READ</p>
+                <p className="ed-prose" style={{ fontSize: 15, lineHeight: 1.55, color: ED_INK_SOFT_INLINE }}>
+                  {current.note}
+                </p>
+              </div>
+              <div>
+                <p className="ed-overline mb-2">MATCHED ON</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {current.keywords.map((k) => (
+                    <span
+                      key={k}
+                      style={{
+                        fontFamily: "var(--ed-mono)",
+                        fontSize: 11,
+                        padding: "2px 8px",
+                        border: `1px solid ${ED_RULE_FAINT}`,
+                        color: ED_INK,
+                      }}
+                    >
+                      {k}
+                    </span>
+                  ))}
+                </div>
+                <p className="ed-byline mt-3" style={{ fontSize: 12 }}>
+                  SQL prefix rule: {current.prefixes.map((p) => `LOWER(query_text) LIKE '${p}%'`).join(" OR ")}
+                </p>
+              </div>
+            </aside>
+          </div>
         </div>
       )}
     </section>
+  );
+}
+
+// Soft-ink colour for prose paragraphs (matches editorial.css's --ed-ink-soft
+// but inlined so the editorial section doesn't need to grep through CSS vars
+// for a one-off colour swap).
+const ED_INK_SOFT_INLINE = "#2C2926";
+
+function FilterCue({ active, onClick, label, count, ink }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="inline-flex items-baseline gap-1.5 px-1 py-1 transition-colors duration-150"
+      style={{
+        fontFamily: "var(--ed-mono)",
+        fontSize: 11,
+        letterSpacing: "0.10em",
+        textTransform: "uppercase",
+        background: "transparent",
+        border: 0,
+        cursor: "pointer",
+        color: active ? ED_INK : ED_INK_MUTED,
+        borderBottom: active ? `2px solid ${ink}` : "2px solid transparent",
+        fontWeight: active ? 600 : 500,
+      }}
+    >
+      {label}
+      <span style={{ color: ED_INK_MUTED, fontWeight: 400 }}>·</span>
+      <span style={{ color: ED_INK_MUTED }}>{count}</span>
+    </button>
+  );
+}
+
+function StatLine({ label, value, valueColor }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="ed-caption">{label}</span>
+      <span
+        className="ed-num"
+        style={{ fontFamily: "var(--ed-mono)", fontSize: 15, fontWeight: 500, color: valueColor || ED_INK }}
+      >
+        {value}
+      </span>
+    </div>
   );
 }
 
