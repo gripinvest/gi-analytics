@@ -37,14 +37,25 @@ def list_projects():
 
 @router.get("/{project_id}")
 def get_project(project_id: str):
+    # Intentionally does NOT include the schema. get_schema() runs DESCRIBE +
+    # SELECT LIMIT 2 per loaded table — at 57 tables on Render free tier that's
+    # ~100 lock-serialized DB hits, which made the initial page-load take 2–3
+    # minutes and queued every other request behind it. The schema is only used
+    # by the chat handler (services/claude.py), which calls db.get_schema()
+    # directly server-side — the frontend never reads it.
     meta_path = DATA_DIR / project_id / "project.json"
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
     return {
         "id": project_id,
         **meta,
         "tables": db.tables_for_project(project_id),
-        "schema": db.get_schema(project_id),
     }
+
+
+@router.get("/{project_id}/schema")
+def get_project_schema(project_id: str):
+    """Lazy schema endpoint — only call when the chat panel actually needs it."""
+    return {"schema": db.get_schema(project_id)}
 
 
 @router.get("/{project_id}/tables")
