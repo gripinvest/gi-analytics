@@ -1,6 +1,17 @@
 // lib/api.ts — typed API client for the FastAPI backend
+//
+// All requests go through the Next.js reverse-proxy at /api/proxy (same origin),
+// which injects the backend Basic Auth header server-side. Same-origin means the
+// browser auto-sends its cached Basic Auth (gated by middleware.ts) without any
+// CORS or credentials: 'include' dance.
+//
+// For local dev without the proxy you can still hit the backend directly by
+// setting NEXT_PUBLIC_API_URL=http://localhost:8000 — but the default (and the
+// only config that ships to Vercel) is the same-origin proxy path.
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const BASE =
+  process.env.NEXT_PUBLIC_API_URL ??
+  (typeof window === "undefined" ? "http://localhost:8000" : "/api/proxy");
 
 export interface Project {
   id: string;
