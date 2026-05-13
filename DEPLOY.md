@@ -84,24 +84,41 @@ Not using the blueprint? Create a Web Service manually with: Root Directory
    the `grip-analytics` repo.
 2. **Set "Root Directory" to `frontend`** (important — the Next.js app lives
    there). Vercel auto-detects Next.js; leave the build settings default.
-3. **Environment Variables** → add:
-   - `NEXT_PUBLIC_API_URL` = your Render URL from step 2 (e.g.
-     `https://grip-analytics-api.onrender.com`). This is read at build time, so
-     it must be set before the build.
-4. Deploy. Copy the URL, e.g. `https://grip-analytics.vercel.app`.
+3. **Environment Variables** → add (all server-side, not `NEXT_PUBLIC_*`):
+   - `BACKEND_URL` = your Render URL from step 2 (e.g.
+     `https://grip-analytics-api.onrender.com`). The Next.js proxy route at
+     `/api/proxy/*` reads this server-side and forwards browser requests to
+     the backend. **Without it, the proxy defaults to `localhost:8000` and
+     every API call 500s.** This is the single var you must set.
+   - `BASIC_AUTH_USER`, `BASIC_AUTH_PASS` — optional overrides for the demo
+     credentials (`gripper` / `unicorn@grip.status` are baked in as fallbacks).
+     Set these to gate the demo with your own credentials.
+   - `BACKEND_AUTH_USER`, `BACKEND_AUTH_PASS` — optional; default to the
+     `BASIC_AUTH_*` values above. The proxy injects these on every server-side
+     fetch to the Render backend's BasicAuthMiddleware.
+4. Deploy. Copy the URL, e.g. `https://grip-analytics-psi.vercel.app` (yours
+   will differ).
 
-(CLI alternative: `cd frontend && npx vercel --prod`, set `NEXT_PUBLIC_API_URL`
-when prompted.)
+(CLI alternative: `cd frontend && npx vercel --prod`, set the env vars when
+prompted.)
+
+`NEXT_PUBLIC_API_URL` is **no longer used in production**. It's still honoured
+as a local escape hatch in `frontend/lib/api.ts` for hitting the backend
+directly without going through the proxy.
 
 ---
 
 ## 4. Point CORS at the frontend (1 min)
 
-The backend already allows `localhost:3000` and `grip-analytics.vercel.app`. For
-any other Vercel URL (custom name, custom domain, preview deploys), add it on
-Render → your service → **Environment** → `ALLOWED_ORIGINS` =
-`https://your-actual-url.vercel.app` (comma-separated for several). Save → Render
-redeploys automatically. Then reload the frontend and try **Ask the data**.
+The proxy makes this **mostly redundant** — the proxy is same-origin to the
+browser and server-to-server to the backend, so the browser never makes a
+cross-origin request and CORS doesn't apply on the happy path.
+
+CORS only matters if you set `NEXT_PUBLIC_API_URL` to call the backend
+directly. If so: the backend already allows `localhost:3000`,
+`grip-analytics.vercel.app`, and `grip-analytics-psi.vercel.app`. For any
+other origin (custom domain, preview deploys), set
+`ALLOWED_ORIGINS=https://your-url.vercel.app` (comma-separated) on Render.
 
 ---
 
