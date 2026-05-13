@@ -1,6 +1,20 @@
 import "./globals.css";
 import "./editorial.css";
+import Script from "next/script";
 import { DesignProvider } from "@/lib/design";
+
+// First-paint flash fix. Reads the saved design from localStorage and stamps
+// data-design on <html> before React hydrates, so editorial CSS applies on
+// the very first paint instead of swapping in after a frame of classic chrome.
+// Single-line IIFE wrapped in a try so a thrown localStorage (private mode,
+// disabled storage) silently falls through to the classic default.
+//
+// Stored as a constant separate from the JSX so it stays trivially auditable —
+// no template interpolation, no user input, no concatenation.
+const designBootstrap =
+  "(function(){try{var d=localStorage.getItem('grip-design');" +
+  "if(d==='editorial'||d==='classic'){document.documentElement.setAttribute('data-design',d);}}" +
+  "catch(e){}})();";
 
 // metadataBase keeps openGraph image URLs absolute on every deploy URL.
 // Templated titles give per-page pages (like /projects/[id]) a "<page> · Grip
@@ -53,6 +67,9 @@ export default function RootLayout({ children }) {
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,400..800,0..100,0..1;1,9..144,400..800,0..100,0..1&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&display=swap"
           rel="stylesheet"
         />
+        <Script id="design-bootstrap" strategy="beforeInteractive">
+          {designBootstrap}
+        </Script>
       </head>
       <body>
         <DesignProvider>{children}</DesignProvider>
