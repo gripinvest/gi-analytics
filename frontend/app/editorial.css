@@ -281,6 +281,36 @@ body[data-design="editorial"],
 .ed-set-delay-4 { animation-delay: 240ms; }
 .ed-set-delay-5 { animation-delay: 300ms; }
 
+/* Shared chrome paint — the ChatPanel and other classic primitives use the
+   --gi-* semantic vars. In editorial mode we re-point those so the chat
+   panel inherits paper-on-ink without needing component changes. Only
+   semantic vars (not primitives) are remapped — the colour scale itself
+   is untouched, so anything still hard-coded to a navy/teal scale stays
+   classic in case the editorial dashboard re-uses it. */
+[data-design="editorial"] {
+  --gi-bg-surface: var(--ed-paper);
+  --gi-bg-page: var(--ed-paper);
+  --gi-bg-muted: var(--ed-paper-deep);
+  --gi-bg-subtle: var(--ed-paper-edge);
+
+  --gi-text-heading: var(--ed-ink);
+  --gi-text-subheading: var(--ed-ink);
+  --gi-text-body: var(--ed-ink-soft);
+  --gi-text-secondary: var(--ed-ink-muted);
+  --gi-text-tertiary: var(--ed-ink-faint);
+  --gi-text-link: var(--ed-rust);
+  --gi-text-on-primary: var(--ed-paper);
+
+  --gi-border-default: var(--ed-rule-faint);
+  --gi-border-strong: var(--ed-rule);
+  --gi-border-accessible: var(--ed-rule);
+  --gi-border-focus: var(--ed-gold);
+
+  --gi-action-primary: var(--ed-ink);
+  --gi-action-primary-hover: var(--ed-ink-soft);
+  --gi-action-primary-pressed: var(--ed-ink);
+}
+
 /* Reduced-motion: stop animations. */
 @media (prefers-reduced-motion: reduce) {
   .ed-set { animation: none; }
