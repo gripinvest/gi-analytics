@@ -771,7 +771,7 @@ function ConversionImpactCard({ cohort, daily, label }) {
   const dRange = cvrVals.length ? `${Math.min(...cvrVals)}–${Math.max(...cvrVals)}%` : null;
   const liftGood = lift != null && lift >= 1.5;
   const rows = [
-    { key: "non", label: "Non-searchers — browsed, never searched", n: n("n_nonsearchers"), conv: n("conv_nonsearchers"), cvr: nonsrch, fill: color.neutral[400], lift: null },
+    { key: "non", label: "Non-searchers — browsed, never searched", n: n("n_nonsearchers"), conv: n("conv_nonsearchers"), cvr: nonsrch, fill: color.navy[400], lift: null },
     { key: "srch", label: "Searchers — focused the search box", n: n("n_searchers"), conv: n("conv_searchers"), cvr: srch, fill: color.teal[500], lift },
     { key: "clk", label: "…and clicked a search result", n: n("n_clicked"), conv: n("conv_clicked"), cvr: clk, fill: color.teal[700], lift: clkLift, indent: true },
   ];

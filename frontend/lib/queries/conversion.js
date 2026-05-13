@@ -8,10 +8,16 @@
  *   {projectId}__W{n}_{daterange}_quick_checkout_invest_clicked
  *
  * Conventions (must match the offline conversion validation):
- *  - Conversion = the user appears in invest_now_button_clicked OR
- *    quick_checkout_invest_clicked on the SAME CALENDAR DAY (IST) as the search
- *    activity. invest_now is an INTENT event (the "Invest Now" CTA), not a paid order.
- *  - Join key is user_id (the loaded asset_search_* views carry no anonymous_id).
+ *  - "Converted" has two flavours, used deliberately:
+ *      · same-day  — appears in an invest event on the SAME CALENDAR DAY (IST) as the
+ *        search activity. Used by conversionHeadline / searchToInvestRate /
+ *        topConvertingQueries / conversionByWeek (strict attribution).
+ *      · in-window — appears in an invest event anywhere in the window. Used by the
+ *        searcher-vs-non-searcher cohorts (cohortCvr / weeklyCohortCvr), since a
+ *        non-searcher has no search day to anchor to.
+ *    invest_now is an INTENT event (the "Invest Now" CTA), not a paid order.
+ *  - Join key is user_id (the loaded asset_search_* views carry no anonymous_id;
+ *    the deep-export 14_conversion_cohort_summary is anonymous_id-level).
  *  - Exclude test users 3, 4, 207871, 207875, 207878, 207879 on both sides.
  *  - W1–W3 search exports store user_id as a float ("622564.0"); the invest
  *    exports store it as an int. Parse via DOUBLE→BIGINT so the join lines up.
@@ -140,7 +146,7 @@ export function conversionByWeek(conv) {
   clk_d AS (${searchWeekDays(resultClicked)}),
   inv_d AS (${investDays(conv)}),
   inv_w AS (SELECT week, COUNT(*) AS invest_events, COUNT(DISTINCT ${UID()}) AS invest_users
-            FROM (${unionW([...investNow, ...quickCheckout], "user_id, timestamp")}) _r WHERE ${NOTEST} GROUP BY week),
+            FROM (${unionW([...investNow, ...quickCheckout], "user_id")}) _r WHERE ${NOTEST} GROUP BY week),
   s  AS (SELECT week, COUNT(DISTINCT uid) AS searchers FROM ini_d GROUP BY week),
   sc AS (SELECT i.week, COUNT(DISTINCT i.uid) AS conv_searchers FROM ini_d i JOIN inv_d v ON v.uid = i.uid AND v.dt = i.dt GROUP BY i.week),
   c  AS (SELECT week, COUNT(DISTINCT uid) AS clickers FROM clk_d GROUP BY week),
@@ -193,20 +199,18 @@ export function cohortDaily({ dailyFunnel }) {
     FROM ${qi(dailyFunnel)} ORDER BY day`;
 }
 
-/* ── 7b. full-window cohort (W1–W6) from the weekly assets-page-views ────────── */
+/* ── 7. full-window cohort (W1–W6) from the weekly assets-page-views ─────────── */
 // visitors = anyone who viewed the assets page (∪ anyone who initiated a search);
 // searchers = initiated a search; non-searchers = visited but never searched;
-// converted = appeared in invest_now / quick_checkout. user_id-level, whole window.
+// converted = appeared in invest_now / quick_checkout in the window. user_id-level.
 // Same column shape as cohortCvr() so the UI renders either interchangeably.
 export function weeklyCohortCvr(conv) {
   const { pageViews, initiated, resultClicked, investNow, quickCheckout } = conv;
-  const distinctUids = (tables, extraCol = "user_id") =>
-    `SELECT DISTINCT ${UID()} AS uid FROM (${unionP(tables, extraCol)}) _r WHERE ${NOTEST}`;
   return `WITH
-  pv  AS (${distinctUids(pageViews)}),
-  ini AS (${distinctUids(initiated)}),
-  clk AS (${distinctUids(resultClicked)}),
-  inv AS (${distinctUids([...investNow, ...quickCheckout])}),
+  pv  AS (${searchUsers(pageViews)}),
+  ini AS (${searchUsers(initiated)}),
+  clk AS (${searchUsers(resultClicked)}),
+  inv AS (${searchUsers([...investNow, ...quickCheckout])}),
   vis AS (SELECT uid FROM pv UNION SELECT uid FROM ini),
   nons AS (SELECT uid FROM pv EXCEPT SELECT uid FROM ini)
 SELECT
