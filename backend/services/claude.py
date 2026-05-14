@@ -54,15 +54,17 @@ The platform answers questions about the "Asset Search" product feature using ~5
 - conversion: invest_now_button_clicked, quick_checkout_invest_clicked, assets_page_views
 - across 6 feature weeks (W1-W6, Apr 2 - May 13 2026)
 
+You will see the most recent few turns of the conversation, not just the latest question. Use the prior turns to interpret pronouns and references — a follow-up like "what are the conversion numbers for these terms" inherits "these terms" from the prior turn, and is ON-TOPIC if the conversation has been about search data even when the latest message in isolation looks vague.
+
 Output EXACTLY ONE word: reject, haiku, sonnet, or opus
 
 Criteria:
-- reject: the question cannot be answered from the product event data above. Small talk, general knowledge, programming help, jokes, hypotheticals, world events, personal advice, anything outside the product-analytics scope.
-- haiku: ON-TOPIC, single SQL query suffices. Simple lookups, aggregations, filters, sorting. "Show me X", "list the top N", "what is the Y rate", "how many Z".
+- reject: the question cannot be answered from the product event data above. Small talk, general knowledge, programming help, jokes, hypotheticals, world events, personal advice, anything outside the product-analytics scope. Be conservative here — if any reasonable interpretation of the question (given conversation context) is on-topic, route on-topic instead.
+- haiku: ON-TOPIC, single SQL query suffices. Simple lookups, aggregations, filters, sorting. "Show me X", "list the top N", "what is the Y rate", "how many Z". Follow-ups to prior on-topic answers default here.
 - sonnet: ON-TOPIC, multi-step analysis. Comparisons across weeks or segments. Trend interpretation. "Why did X change", "compare A and B", anything needing interpretation beyond raw numbers.
 - opus: ON-TOPIC, rare. Causal/cohort reasoning, hypothesis testing, multi-table interactions with edge cases.
 
-For on-topic questions default to haiku when uncertain. For clearly off-topic questions output reject. Cost and latency matter; only escalate when truly needed."""
+For on-topic questions default to haiku when uncertain. Only reject when the question is unambiguously outside the product-analytics scope. Cost and latency matter; only escalate when truly needed."""
 
 REJECTION_MESSAGE = (
     "I can only answer questions about the **asset_search** product data — search "
@@ -133,6 +135,50 @@ def _latest_user_question(messages: list[dict]) -> str:
     return ""
 
 
+def _conversation_excerpt(messages: list[dict], max_chars: int = 1800) -> str:
+    """Format the recent conversation for the router.
+
+    Walks backwards from the latest message and collects user + assistant
+    turns until we've used ~max_chars. The router needs prior turns so a
+    follow-up like 'what are the conversion numbers for these terms' can be
+    resolved against the previous answer's context — without that, the
+    pronoun-resolution problem makes the latest message look off-topic in
+    isolation and rejects fire incorrectly.
+
+    Assistant content here is the API response object (list of blocks);
+    we serialise just the text blocks. Tool-result turns are skipped — they
+    carry SQL output, not conversation we want the router to read.
+    """
+    parts: list[str] = []
+    total = 0
+    for m in reversed(messages):
+        role = m.get("role", "")
+        content = m.get("content", "")
+        if isinstance(content, list):
+            # assistant tool-use response OR user tool_results — pull just
+            # the text blocks (the SQL/result blocks are mechanical noise
+            # for routing).
+            text = " ".join(
+                b.get("text", "") if isinstance(b, dict) else getattr(b, "text", "")
+                for b in content
+                if (isinstance(b, dict) and b.get("type") == "text")
+                or (hasattr(b, "type") and b.type == "text")
+            )
+        elif isinstance(content, str):
+            text = content
+        else:
+            text = ""
+        text = text.strip()
+        if not text:
+            continue
+        chunk = f"{role.upper()}: {text}"
+        if total + len(chunk) > max_chars and parts:
+            break
+        parts.append(chunk)
+        total += len(chunk)
+    return "\n\n".join(reversed(parts))
+
+
 def select_model(messages: list[dict]) -> tuple[str | None, str]:
     """Run the advisor. Returns (model_id, label).
 
@@ -146,12 +192,23 @@ def select_model(messages: list[dict]) -> tuple[str | None, str]:
     question = _latest_user_question(messages)
     if not question:
         return None, "reject"  # empty question → don't waste an answer call
+
+    # Pass the recent conversation excerpt to the router so it can resolve
+    # follow-up references. Without this a follow-up like 'what are the
+    # conversion numbers for these terms' reads as ambiguous-and-rejected;
+    # with the prior turn visible, it's clearly on-topic.
+    excerpt = _conversation_excerpt(messages)
+    router_input = (
+        f"Recent conversation:\n{excerpt}\n\n"
+        f"Route the latest user message ({question!r}) — pick reject/haiku/sonnet/opus."
+    )
+
     try:
         resp = client.messages.create(
             model=ROUTER_MODEL,
             max_tokens=8,
             system=ROUTER_SYSTEM,
-            messages=[{"role": "user", "content": question}],
+            messages=[{"role": "user", "content": router_input}],
         )
         text = "".join(b.text for b in resp.content if hasattr(b, "text")).strip().lower()
         # The advisor occasionally wraps the word in punctuation or quotes;
