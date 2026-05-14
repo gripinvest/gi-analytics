@@ -75,9 +75,18 @@ def main() -> int:
         print(f"\n{len(failed)} table(s) failed:")
         for f in failed:
             print(f"  - {f}")
-        return 1
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Always exit 0 — failing the build over a cold-start optimisation would
+    # be the tail wagging the dog. If build_duckdb hits any error, the runtime
+    # falls back to parse-CSVs-on-boot (see services/duck.py). The /health
+    # endpoint surfaces `.prebuilt` so the regression is visible without
+    # silently degrading.
+    try:
+        main()
+    except Exception as e:
+        print(f"\n⚠️  build_duckdb failed: {e}")
+        print("⚠️  Continuing — runtime will fall back to CSV parsing on boot.")
+    sys.exit(0)
