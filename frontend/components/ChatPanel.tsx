@@ -137,7 +137,11 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
 
         <div className="border-t border-border-default px-4 py-3">
           <div className="flex items-end gap-2">
+            {/* autoFocus = focus on every mount. ChatPanel renders null when
+                isOpen=false (see line 72), so the textarea remounts every open
+                and autoFocus fires each time without needing a ref+useEffect. */}
             <textarea
+              autoFocus
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}

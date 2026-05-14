@@ -17,7 +17,18 @@ from services.duck import db
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-MODEL = "claude-sonnet-4-20250514"
+# Haiku 4.5 is the right model for this use case:
+# - The task is bounded — text-to-SQL on a small, well-documented schema (see
+#   EVENT_CONTEXT below) with a single tool (execute_sql). That's Haiku's
+#   sweet spot, not Sonnet's.
+# - Latency matters here. Users ask short questions and expect short answers;
+#   Haiku is ~2-3x faster than Sonnet on this length of conversation.
+# - Cost: Haiku 4.5 is ~5x cheaper per token than Sonnet 4.6 (input
+#   $1/MTok vs $3, output $5/MTok vs $15). For an internal tool, that adds
+#   up over the year.
+# - If we see quality regressions on complex multi-step analytical questions,
+#   bump to "claude-sonnet-4-6" — same API contract, drop-in swap.
+MODEL = "claude-haiku-4-5-20251001"
 
 # Tool definition — Claude uses this to write queries
 EXECUTE_SQL_TOOL = {
