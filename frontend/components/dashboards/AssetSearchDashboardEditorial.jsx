@@ -423,8 +423,14 @@ export default function AssetSearchDashboardEditorial({ project }) {
       <section className="mt-8 ed-set ed-set-delay-2">
         <p className="ed-overline mb-6">BY THE NUMBERS</p>
         <div className="grid gap-x-8 gap-y-7 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+          {/* Exhibit A is a raw count, not a rate, so the `sub` carries the
+              definition rather than a denominator. A "search session" is the
+              distinct (context_session_id) — Rudderstack's browser-session
+              identifier — in which the user issued ≥1 query. Spelling that out
+              inline saves readers from guessing whether the figure counts
+              users, page-views, or queries. */}
           <Exhibit letter="A" label="search sessions" value={sessions != null ? nf.format(sessions) : "—"}
-            sub={`${weeks.length} feature weeks`} />
+            sub={`distinct browser sessions with ≥1 query · ${weeks.length} weeks`} />
           {adoptionOverallPct != null && (
             <Exhibit letter="B" label={<Term n={3}>adoption rate</Term>} value={pct(adoptionOverallPct)}
               sub={`${nf.format(sum(adoption, "searchers"))} of ${nf.format(sum(adoption, "visitors"))}`}
@@ -1369,9 +1375,12 @@ function TermsSection({ terms, assets, positions, zeroQueries, loading, data }) 
               </thead>
               <tbody>
                 {zeroQueries.slice(0, 14).map((r) => (
-                  <tr key={r.query_text} style={{ borderBottom: `1px solid ${ED_RULE_FAINT}` }}>
-                    <td className="py-2" style={{ fontFamily: "var(--ed-mono)", color: ED_INK }}>{r.query_text}</td>
-                    <td className="py-2 text-right ed-num" style={{ color: ED_RUST }}>{nf.format(r.count)}</td>
+                  // SQL columns are `term` (LOWER(TRIM(query_text))) and `hits` (COUNT(*)).
+                  // The previous accessors here read `r.query_text` / `r.count` which return
+                  // undefined → empty cell and `nf.format(undefined)` → the literal "NaN".
+                  <tr key={r.term} style={{ borderBottom: `1px solid ${ED_RULE_FAINT}` }}>
+                    <td className="py-2" style={{ fontFamily: "var(--ed-mono)", color: ED_INK }}>{r.term}</td>
+                    <td className="py-2 text-right ed-num" style={{ color: ED_RUST }}>{nf.format(r.hits)}</td>
                   </tr>
                 ))}
               </tbody>
