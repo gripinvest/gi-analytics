@@ -17,16 +17,36 @@ const STARTERS = [
   "How does click position distribute across results?",
 ];
 
+// Editorial-themed cycling phrases shown while we're waiting on the model.
+// 600ms-2500ms rotation keeps the UI alive during the advisor latency +
+// first tool call (which together can sit at 3-5s before any token streams).
+// Keeping these inside the printer/typesetter metaphor stays in voice for the
+// editorial design and reinforces "this is computing, not stuck".
+const CYCLE_PHRASES = [
+  "Setting type…",
+  "Composing the issue…",
+  "Reading the dispatch…",
+  "Indexing the figures…",
+  "Drafting the byline…",
+  "Folding the page…",
+  "Going to press…",
+];
+
 export function ChatPanel({ projectId, isOpen, onClose }: Props) {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [thinking, setThinking] = React.useState<string | null>(null);
+  // Rotates while loading AND no specific thinking message has come back from
+  // the server yet (i.e. we're in the advisor's window or the gap between
+  // tool calls). Server-sent "Running: …" thinking events always win when
+  // present — they're more specific.
+  const [cycleIdx, setCycleIdx] = React.useState(0);
   const bottomRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, thinking]);
+  }, [messages, thinking, cycleIdx]);
 
   // close on Escape
   React.useEffect(() => {
@@ -35,6 +55,15 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen, onClose]);
+
+  // Drive the cycling caption. Only ticks while the chat is in-flight; cleans
+  // up immediately when the request finishes so we don't keep a timer alive
+  // for nothing.
+  React.useEffect(() => {
+    if (!loading) { setCycleIdx(0); return; }
+    const id = setInterval(() => setCycleIdx((i) => (i + 1) % CYCLE_PHRASES.length), 2200);
+    return () => clearInterval(id);
+  }, [loading]);
 
   // Accepts an optional override so suggestion chips (starters + follow-ups)
   // can auto-send without first stuffing the textarea and waiting for the
@@ -180,11 +209,18 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
                 </div>
               </div>
             )}
+            {/* Pre-stream / between-tool-calls state. We're loading but the
+                server hasn't sent a specific "thinking" message and there
+                isn't a streaming assistant message yet. Cycling phrase keeps
+                the UI alive during the 3-5s advisor + first-tool-call window
+                so the user knows something is happening. */}
             {loading && !thinking && !lastIsAssistantWithText && (
               <div className="self-start max-w-[92%]">
                 <div className="flex items-center gap-2 rounded-md border border-border-default bg-page px-3 py-2 t-body-sm text-tertiary">
                   <Spinner size="sm" className="shrink-0" />
-                  <span className="italic">Thinking…</span>
+                  <span className="italic transition-opacity duration-200">
+                    {CYCLE_PHRASES[cycleIdx]}
+                  </span>
                 </div>
               </div>
             )}

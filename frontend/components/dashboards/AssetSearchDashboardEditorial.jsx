@@ -389,6 +389,19 @@ export default function AssetSearchDashboardEditorial({ project }) {
           <span>MAY 11, 2026</span><span>·</span>
           <span>{weeks[0]}–{lastWeek}</span><span>·</span>
           <span>{nf.format(totalQueries)} QUERIES INDEXED</span>
+          {/* Global page-loading hint. Sits in the masthead so the user always
+              has a single place to glance at — instead of inferring "still
+              loading" from individual missing figures further down the page.
+              Hides as soon as the dashboard fetches complete. */}
+          {loading && (
+            <>
+              <span>·</span>
+              <span className="ed-prose-italic inline-flex items-center gap-1.5" style={{ color: "var(--ed-ink-faint)" }}>
+                <span className="ed-skeleton" style={{ width: "0.4em", height: "0.4em", borderRadius: "50%" }} aria-hidden />
+                ON THE PRESSES
+              </span>
+            </>
+          )}
         </p>
       </header>
 
@@ -462,16 +475,18 @@ export default function AssetSearchDashboardEditorial({ project }) {
         </div>
       </section>
 
-      {/* Softer hairline + more space above so the nav doesn't sit pressed
-          against the figures, and so the active-tab no longer needs a
-          competing underline to read as "selected". */}
-      <hr className="ed-rule mt-20" />
+      {/* No rule here. The previous design framed the nav between two
+          horizontal lines (rule above + rule below from SectionHead), which
+          read as visual clutter. Whitespace alone (pb-2 on the exhibits
+          section above + mt-16 on the nav below) does the section break
+          while the SectionHead rule one row down remains the editorial
+          delimiter for each section. */}
 
       {/* ── SECTIONS NAV ──────────────────────────────────────────────────── */}
       <nav
         role="tablist"
         aria-label="Sections of this issue"
-        className="mt-8 flex flex-wrap items-baseline gap-x-7 gap-y-3 ed-set ed-set-delay-3"
+        className="mt-16 flex flex-wrap items-baseline gap-x-7 gap-y-3 ed-set ed-set-delay-3"
       >
         {sections.map((s) => (
           <button
@@ -725,13 +740,32 @@ function ConversionSection({ data, loading, weeks, lastWeek, lift, cohort }) {
         </div>
       )}
 
-      {lift && (
+      {/* When `lift` is null (loading) the entire block used to disappear,
+          leaving a confusing hole in the page that read as "broken". We now
+          render the frame with a skeleton numeral so the page composition
+          stays intact and the user sees that the figure is computing, not
+          missing. Hidden entirely only once loading is done AND lift is
+          still null (genuinely no cohort data — e.g. a new project without
+          conversion events). */}
+      {(lift || loading) && (
         <div className="mt-10 border-t border-b border-[var(--ed-ink)] py-6 grid gap-6 md:grid-cols-[auto_1fr] items-center">
-          <div className="ed-pullnum" style={{ fontSize: "clamp(80px, 12vw, 144px)" }}>{lift}×</div>
+          <div className="ed-pullnum" style={{ fontSize: "clamp(80px, 12vw, 144px)" }}>
+            {lift
+              ? `${lift}×`
+              : <span className="ed-skeleton" style={{ width: "1.6em", height: "0.6em" }} aria-label="loading" />}
+          </div>
           <p className="ed-lede" style={{ maxWidth: "44ch" }}>
-            Searchers convert at <span style={{ color: ED_FOREST, fontWeight: 600 }}>{lift}×</span> the rate
-            of those who don't. The asset-level follow-through (a click on a search result followed by an
-            invest on that same asset) puts the search-attributable lift closer to <Term n={5}>two times</Term>.
+            {lift ? (
+              <>
+                Searchers convert at <span style={{ color: ED_FOREST, fontWeight: 600 }}>{lift}×</span> the rate
+                of those who don't. The asset-level follow-through (a click on a search result followed by an
+                invest on that same asset) puts the search-attributable lift closer to <Term n={5}>two times</Term>.
+              </>
+            ) : (
+              <span className="ed-prose-italic" style={{ opacity: 0.7 }}>
+                Computing the searcher vs. non-searcher conversion lift across the W1–{lastWeek} cohort…
+              </span>
+            )}
           </p>
         </div>
       )}
