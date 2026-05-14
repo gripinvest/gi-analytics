@@ -2,13 +2,19 @@
 # CSV data ships in the repo (backend/data/<project>/), so the app loads it on
 # startup with no extra setup. Uploads via the app UI write to the instance's
 # ephemeral disk and are lost on redeploy — to add data permanently, commit it.
+#
+# buildCommand materialises all CSVs into a single .duckdb file (see
+# backend/build_duckdb.py). That file is part of the deployed image, so cold-
+# start wake on free tier just opens the file (~2s) instead of re-parsing
+# 127MB of CSV (~30s). Falls back to CSV-parsing at boot if the .duckdb file
+# is missing — see services/duck.py for the runtime branch.
 services:
   - type: web
     name: grip-analytics-api
     runtime: python
     plan: free
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python build_duckdb.py
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:

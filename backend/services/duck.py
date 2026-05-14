@@ -1,14 +1,29 @@
 """
 DuckDB service.
-On startup: scans DATA_DIR/{project_id}/*.csv and materialises each into an
-in-memory DuckDB table. Table names: {project_id}__{filename_stem}
-  e.g.  asset_search__W4_apr23_apr29_asset_search_query
 
-These used to be views (`CREATE VIEW ... AS SELECT * FROM read_csv_auto(...)`),
+Two startup paths:
+
+1. **Prebuilt file path (production).** If `DATA_DIR/grip.duckdb` exists (built
+   at deploy time by `backend/build_duckdb.py` — see render.yaml's
+   buildCommand), open it directly. All tables are already materialised inside
+   the file; startup is just a file-open and a `SHOW TABLES`. On Render free
+   tier this drops cold-start wake from ~30s (parse 127MB of CSV) to ~2s.
+
+2. **CSV-parsing fallback (local dev / fresh clones).** If the prebuilt file
+   is missing, scan DATA_DIR/<project_id>/*.csv and materialise each into a
+   table inside an in-memory connection — the original behaviour. This keeps
+   `uvicorn main:app --reload` working with zero ceremony.
+
+Table names in both paths: `{project_id}__{filename_stem}` with hyphens and
+spaces underscore-mangled. `build_duckdb.py` uses the same rule — they MUST
+stay in lock-step or queries built off the runtime table list won't find the
+prebuilt tables.
+
+These tables used to be views (`CREATE VIEW ... AS SELECT * FROM read_csv_auto(...)`),
 which meant every SELECT re-parsed the CSV from disk. Queries that unioned 6
 weekly page-views + 12 invest tables ended up re-parsing ~25 MB of CSV per call,
 and on Render free tier that took minutes per query. As tables, the parse happens
-once at startup; subsequent queries hit RAM in tens of milliseconds.
+once (at build time or first startup); subsequent queries hit RAM in tens of ms.
 """
 
 import os
@@ -17,27 +32,50 @@ import duckdb
 from pathlib import Path
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
+PREBUILT = DATA_DIR / "grip.duckdb"
 
 
 class DuckService:
     def __init__(self):
-        self.con = duckdb.connect(database=":memory:")
-        self._tables: list[str] = []
         # A single DuckDB connection is not safe for concurrent use. FastAPI runs
         # sync route handlers in a threadpool, and the dashboard fires ~24 /query
         # requests at once — without this lock those threads race on the one
         # connection and the process can wedge. With CSVs materialised as tables
         # each query is tens of milliseconds, so serialising them is invisible.
         self._lock = threading.RLock()
+        self._tables: list[str] = []
+
+        if PREBUILT.exists():
+            # Open read-write so the upload endpoint can still CREATE OR REPLACE
+            # tables into it; those writes don't persist past container lifetime
+            # on free tier anyway (same as today's :memory: behaviour).
+            self.con = duckdb.connect(str(PREBUILT))
+            self._prebuilt = True
+            size_mb = PREBUILT.stat().st_size / (1024 * 1024)
+            print(f"📦 Opened prebuilt {PREBUILT.name} ({size_mb:.1f} MB)")
+        else:
+            self.con = duckdb.connect(database=":memory:")
+            self._prebuilt = False
+            print(f"⚠️  No prebuilt {PREBUILT.name} — will parse CSVs at boot (slower)")
 
     def load_all_projects(self):
-        """Scan DATA_DIR and materialise every CSV into an in-memory table."""
+        """Materialise CSVs OR refresh the table list from the prebuilt file.
+
+        Called by main.py's lifespan. When a prebuilt file is in use this is
+        just a `SHOW TABLES` — the heavy lifting happened at build time. Without
+        the prebuilt file we fall through to the original CSV-parsing path.
+        """
+        if self._prebuilt:
+            self._tables = [r[0] for r in self.con.execute("SHOW TABLES").fetchall()]
+            return
+
         for project_dir in sorted(DATA_DIR.iterdir()):
             if not project_dir.is_dir() or project_dir.name.startswith("."):
                 continue
             for csv_path in sorted(project_dir.glob("*.csv")):
                 table_name = f"{project_dir.name}__{csv_path.stem}"
-                # Sanitise: replace hyphens/spaces with underscores for SQL safety
+                # Sanitise: replace hyphens/spaces with underscores for SQL safety.
+                # MUST match backend/build_duckdb.py's naming rule.
                 table_name = table_name.replace("-", "_").replace(" ", "_")
                 try:
                     self.con.execute(
