@@ -293,3 +293,33 @@ export function issuerHealthByWeek({ tables, weeks }) {
     GROUP BY week, issuer
     ORDER BY issuer, week`;
 }
+
+/**
+ * Per-(issuer, keyword) rollup across the whole window. Groups by case-folded
+ * query text so 'Mut' and 'mut' aggregate together — clean for the default
+ * roll-up. The data tells the same story either way (Muthoot is hard to find);
+ * splitting on case is the analyst's optional drill-down, captured in a
+ * separate query when we need it.
+ *
+ * HAVING ≥ 3 trims long-tail typos but keeps small-population terms visible —
+ * a high-ZRR keyword with 5 occurrences is still a real signal, just one a UI
+ * caller should mark with an asterisk.
+ */
+export function keywordsByIssuer({ tables, weeks }) {
+  const raw = unionAllWeeks(tables.query, weeks, "context_session_id, query_text, results_count");
+  return `SELECT issuer, term,
+      COUNT(*) AS searches,
+      COUNT(DISTINCT context_session_id) AS sessions,
+      ROUND(100.0 * SUM(CASE WHEN results_count = 0 THEN 1 ELSE 0 END) / COUNT(*), 1) AS zrr_pct
+    FROM (
+      SELECT context_session_id, results_count,
+             LOWER(TRIM(query_text)) AS term,
+             ${issuerCaseExpr("query_text")} AS issuer
+      FROM (${raw}) raw
+      WHERE query_text IS NOT NULL AND LENGTH(TRIM(query_text)) >= 2
+    ) classified
+    WHERE issuer IS NOT NULL
+    GROUP BY issuer, term
+    HAVING COUNT(*) >= 3
+    ORDER BY issuer, searches DESC`;
+}

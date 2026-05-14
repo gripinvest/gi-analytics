@@ -27,17 +27,18 @@ import { CONV_METRIC_DEFS } from "@/lib/queries/conversion";
 /* ── data loading (mirrors the classic dashboard's hook) ──────────────────── */
 
 const QUERY_SPECS = {
-  health:      (ctx) => Q.queryHealthByWeek(ctx),
-  funnel:      (ctx) => Q.funnelByWeek(ctx),
-  suggestions: (ctx) => Q.suggestionsByWeek(ctx),
-  clears:      (ctx) => Q.clearsByWeek(ctx),
-  tabs:        (ctx) => Q.byTab(ctx),
-  sessions:    (ctx) => Q.totalQuerySessions(ctx),
-  terms:       (ctx) => Q.topSearchTerms(ctx),
-  assets:      (ctx) => Q.topClickedAssets(ctx),
-  positions:   (ctx) => Q.clicksByPosition(ctx),
-  zeroQueries: (ctx) => Q.topZeroResultQueries(ctx),
-  issuers:     (ctx) => Q.issuerHealthByWeek(ctx),
+  health:           (ctx) => Q.queryHealthByWeek(ctx),
+  funnel:           (ctx) => Q.funnelByWeek(ctx),
+  suggestions:      (ctx) => Q.suggestionsByWeek(ctx),
+  clears:           (ctx) => Q.clearsByWeek(ctx),
+  tabs:             (ctx) => Q.byTab(ctx),
+  sessions:         (ctx) => Q.totalQuerySessions(ctx),
+  terms:            (ctx) => Q.topSearchTerms(ctx),
+  assets:           (ctx) => Q.topClickedAssets(ctx),
+  positions:        (ctx) => Q.clicksByPosition(ctx),
+  zeroQueries:      (ctx) => Q.topZeroResultQueries(ctx),
+  issuers:          (ctx) => Q.issuerHealthByWeek(ctx),
+  issuerKeywords:   (ctx) => Q.keywordsByIssuer(ctx),
 };
 const CONV_SPECS = {
   conv_headline:  (conv) => C.conversionHeadline(conv),
@@ -196,13 +197,19 @@ function Figure({ figNum, title, caption, children, height = 260, error, loading
 }
 
 function Exhibit({ letter, label, value, sub, delta, deltaGoodIsDown = true }) {
+  // Delta sits on its own line below the value (not next to the label) so a
+  // wider chip — e.g. "▼ 6.5pt" — never wraps in the label row and pushes the
+  // value out of baseline alignment with sibling exhibits at narrow widths.
+  // The chip still reads as a comment on the number it sits directly below.
   return (
     <div className="flex flex-col gap-1 ed-set">
-      <div className="flex items-baseline gap-2">
-        <span className="ed-caption">EXHIBIT {letter}</span>
-        {delta && <DeltaInline {...delta} goodIsDown={deltaGoodIsDown} />}
-      </div>
+      <div className="ed-caption">EXHIBIT {letter}</div>
       <div className="ed-stat-num">{value}</div>
+      {delta && (
+        <div className="-mt-0.5">
+          <DeltaInline {...delta} goodIsDown={deltaGoodIsDown} />
+        </div>
+      )}
       <div className="ed-prose-italic" style={{ fontSize: 13 }}>{label}</div>
       {sub && <div className="ed-caption" style={{ opacity: 0.75 }}>{sub}</div>}
     </div>
@@ -478,7 +485,14 @@ export default function AssetSearchDashboardEditorial({ project }) {
         <ConversionSection data={data} loading={loading} weeks={weeks} lastWeek={lastWeek} lift={lift} cohort={cohort} />
       )}
       {section === "issuers" && (
-        <IssuersSection rows={issuers} weeks={weeks} lastWeek={lastWeek} loading={loading} error={errOf(data, "issuers")} />
+        <IssuersSection
+          rows={issuers}
+          keywordRows={rowsOf(data, "issuerKeywords")}
+          weeks={weeks}
+          lastWeek={lastWeek}
+          loading={loading}
+          error={errOf(data, "issuers")}
+        />
       )}
       {section === "terms" && (
         <TermsSection terms={terms} assets={assets} positions={posSeries} zeroQueries={zeroQueries} loading={loading} data={data} />
@@ -832,22 +846,41 @@ const ED_CAT_COLOR = {
 };
 const ED_CAT_ORDER = ["healthy", "alias", "availability", "catalog_gap"];
 
-function IssuersSection({ rows, weeks, lastWeek, loading, error }) {
+function IssuersSection({ rows, keywordRows, weeks, lastWeek, loading, error }) {
   const issuers = React.useMemo(() => edBuildIssuers(rows, weeks), [rows, weeks]);
   const [filter, setFilter] = React.useState("all");
   const [selected, setSelected] = React.useState(null);
 
-  // Scroll-to-detail pattern (matches the classic dashboard's UX).
-  const detailRef = React.useRef(null);
+  // Group the per-(issuer, keyword) rows by issuer once, then look up by name.
+  // Sort by searches desc so the "top 3" pick is a simple slice.
+  const keywordsByIssuer = React.useMemo(() => {
+    const m = new Map();
+    for (const r of keywordRows || []) {
+      if (!r.issuer) continue;
+      if (!m.has(r.issuer)) m.set(r.issuer, []);
+      m.get(r.issuer).push({
+        term: r.term,
+        searches: Number(r.searches) || 0,
+        sessions: Number(r.sessions) || 0,
+        zrr_pct: r.zrr_pct == null ? null : Number(r.zrr_pct),
+      });
+    }
+    for (const list of m.values()) list.sort((a, b) => b.searches - a.searches);
+    return m;
+  }, [keywordRows]);
+
+  // Selecting an issuer scrolls the row that was tapped into view (so the
+  // user sees that their click registered) — detail panel sits at the top
+  // and updates in place, so there's no separate scroll target for it.
   const userInteractedRef = React.useRef(false);
+  const topRef = React.useRef(null);
   const pickIssuer = React.useCallback((name) => {
     userInteractedRef.current = true;
     setSelected(name);
+    requestAnimationFrame(() => {
+      if (topRef.current) topRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }, []);
-  React.useEffect(() => {
-    if (!userInteractedRef.current || !detailRef.current) return;
-    detailRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [selected]);
 
   const shown = filter === "all" ? issuers : issuers.filter((i) => i.category === filter);
   const current = issuers.find((i) => i.name === selected) || shown[0] || issuers[0] || null;
@@ -856,6 +889,19 @@ function IssuersSection({ rows, weeks, lastWeek, loading, error }) {
   const abandSeries = current
     ? current.series.map((s) => ({ week: s.week, "True abandonment": s.abandoned, "Relevance gap": s.relgap }))
     : [];
+
+  // Per-issuer keyword data + computed % stats. The user asked for the
+  // abandonment to read as % alongside the count — same logic for relgap.
+  const currentKeywords = current ? (keywordsByIssuer.get(current.name) || []) : [];
+  const topKeywords = currentKeywords.slice(0, 3);
+  const allKeywords = currentKeywords;
+  const totSearches = currentKeywords.reduce((a, k) => a + k.searches, 0);
+  const abandonPct = current && current.totSessions
+    ? Math.round((1000 * current.totAbandoned) / current.totSessions) / 10
+    : null;
+  const relgapPct = current && current.totSessions
+    ? Math.round((1000 * current.totRelgap) / current.totSessions) / 10
+    : null;
 
   if (loading) {
     return (
@@ -883,103 +929,26 @@ function IssuersSection({ rows, weeks, lastWeek, loading, error }) {
   }
 
   return (
-    <section className="ed-set">
+    <section className="ed-set" ref={topRef}>
       <SectionHead
         number="III"
         italic="The Issuers"
         deck={
           <>
-            <code style={{ fontFamily: "var(--ed-mono)" }}>query_text</code> mapped to an issuer by leading-prefix / alias rules; prefix variants (aka, akar, akara) collapse into one issuer. Sessions, ZRR and refinement are live from DuckDB. Category, abandonment and relevance-gap counts come from the offline <code style={{ fontFamily: "var(--ed-mono)" }}>analyze_search.py</code> — the richer <code style={{ fontFamily: "var(--ed-mono)" }}>asset_search_cleared</code> payload isn't in this export yet.
+            <code style={{ fontFamily: "var(--ed-mono)" }}>query_text</code> mapped to an issuer by leading-prefix / alias rules. Sessions, ZRR and the per-keyword roll-ups are live from DuckDB. Category, abandonment and relevance-gap counts come from the offline <code style={{ fontFamily: "var(--ed-mono)" }}>analyze_search.py</code> — the richer <code style={{ fontFamily: "var(--ed-mono)" }}>asset_search_cleared</code> payload isn't in this export yet.
           </>
         }
       />
 
-      {/* Filter row + count summary. Mobile: filter chips scroll horizontally,
-          summary line wraps below. */}
-      <div className="mt-4 flex flex-wrap items-baseline gap-x-5 gap-y-2">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-          <FilterCue active={filter === "all"} onClick={() => setFilter("all")} label="All" count={issuers.length} ink={ED_INK} />
-          {ED_CAT_ORDER.filter((c) => counts[c]).map((c) => (
-            <FilterCue
-              key={c}
-              active={filter === c}
-              onClick={() => setFilter(c)}
-              label={ED_CAT_COLOR[c].label}
-              count={counts[c]}
-              ink={ED_CAT_COLOR[c].ink}
-            />
-          ))}
-        </div>
-        <span className="ed-caption ml-auto" style={{ color: ED_INK_MUTED }}>
-          {nf.format(totalSessions)} sessions · {weeks.length} weeks
-        </span>
-      </div>
-
-      {/* Issuer list — print-style rows with thin rules, mono metrics, and a
-          tiny sessions sparkline. Tapping a row selects + scrolls to detail. */}
-      <ol className="mt-6" style={{ listStyle: "none", padding: 0, borderTop: `1px solid ${ED_INK}` }}>
-        {shown.map((iss, idx) => {
-          const active = current && current.name === iss.name;
-          return (
-            <li
-              key={iss.name}
-              style={{ borderBottom: `1px solid ${ED_RULE_FAINT}` }}
-            >
-              <button
-                type="button"
-                onClick={() => pickIssuer(iss.name)}
-                aria-pressed={active}
-                className="w-full text-left py-4 grid gap-4 md:gap-6 md:grid-cols-[44px_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,140px)] md:items-baseline transition-opacity duration-150"
-                style={{ background: "transparent", opacity: active ? 1 : 0.92, cursor: "pointer", border: 0 }}
-              >
-                <div
-                  className="ed-section-no"
-                  style={{ fontSize: 22, color: ED_INK, fontStyle: "normal", fontVariationSettings: "'opsz' 36, 'SOFT' 60" }}
-                >
-                  {String(idx + 1).padStart(2, "0")}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                    <span className="ed-headline" style={{ fontSize: 22, lineHeight: 1.1, margin: 0 }}>{iss.name}</span>
-                    <span className="ed-caption" style={{ color: ED_CAT_COLOR[iss.category].ink, fontWeight: 600 }}>
-                      {ED_CAT_COLOR[iss.category].label}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 ed-caption" style={{ color: ED_INK_MUTED }}>
-                    <span>{nf.format(iss.totSessions)} SESSIONS</span>
-                    <span>·</span>
-                    <span style={{ color: iss.avgZrr == null ? ED_INK_MUTED : iss.avgZrr > 50 ? ED_RUST : iss.avgZrr > 30 ? ED_GOLD : ED_FOREST, fontWeight: 600 }}>
-                      AVG ZRR {iss.avgZrr == null ? "—" : `${iss.avgZrr}%`}
-                    </span>
-                    <span>·</span>
-                    <span>ABANDON {nf.format(iss.totAbandoned)}</span>
-                  </div>
-                </div>
-                {/* Mini sparkline — sessions area, hairline ink. Hidden at very
-                    narrow widths to keep the row readable. */}
-                <div className="hidden md:block h-9" aria-hidden>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={iss.series} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-                      <Area dataKey="sessions" stroke={ED_INK} strokeWidth={1} fill={ED_INK} fillOpacity={0.12} isAnimationActive={false} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="text-right">
-                  <DeltaInline from={iss.early} to={iss.late} suffix="pt" />
-                </div>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-
-      {/* Detail panel — selected issuer */}
+      {/* ── DETAIL FIRST. Selected issuer's full read sits at the top so it
+            doesn't get lost below the list. The list further down lets the
+            reader switch the focus issuer. */}
       {current && (
-        <div ref={detailRef} className="mt-12 ed-set">
-          <hr className="ed-rule-double" />
-          <div className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <h3 className="ed-headline" style={{ fontSize: "clamp(28px, 4.5vw, 40px)", margin: 0 }}>
-              <em style={{ fontFamily: "var(--ed-display)", fontVariationSettings: "'opsz' 64, 'SOFT' 80" }}>
+        <div className="mt-8">
+          <hr className="ed-rule-thick" />
+          <header className="mt-6 flex flex-wrap items-baseline gap-x-4 gap-y-2">
+            <h3 className="ed-headline" style={{ fontSize: "clamp(32px, 5vw, 52px)", margin: 0 }}>
+              <em style={{ fontFamily: "var(--ed-display)", fontVariationSettings: "'opsz' 96, 'SOFT' 80" }}>
                 {current.name}
               </em>
             </h3>
@@ -991,11 +960,137 @@ function IssuersSection({ rows, weeks, lastWeek, loading, error }) {
                 peak ZRR <span className="ed-num">{current.peak.zrr}%</span> in {current.peak.week}
               </span>
             )}
+          </header>
+
+          {/* Inline stat strip — sessions, queries, avg ZRR, refinement,
+              abandonment (count + %), relevance gap (count + %), early→late
+              ZRR delta. Percentage forms surface the "what fraction of
+              this issuer's sessions ended in abandonment?" question that
+              raw counts hide. */}
+          <div className="mt-5 flex flex-wrap gap-x-8 gap-y-3 pt-3" style={{ borderTop: `1px solid ${ED_RULE_FAINT}` }}>
+            <StatLine label="TOTAL SEARCHES" value={nf.format(current.totQueries)} />
+            <StatLine label="SESSIONS" value={nf.format(current.totSessions)} />
+            <StatLine
+              label="AVG ZRR"
+              value={current.avgZrr == null ? "—" : `${current.avgZrr}%`}
+              valueColor={current.avgZrr == null ? ED_INK_MUTED : current.avgZrr > 50 ? ED_RUST : current.avgZrr > 30 ? ED_GOLD : ED_FOREST}
+            />
+            <StatLine label="REFINEMENT" value={current.avgRefine == null ? "—" : `${current.avgRefine}%`} />
+            <StatLine
+              label="ABANDONMENT"
+              value={
+                <>
+                  <span className="ed-num">{nf.format(current.totAbandoned)}</span>
+                  <span className="ed-caption" style={{ color: ED_INK_MUTED, marginLeft: 6, fontWeight: 500 }}>
+                    {abandonPct == null ? "" : `${abandonPct}% of sessions`}
+                  </span>
+                </>
+              }
+              valueColor={ED_RUST}
+            />
+            <StatLine
+              label="REL. GAP"
+              value={
+                <>
+                  <span className="ed-num">{nf.format(current.totRelgap)}</span>
+                  <span className="ed-caption" style={{ color: ED_INK_MUTED, marginLeft: 6, fontWeight: 500 }}>
+                    {relgapPct == null ? "" : `${relgapPct}% of sessions`}
+                  </span>
+                </>
+              }
+              valueColor={ED_GOLD}
+            />
+            <StatLine
+              label="EARLY → LATE ZRR"
+              value={<DeltaInline from={current.early} to={current.late} suffix="pt" />}
+            />
           </div>
 
-          {/* Two figures stacked on mobile; side-by-side on desktop. The
-              composed chart matches classic — sessions area + ZRR line. */}
-          <div className="mt-6 grid gap-10 lg:grid-cols-[1.55fr_1fr]">
+          {/* Top 3 keywords — pull-quoted as the headline behaviour for this
+              issuer. Three big cards, each a (term, searches, ZRR). Mobile
+              stacks them; desktop puts them on one row. */}
+          {topKeywords.length > 0 && (
+            <div className="mt-8">
+              <p className="ed-overline mb-3">TOP 3 SEARCH TERMS</p>
+              <div className="grid gap-4 sm:grid-cols-3" style={{ borderTop: `1px solid ${ED_INK}`, borderBottom: `1px solid ${ED_INK}`, padding: "16px 0" }}>
+                {topKeywords.map((k, i) => {
+                  const zrr = k.zrr_pct;
+                  const zrrColour = zrr == null ? ED_INK_MUTED : zrr > 50 ? ED_RUST : zrr > 30 ? ED_GOLD : ED_FOREST;
+                  const sharePct = totSearches ? Math.round((1000 * k.searches) / totSearches) / 10 : null;
+                  return (
+                    <div key={k.term} className="flex flex-col gap-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="ed-caption" style={{ color: ED_INK_MUTED }}>{String(i + 1).padStart(2, "0")}</span>
+                        <span style={{ fontFamily: "var(--ed-mono)", fontSize: 18, color: ED_INK }}>{k.term}</span>
+                      </div>
+                      <div className="flex items-baseline gap-3">
+                        <span className="ed-num" style={{ fontFamily: "var(--ed-mono)", fontSize: 22, fontWeight: 500, color: ED_INK }}>
+                          {nf.format(k.searches)}
+                        </span>
+                        <span className="ed-caption" style={{ color: ED_INK_MUTED }}>SEARCHES</span>
+                      </div>
+                      <div className="ed-caption" style={{ color: ED_INK_MUTED }}>
+                        {sharePct == null ? "" : `${sharePct}% of this issuer's searches`}
+                      </div>
+                      <div className="flex items-baseline gap-2 mt-1">
+                        <span className="ed-num" style={{ color: zrrColour, fontWeight: 600 }}>
+                          {zrr == null ? "—" : `${zrr}%`}
+                        </span>
+                        <span className="ed-caption" style={{ color: ED_INK_MUTED }}>ZRR</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Full keyword table — every matched term, its volume share, and
+              its own ZRR. Sorted by volume desc. Tabular layout (mono
+              numerals, hairline rules) so the user can run their eye down
+              the ZRR column quickly. */}
+          {allKeywords.length > 0 && (
+            <div className="mt-8">
+              <p className="ed-overline mb-2">KEYWORD BREAKDOWN — ALL MATCHED TERMS</p>
+              <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+                <table className="w-full" style={{ fontFamily: "var(--ed-mono)", fontSize: 13, borderCollapse: "collapse", minWidth: 380 }}>
+                  <thead>
+                    <tr style={{ borderTop: `1px solid ${ED_INK}`, borderBottom: `1px solid ${ED_INK}` }}>
+                      <th className="ed-caption text-left py-2">TERM</th>
+                      <th className="ed-caption text-right py-2">SEARCHES</th>
+                      <th className="ed-caption text-right py-2">SHARE</th>
+                      <th className="ed-caption text-right py-2">SESSIONS</th>
+                      <th className="ed-caption text-right py-2">ZRR</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allKeywords.map((k) => {
+                      const zrr = k.zrr_pct;
+                      const zrrColour = zrr == null ? ED_INK_MUTED : zrr > 50 ? ED_RUST : zrr > 30 ? ED_GOLD : ED_FOREST;
+                      const sharePct = totSearches ? Math.round((1000 * k.searches) / totSearches) / 10 : null;
+                      return (
+                        <tr key={k.term} style={{ borderBottom: `1px solid ${ED_RULE_FAINT}` }}>
+                          <td className="py-2" style={{ color: ED_INK }}>{k.term}</td>
+                          <td className="py-2 text-right ed-num" style={{ color: ED_INK }}>{nf.format(k.searches)}</td>
+                          <td className="py-2 text-right ed-num" style={{ color: ED_INK_MUTED }}>{sharePct == null ? "—" : `${sharePct}%`}</td>
+                          <td className="py-2 text-right ed-num" style={{ color: ED_INK_MUTED }}>{nf.format(k.sessions)}</td>
+                          <td className="py-2 text-right ed-num" style={{ color: zrrColour, fontWeight: 600 }}>
+                            {zrr == null ? "—" : `${zrr}%`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="ed-prose-italic mt-3" style={{ fontSize: 12, color: ED_INK_MUTED }}>
+                Terms case-folded; minimum 3 occurrences. ZRR colour: green &lt; 30%, gold 30–50%, rust &gt; 50%.
+              </p>
+            </div>
+          )}
+
+          {/* Two figures — same as before, side by side on desktop. */}
+          <div className="mt-10 grid gap-10 lg:grid-cols-[1.55fr_1fr]">
             <div className="flex flex-col gap-8">
               <Figure
                 figNum={`III·a`}
@@ -1031,7 +1126,7 @@ function IssuersSection({ rows, weeks, lastWeek, loading, error }) {
               <Figure
                 figNum={`III·b`}
                 title="True abandonment vs relevance gap"
-                caption="From analyze_search.py. True abandonment = cleared with had_results=false; relevance gap = cleared with had_results=true and no click. Re-export asset_search_cleared with the had_results / any_result_clicked fields to make these live."
+                caption="From analyze_search.py. True abandonment = cleared with had_results=false; relevance gap = cleared with had_results=true and no click."
                 height={200}
               >
                 <ResponsiveContainer width="100%" height="100%">
@@ -1046,29 +1141,10 @@ function IssuersSection({ rows, weeks, lastWeek, loading, error }) {
                   </BarChart>
                 </ResponsiveContainer>
               </Figure>
-
-              {/* Inline stat strip — one row of numbers, captions in mono. */}
-              <div className="flex flex-wrap gap-x-8 gap-y-3 pt-2" style={{ borderTop: `1px solid ${ED_RULE_FAINT}` }}>
-                <StatLine label="SESSIONS" value={nf.format(current.totSessions)} />
-                <StatLine label="QUERIES" value={nf.format(current.totQueries)} />
-                <StatLine
-                  label="AVG ZRR"
-                  value={current.avgZrr == null ? "—" : `${current.avgZrr}%`}
-                  valueColor={current.avgZrr == null ? ED_INK_MUTED : current.avgZrr > 50 ? ED_RUST : current.avgZrr > 30 ? ED_GOLD : ED_FOREST}
-                />
-                <StatLine label="REFINEMENT" value={current.avgRefine == null ? "—" : `${current.avgRefine}%`} />
-                <StatLine label="ABANDONMENT" value={nf.format(current.totAbandoned)} valueColor={ED_RUST} />
-                <StatLine label="REL. GAP" value={nf.format(current.totRelgap)} valueColor={ED_GOLD} />
-                <StatLine
-                  label="EARLY → LATE ZRR"
-                  value={<DeltaInline from={current.early} to={current.late} suffix="pt" />}
-                />
-              </div>
             </div>
 
-            {/* Sidebar — the editorial read + matched-on keywords. The "read"
-                is the curated note in ISSUER_MAP, the analyst's interpretation
-                of what's actually happening with this issuer. */}
+            {/* Sidebar — the editorial read + matched-on keywords from the
+                curated ISSUER_MAP. */}
             <aside className="flex flex-col gap-7">
               <div>
                 <p className="ed-overline mb-2">THE READ</p>
@@ -1100,8 +1176,93 @@ function IssuersSection({ rows, weeks, lastWeek, loading, error }) {
               </div>
             </aside>
           </div>
+
+          <hr className="ed-rule-thick mt-12" />
         </div>
       )}
+
+      {/* ── ALL ISSUERS LIST. Below the detail because tapping a row updates
+            the detail above. Filter chips + count summary at the top. */}
+      <header className="mt-10 flex flex-wrap items-baseline gap-x-5 gap-y-2">
+        <p className="ed-overline">ALL ISSUERS · TAP A ROW TO READ</p>
+        <span className="ed-caption ml-auto" style={{ color: ED_INK_MUTED }}>
+          {nf.format(totalSessions)} sessions · {weeks.length} weeks
+        </span>
+      </header>
+      <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+        <FilterCue active={filter === "all"} onClick={() => setFilter("all")} label="All" count={issuers.length} ink={ED_INK} />
+        {ED_CAT_ORDER.filter((c) => counts[c]).map((c) => (
+          <FilterCue
+            key={c}
+            active={filter === c}
+            onClick={() => setFilter(c)}
+            label={ED_CAT_COLOR[c].label}
+            count={counts[c]}
+            ink={ED_CAT_COLOR[c].ink}
+          />
+        ))}
+      </div>
+
+      <ol className="mt-5" style={{ listStyle: "none", padding: 0, borderTop: `1px solid ${ED_INK}` }}>
+        {shown.map((iss, idx) => {
+          const active = current && current.name === iss.name;
+          return (
+            <li
+              key={iss.name}
+              style={{ borderBottom: `1px solid ${ED_RULE_FAINT}` }}
+            >
+              <button
+                type="button"
+                onClick={() => pickIssuer(iss.name)}
+                aria-pressed={active}
+                className="w-full text-left py-4 grid gap-4 md:gap-6 md:grid-cols-[44px_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,140px)] md:items-baseline transition-opacity duration-150"
+                style={{ background: "transparent", opacity: active ? 1 : 0.92, cursor: "pointer", border: 0 }}
+              >
+                <div
+                  className="ed-section-no"
+                  style={{ fontSize: 22, color: ED_INK, fontStyle: "normal", fontVariationSettings: "'opsz' 36, 'SOFT' 60" }}
+                >
+                  {String(idx + 1).padStart(2, "0")}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span className="ed-headline" style={{ fontSize: 22, lineHeight: 1.1, margin: 0 }}>{iss.name}</span>
+                    <span className="ed-caption" style={{ color: ED_CAT_COLOR[iss.category].ink, fontWeight: 600 }}>
+                      {ED_CAT_COLOR[iss.category].label}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 ed-caption" style={{ color: ED_INK_MUTED }}>
+                    <span>{nf.format(iss.totSessions)} SESSIONS</span>
+                    <span>·</span>
+                    <span style={{ color: iss.avgZrr == null ? ED_INK_MUTED : iss.avgZrr > 50 ? ED_RUST : iss.avgZrr > 30 ? ED_GOLD : ED_FOREST, fontWeight: 600 }}>
+                      AVG ZRR {iss.avgZrr == null ? "—" : `${iss.avgZrr}%`}
+                    </span>
+                    <span>·</span>
+                    <span>
+                      ABANDON {nf.format(iss.totAbandoned)}
+                      {iss.totSessions ? (
+                        <span style={{ color: ED_INK_MUTED, fontWeight: 400, marginLeft: 4 }}>
+                          ({Math.round((1000 * iss.totAbandoned) / iss.totSessions) / 10}%)
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                </div>
+                <div className="hidden md:block h-9" aria-hidden>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={iss.series} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+                      <Area dataKey="sessions" stroke={ED_INK} strokeWidth={1} fill={ED_INK} fillOpacity={0.12} isAnimationActive={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="text-right">
+                  <DeltaInline from={iss.early} to={iss.late} suffix="pt" />
+                </div>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
     </section>
   );
 }
