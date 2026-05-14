@@ -17,14 +17,16 @@ const Ctx = React.createContext<DesignCtx | null>(null);
 const STORAGE_KEY = "grip-design";
 
 export function DesignProvider({ children }: { children: React.ReactNode }) {
-  // SSR has no localStorage. Start "classic" then hydrate. The flash of classic
-  // → editorial is unavoidable without a cookie-backed pre-render path, and is
-  // brief enough to tolerate (one paint). The body attribute is updated as soon
-  // as React commits, so the editorial CSS swap is a single frame.
-  const [design, setDesignState] = React.useState<Design>("classic");
+  // Editorial is now the product's default surface. The flash-prevention IIFE
+  // in app/layout.js sets data-design on <html> at first paint (defaulting to
+  // editorial when localStorage is empty), so the initial paint uses the
+  // editorial token set with no flicker.
+  const [design, setDesignState] = React.useState<Design>("editorial");
 
   // Initial read from localStorage. Wrapped in useEffect so it runs once on
-  // the client only.
+  // the client only. If the user explicitly set "classic" we honour it;
+  // anything else (missing key, garbage value, private-mode throw) falls
+  // through to the editorial default the IIFE already painted.
   React.useEffect(() => {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -32,10 +34,15 @@ export function DesignProvider({ children }: { children: React.ReactNode }) {
     } catch { /* localStorage may be blocked (private mode) — silently keep default */ }
   }, []);
 
-  // Reflect on <body> so the editorial CSS cascade works for ALL pages
-  // (including any portal-rendered content like modals).
+  // Reflect on BOTH <html> and <body>. Previously only <body> was updated on
+  // switch, but the bootstrap IIFE in layout.js sets the attribute on <html>;
+  // that meant after a runtime switch the two disagreed and editorial's
+  // [data-design="editorial"] custom-property overrides on <html> kept
+  // cascading into <body>'s background through --gi-bg-page. Updating both
+  // keeps them in lock-step.
   React.useEffect(() => {
     if (typeof document === "undefined") return;
+    document.documentElement.setAttribute("data-design", design);
     document.body.setAttribute("data-design", design);
   }, [design]);
 
