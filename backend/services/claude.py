@@ -74,6 +74,51 @@ REJECTION_MESSAGE = (
     "- *Show the top 20 most-searched terms.*"
 )
 
+FOLLOWUPS_SYSTEM = """You suggest 3 follow-up questions a product manager might ask next about Grip's asset_search product data.
+
+Context: the platform answers questions over weekly product event tables (search initiated/query/cleared/empty_state, result clicks, suggestions, invest CTAs, page views) across W1-W6 (Apr 2 - May 13 2026).
+
+Given the user's prior question and the analyst's answer, output 3 SHORT follow-up questions — concise, on-topic, distinct from the original question, each ≤ 12 words. Good follow-ups dig deeper (break down by week/issuer/term, compare segments, ask "why").
+
+Output ONLY a JSON array of 3 strings, nothing else. Example:
+["Break this down by week", "Compare W3 vs W6 on the same metric", "Which issuers dominate the top results?"]"""
+
+
+def _suggest_followups(question: str, answer: str) -> list[str]:
+    """Generate 3 follow-up question suggestions. Always uses Haiku — this is
+    cheap classification + light creativity, not analytical reasoning. Returns
+    [] on any failure (UI gracefully hides the chip row when empty).
+
+    Truncates the answer to ~1500 chars before passing — most chat answers are
+    well under that, and the suggestions only need the gist of what was just
+    explained, not every percentage point."""
+    if not question or not answer:
+        return []
+    try:
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            system=FOLLOWUPS_SYSTEM,
+            messages=[{
+                "role": "user",
+                "content": f"User asked: {question}\n\nAnalyst answered (possibly truncated): {answer[:1500]}\n\nThree follow-up questions:",
+            }],
+        )
+        text = "".join(b.text for b in resp.content if hasattr(b, "text")).strip()
+        # Models occasionally wrap the JSON in ``` fences or add a prose
+        # preface. Pull the array out by bracket-finding rather than insisting
+        # on a strict JSON-only response.
+        start = text.find("[")
+        end = text.rfind("]")
+        if start >= 0 and end > start:
+            parsed = json.loads(text[start:end + 1])
+            if isinstance(parsed, list):
+                clean = [s.strip() for s in parsed if isinstance(s, str) and s.strip()]
+                return clean[:3]
+    except Exception as e:
+        print(f"⚠️  follow-up generation failed: {e}")
+    return []
+
 
 def _latest_user_question(messages: list[dict]) -> str:
     """Return the most recent user-role string content. Skips tool_result turns
@@ -351,6 +396,10 @@ async def stream_chat(project_id: str, messages: list[dict]):
         current_messages.append({"role": "user", "content": tool_results})
 
     # Stream the final answer — uses the advisor-selected model from above.
+    # We also collect the full text so the follow-up generator (below) can
+    # condition on it. Capturing is essentially free; we'd be holding the
+    # tokens in memory anyway for the SSE encoder.
+    answer_text = ""
     with client.messages.stream(
         model=model_id,
         max_tokens=2048,
@@ -358,6 +407,17 @@ async def stream_chat(project_id: str, messages: list[dict]):
         messages=current_messages,
     ) as stream:
         for text in stream.text_stream:
+            answer_text += text
             yield f"data: {json.dumps({'type': 'text', 'text': text})}\n\n"
+
+    # Follow-up suggestions — a small Haiku call kicked off AFTER the answer
+    # finishes streaming, so the user sees the answer immediately and the
+    # suggestions appear shortly after. _suggest_followups returns [] on any
+    # failure, and the UI hides the chip row when the array is empty, so this
+    # path can never break the chat.
+    user_question = _latest_user_question(messages)
+    suggestions = _suggest_followups(user_question, answer_text)
+    if suggestions:
+        yield f"data: {json.dumps({'type': 'followups', 'suggestions': suggestions})}\n\n"
 
     yield "data: [DONE]\n\n"

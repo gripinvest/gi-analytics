@@ -196,15 +196,25 @@ function Figure({ figNum, title, caption, children, height = 260, error, loading
   );
 }
 
-function Exhibit({ letter, label, value, sub, delta, deltaGoodIsDown = true }) {
+function Exhibit({ letter, label, value, sub, delta, deltaGoodIsDown = true, loading = false }) {
   // Delta sits on its own line below the value (not next to the label) so a
   // wider chip — e.g. "▼ 6.5pt" — never wraps in the label row and pushes the
   // value out of baseline alignment with sibling exhibits at narrow widths.
   // The chip still reads as a comment on the number it sits directly below.
+  //
+  // `loading` swaps the bare placeholder ("—") for a soft pulsing skeleton —
+  // a static dash on a still page reads as "broken/empty" even when the
+  // dashboard is genuinely computing. Once the data lands the skeleton
+  // crossfades out via React's normal re-render.
+  const isMissing = value == null || value === "—";
   return (
     <div className="flex flex-col gap-1 ed-set">
       <div className="ed-caption">EXHIBIT {letter}</div>
-      <div className="ed-stat-num">{value}</div>
+      <div className="ed-stat-num">
+        {loading && isMissing
+          ? <span className="ed-skeleton ed-skeleton-num" aria-label="loading" />
+          : value}
+      </div>
       {delta && (
         <div className="-mt-0.5">
           <DeltaInline {...delta} goodIsDown={deltaGoodIsDown} />
@@ -420,7 +430,9 @@ export default function AssetSearchDashboardEditorial({ project }) {
       <hr className="ed-rule-thick mt-14" />
 
       {/* ── EXHIBITS ROW ──────────────────────────────────────────────────── */}
-      <section className="mt-8 ed-set ed-set-delay-2">
+      {/* pb-2 + mt-20 below give the figures bottom breathing room — the
+          earlier ed-rule-thick at mt-12 pressed right under the last row. */}
+      <section className="mt-8 pb-2 ed-set ed-set-delay-2">
         <p className="ed-overline mb-6">BY THE NUMBERS</p>
         <div className="grid gap-x-8 gap-y-7 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
           {/* Exhibit A is a raw count, not a rate, so the `sub` carries the
@@ -429,27 +441,31 @@ export default function AssetSearchDashboardEditorial({ project }) {
               identifier — in which the user issued ≥1 query. Spelling that out
               inline saves readers from guessing whether the figure counts
               users, page-views, or queries. */}
-          <Exhibit letter="A" label="search sessions" value={sessions != null ? nf.format(sessions) : "—"}
+          <Exhibit letter="A" label="search sessions" loading={loading}
+            value={sessions != null ? nf.format(sessions) : "—"}
             sub={`distinct browser sessions with ≥1 query · ${weeks.length} weeks`} />
           {adoptionOverallPct != null && (
             <Exhibit letter="B" label={<Term n={3}>adoption rate</Term>} value={pct(adoptionOverallPct)}
               sub={`${nf.format(sum(adoption, "searchers"))} of ${nf.format(sum(adoption, "visitors"))}`}
               delta={{ from: adoptionFirst, to: adoptionLast, suffix: "pt" }}
-              deltaGoodIsDown={false} />
+              deltaGoodIsDown={false} loading={loading} />
           )}
           <Exhibit letter={adoptionOverallPct != null ? "C" : "B"} label={<Term n={4}>zero-result rate</Term>}
-            value={pct(overallZrr)} sub={`${nf.format(totalQueries)} queries`}
+            value={pct(overallZrr)} sub={`${nf.format(totalQueries)} queries`} loading={loading}
             delta={{ from: zrrFirst, to: zrrLast, suffix: "pt" }} />
           <Exhibit letter={adoptionOverallPct != null ? "D" : "C"} label="refinement rate"
-            value={pct(overallRefine)} sub="iterating mid-search" />
+            value={pct(overallRefine)} sub="iterating mid-search" loading={loading} />
           <Exhibit letter={adoptionOverallPct != null ? "E" : "D"} label="result clicks"
-            value={totalClicks ? nf.format(totalClicks) : "—"} sub="from search results" />
+            value={totalClicks ? nf.format(totalClicks) : "—"} sub="from search results" loading={loading} />
           <Exhibit letter={adoptionOverallPct != null ? "F" : "E"} label="suggestion CTR"
-            value={pct(ctrLast)} sub={`${lastWeek} focus-time picks`} />
+            value={pct(ctrLast)} sub={`${lastWeek} focus-time picks`} loading={loading} />
         </div>
       </section>
 
-      <hr className="ed-rule-thick mt-12" />
+      {/* Softer hairline + more space above so the nav doesn't sit pressed
+          against the figures, and so the active-tab no longer needs a
+          competing underline to read as "selected". */}
+      <hr className="ed-rule mt-20" />
 
       {/* ── SECTIONS NAV ──────────────────────────────────────────────────── */}
       <nav

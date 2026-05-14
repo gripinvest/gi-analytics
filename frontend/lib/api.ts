@@ -41,21 +41,31 @@ export interface ChatMessage {
   // and the content is the fixed redirect. Undefined on user messages and
   // on historical messages that pre-date the advisor.
   model?: "haiku" | "sonnet" | "opus" | "reject";
+  // Follow-up question suggestions generated server-side after the answer
+  // finished streaming. Rendered as clickable chips under the assistant
+  // bubble that auto-send when clicked. Undefined on user messages and on
+  // any turn where the follow-up generator returned no usable JSON.
+  followups?: string[];
 }
 
-// Server can emit four event kinds:
-//   thinking - status update during the tool-use loop ("Running: …")
-//   text     - a chunk of the final answer being streamed
-//   model    - one-time event near the start: { label: 'haiku' | 'sonnet' |
-//              'opus' | 'reject' }. Tells the UI which model the advisor
-//              picked for this turn. "reject" means the question was off-
-//              topic and the text that follows is a fixed redirect, not a
-//              model answer.
-//   done     - terminal sentinel (also encoded as "data: [DONE]")
+// Server can emit five event kinds:
+//   thinking  - status update during the tool-use loop ("Running: …")
+//   text      - a chunk of the final answer being streamed
+//   model     - one-time event near the start: { label: 'haiku' | 'sonnet' |
+//               'opus' | 'reject' }. Tells the UI which model the advisor
+//               picked for this turn. "reject" means the question was off-
+//               topic and the text that follows is a fixed redirect, not a
+//               model answer.
+//   followups - one-time event after the answer streams: { suggestions:
+//               string[] } — 3 short follow-up questions the UI renders as
+//               clickable chips. Empty/absent when the follow-up generator
+//               errors or the answer was a reject.
+//   done      - terminal sentinel (also encoded as "data: [DONE]")
 export interface StreamToken {
-  type: "thinking" | "text" | "done" | "model";
+  type: "thinking" | "text" | "done" | "model" | "followups";
   text?: string;
   label?: "haiku" | "sonnet" | "opus" | "reject";
+  suggestions?: string[];
 }
 
 // ── Projects ──────────────────────────────────────────────────────────────────

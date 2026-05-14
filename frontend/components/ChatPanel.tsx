@@ -36,19 +36,26 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen, onClose]);
 
-  async function send() {
-    if (!input.trim() || loading) return;
-    const userMsg: ChatMessage = { role: "user", content: input.trim() };
+  // Accepts an optional override so suggestion chips (starters + follow-ups)
+  // can auto-send without first stuffing the textarea and waiting for the
+  // user to hit Enter — that copy-then-press dance was the bit that felt
+  // broken.
+  async function send(override?: string) {
+    const content = (override ?? input).trim();
+    if (!content || loading) return;
+    const userMsg: ChatMessage = { role: "user", content };
     setMessages((m) => [...m, userMsg]);
     setInput("");
     setLoading(true);
     setThinking(null);
 
     let assistantText = "";
-    // The advisor's choice arrives as the first SSE event ({type: 'model'}).
-    // We capture it once and attach it to the assistant message that the
-    // subsequent text events build up.
+    // Advisor choice arrives as the first SSE event ({type: 'model'}); follow-
+    // up suggestions arrive after the answer streams ({type: 'followups'}).
+    // We capture both and attach them to the assistant message that the text
+    // events build up.
     let assistantModel: ChatMessage["model"] | undefined;
+    let assistantFollowups: string[] | undefined;
     const next = [...messages, userMsg];
     try {
       for await (const token of streamChat(projectId, next)) {
@@ -65,6 +72,13 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
             return last?.role === "assistant"
               ? [...m.slice(0, -1), msg]
               : [...m, msg];
+          });
+        } else if (token.type === "followups") {
+          assistantFollowups = token.suggestions;
+          setMessages((m) => {
+            const last = m[m.length - 1];
+            if (last?.role !== "assistant") return m;
+            return [...m.slice(0, -1), { ...last, followups: assistantFollowups }];
           });
         }
       }
@@ -109,8 +123,10 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
               <div className="t-overline text-tertiary mb-3">Try asking</div>
               <div className="flex flex-col gap-1.5">
                 {STARTERS.map((s) => (
-                  <button key={s} onClick={() => setInput(s)}
-                    className="rounded-sm border border-border-default bg-page px-3 py-2 text-left t-body-sm text-secondary hover:bg-tint-navy hover:border-navy-200 hover:text-navy-700 transition-colors">
+                  // Auto-send on click — copying to the input box and forcing
+                  // the user to press Enter felt like a broken affordance.
+                  <button key={s} onClick={() => send(s)} disabled={loading}
+                    className="rounded-sm border border-border-default bg-page px-3 py-2 text-left t-body-sm text-secondary hover:bg-tint-navy hover:border-navy-200 hover:text-navy-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                     {s}
                   </button>
                 ))}
@@ -133,6 +149,24 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
                     <div className={`t-body-xs ${MODEL_BADGES[m.model].cls} pl-0.5 inline-flex items-center gap-1`}>
                       <span aria-hidden>{MODEL_BADGES[m.model].glyph}</span>
                       <span>{MODEL_BADGES[m.model].label}</span>
+                    </div>
+                  )}
+                  {/* Follow-up suggestion chips — auto-send on click. Only
+                      renders for the most-recent assistant message and only
+                      when we're not currently streaming a new answer, so the
+                      panel never suggests next steps while an earlier turn
+                      is still in flight. */}
+                  {m.followups && m.followups.length > 0 && i === messages.length - 1 && !loading && (
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {m.followups.map((q) => (
+                        <button
+                          key={q}
+                          onClick={() => send(q)}
+                          className="rounded-full border border-border-default bg-page px-2.5 py-1 t-body-xs text-secondary hover:bg-tint-navy hover:border-navy-200 hover:text-navy-700 transition-colors"
+                        >
+                          {q}
+                        </button>
+                      ))}
                     </div>
                   )}
                 </div>
