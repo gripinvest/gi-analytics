@@ -56,11 +56,13 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen, onClose]);
 
-  // Drive the cycling caption. Only ticks while the chat is in-flight; cleans
-  // up immediately when the request finishes so we don't keep a timer alive
-  // for nothing.
+  // Drive the cycling caption. Starts at a RANDOM index so short turns (~1s
+  // rejections, ~2s simple lookups) show varied phrases even if the 2.2s
+  // interval doesn't fire before the answer lands. Only ticks while the chat
+  // is in-flight; cleans up immediately when the request finishes.
   React.useEffect(() => {
     if (!loading) { setCycleIdx(0); return; }
+    setCycleIdx(Math.floor(Math.random() * CYCLE_PHRASES.length));
     const id = setInterval(() => setCycleIdx((i) => (i + 1) % CYCLE_PHRASES.length), 2200);
     return () => clearInterval(id);
   }, [loading]);
