@@ -138,6 +138,31 @@ def _suggest_followups(question: str, answer: str) -> list[str]:
     return []
 
 
+def _sanitise_for_api(messages: list[dict]) -> list[dict]:
+    """Strip frontend-only fields before passing messages to the Anthropic API.
+
+    The FE attaches `model` and `followups` to assistant messages for the
+    badge + chip UI (see frontend/lib/api.ts ChatMessage). Those fields ride
+    along when the FE sends the conversation back for the next turn — and
+    the API rejects them with
+        BadRequestError: messages.N.model: Extra inputs are not permitted.
+    That manifested as 'Something broke on the backend (BadRequestError)'
+    on every follow-up that had a prior assistant turn (verified via
+    /tmp/probe_chat.py 2026-05-14).
+
+    We keep just role + content and drop everything else. content is left
+    as-is — it can be a string (FE-supplied) or a list of blocks (from a
+    prior tool-use response we appended in the same turn) and both are
+    valid API shapes."""
+    out = []
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        cleaned = {"role": m.get("role"), "content": m.get("content", "")}
+        out.append(cleaned)
+    return out
+
+
 def _latest_user_question(messages: list[dict]) -> str:
     """Return the most recent user-role string content. Skips tool_result turns
     (which are also role=user but carry a list of result blocks, not a
@@ -346,9 +371,9 @@ def chat(project_id: str, messages: list[dict], stream_callback=None) -> str:
     advisor + reject flow so any caller gets identical routing behaviour.
     """
     system = build_system_prompt(project_id)
-    current_messages = list(messages)
+    current_messages = _sanitise_for_api(messages)
 
-    model_id, label = select_model(messages)
+    model_id, label = select_model(current_messages)
     if label == "reject":
         return REJECTION_MESSAGE
 
@@ -435,12 +460,16 @@ async def stream_chat(project_id: str, messages: list[dict]):
     breadcrumb so we can debug).
     """
     system = build_system_prompt(project_id)
-    current_messages = list(messages)
+    # Strip frontend-only fields (model, followups) before any API call —
+    # see _sanitise_for_api docstring. This MUST happen before select_model
+    # too because the router builds an excerpt from messages that gets sent
+    # to the API, and a dirty message there would also 400.
+    current_messages = _sanitise_for_api(messages)
 
     try:
         # Route the question. ~500-1000ms of advisor latency before the actual
         # answer starts. See ROUTER_SYSTEM for the routing taxonomy.
-        model_id, label = select_model(messages)
+        model_id, label = select_model(current_messages)
         yield f"data: {json.dumps({'type': 'model', 'label': label})}\n\n"
 
         # Off-topic — refuse politely with a fixed message; do NOT spend the
@@ -529,7 +558,7 @@ async def stream_chat(project_id: str, messages: list[dict]):
         # suggestions appear shortly after. _suggest_followups returns [] on
         # any failure, and the UI hides the chip row when the array is empty,
         # so this path can never break the chat.
-        user_question = _latest_user_question(messages)
+        user_question = _latest_user_question(current_messages)
         suggestions = _suggest_followups(user_question, answer_text)
         if suggestions:
             yield f"data: {json.dumps({'type': 'followups', 'suggestions': suggestions})}\n\n"
