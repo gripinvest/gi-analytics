@@ -45,19 +45,26 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
     setThinking(null);
 
     let assistantText = "";
+    // The advisor's choice arrives as the first SSE event ({type: 'model'}).
+    // We capture it once and attach it to the assistant message that the
+    // subsequent text events build up.
+    let assistantModel: ChatMessage["model"] | undefined;
     const next = [...messages, userMsg];
     try {
       for await (const token of streamChat(projectId, next)) {
-        if (token.type === "thinking") {
-          setThinking(token.text);
+        if (token.type === "model") {
+          assistantModel = token.label;
+        } else if (token.type === "thinking") {
+          setThinking(token.text ?? null);
         } else if (token.type === "text") {
           setThinking(null);
-          assistantText += token.text;
+          assistantText += token.text ?? "";
           setMessages((m) => {
             const last = m[m.length - 1];
+            const msg: ChatMessage = { role: "assistant", content: assistantText, model: assistantModel };
             return last?.role === "assistant"
-              ? [...m.slice(0, -1), { role: "assistant", content: assistantText }]
-              : [...m, { role: "assistant", content: assistantText }];
+              ? [...m.slice(0, -1), msg]
+              : [...m, msg];
           });
         }
       }
@@ -68,6 +75,16 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
       setThinking(null);
     }
   }
+
+  // Tiny badge near the assistant message showing which model answered.
+  // Off-topic rejects get a different glyph + colour to signal "this isn't a
+  // real answer, it's a redirect".
+  const MODEL_BADGES: Record<NonNullable<ChatMessage["model"]>, { glyph: string; label: string; cls: string }> = {
+    haiku:  { glyph: "⚡", label: "Haiku",   cls: "text-tertiary" },
+    sonnet: { glyph: "🧠", label: "Sonnet",  cls: "text-navy-700" },
+    opus:   { glyph: "💎", label: "Opus",    cls: "text-warning-800" },
+    reject: { glyph: "🚫", label: "Off-topic", cls: "text-error-600" },
+  };
 
   if (!isOpen) return null;
 
@@ -108,10 +125,16 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
                   <div className="rounded-md rounded-br-xs bg-action px-3 py-2 t-body-sm text-on-primary whitespace-pre-wrap">{m.content}</div>
                 </div>
               ) : (
-                <div key={i} className="self-start max-w-[94%]">
+                <div key={i} className="self-start max-w-[94%] flex flex-col gap-1">
                   <div className="rounded-md rounded-bl-xs border border-border-default bg-page px-3 py-2 t-body-sm text-body">
                     {m.content ? <Markdown>{m.content}</Markdown> : <TypingDots className="text-tertiary py-0.5" />}
                   </div>
+                  {m.model && (
+                    <div className={`t-body-xs ${MODEL_BADGES[m.model].cls} pl-0.5 inline-flex items-center gap-1`}>
+                      <span aria-hidden>{MODEL_BADGES[m.model].glyph}</span>
+                      <span>{MODEL_BADGES[m.model].label}</span>
+                    </div>
+                  )}
                 </div>
               )
             )}

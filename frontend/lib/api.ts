@@ -36,11 +36,26 @@ export interface QueryResult {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  // For assistant messages: which model the advisor picked for this turn.
+  // 'reject' means the advisor classified the user's question as off-topic
+  // and the content is the fixed redirect. Undefined on user messages and
+  // on historical messages that pre-date the advisor.
+  model?: "haiku" | "sonnet" | "opus" | "reject";
 }
 
+// Server can emit four event kinds:
+//   thinking - status update during the tool-use loop ("Running: …")
+//   text     - a chunk of the final answer being streamed
+//   model    - one-time event near the start: { label: 'haiku' | 'sonnet' |
+//              'opus' | 'reject' }. Tells the UI which model the advisor
+//              picked for this turn. "reject" means the question was off-
+//              topic and the text that follows is a fixed redirect, not a
+//              model answer.
+//   done     - terminal sentinel (also encoded as "data: [DONE]")
 export interface StreamToken {
-  type: "thinking" | "text" | "done";
-  text: string;
+  type: "thinking" | "text" | "done" | "model";
+  text?: string;
+  label?: "haiku" | "sonnet" | "opus" | "reject";
 }
 
 // ── Projects ──────────────────────────────────────────────────────────────────
