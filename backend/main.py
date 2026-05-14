@@ -59,7 +59,11 @@ app.include_router(chat.router,     prefix="/api/chat",     tags=["chat"])
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "tables": db.list_tables()}
+    # `prebuilt` reflects whether services/duck.py opened the .duckdb file
+    # produced by build_duckdb.py at deploy time. Surfacing it on /health is
+    # the only way to verify the cold-start optimisation took without Render
+    # dashboard log access — `curl /health | jq .prebuilt` is the check.
+    return {"status": "ok", "tables": db.list_tables(), "prebuilt": db._prebuilt}
 
 @app.get("/ping")
 def ping():
