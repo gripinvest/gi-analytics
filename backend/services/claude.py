@@ -17,18 +17,116 @@ from services.duck import db
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
-# Haiku 4.5 is the right model for this use case:
-# - The task is bounded — text-to-SQL on a small, well-documented schema (see
-#   EVENT_CONTEXT below) with a single tool (execute_sql). That's Haiku's
-#   sweet spot, not Sonnet's.
-# - Latency matters here. Users ask short questions and expect short answers;
-#   Haiku is ~2-3x faster than Sonnet on this length of conversation.
-# - Cost: Haiku 4.5 is ~5x cheaper per token than Sonnet 4.6 (input
-#   $1/MTok vs $3, output $5/MTok vs $15). For an internal tool, that adds
-#   up over the year.
-# - If we see quality regressions on complex multi-step analytical questions,
-#   bump to "claude-sonnet-4-6" — same API contract, drop-in swap.
-MODEL = "claude-haiku-4-5-20251001"
+# Per-question model routing. A small "advisor" call classifies each question
+# as simple/medium/complex and we use the appropriate model for the actual
+# answer.
+#
+# - haiku  → single-SQL lookups, aggregations, filters: ~80% of questions.
+# - sonnet → multi-step comparisons, trend interpretation, "why did X change".
+# - opus   → rare: causal/cohort reasoning, hypothesis testing, edge cases.
+#
+# Trade-off acknowledged: the advisor call adds ~500-1000ms before the actual
+# answer starts. We pay that on every chat in exchange for capability headroom
+# on the complex 20%. If the latency becomes painful, flip CHAT_ROUTER_MODEL
+# to claude-haiku-4-5-20251001 to halve the routing tax; the routing decisions
+# get marginally less nuanced but stay correct for the common cases.
+#
+# Falls back to MODEL_FALLBACK (Haiku) on any error — never fails the chat.
+MODEL_FALLBACK = "claude-haiku-4-5-20251001"
+
+MODEL_CHOICES = {
+    "haiku":  "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-4-6",
+    "opus":   "claude-opus-4-7",
+}
+
+# The advisor also gates on-topic. Same call decides BOTH the model AND
+# whether the question is answerable from the product event data — no extra
+# latency for the moderation step.
+ROUTER_LABELS = ("reject", "haiku", "sonnet", "opus")
+
+ROUTER_MODEL = os.getenv("CHAT_ROUTER_MODEL", "claude-sonnet-4-6")
+
+ROUTER_SYSTEM = """You route product-analytics chat questions for Grip Invest's internal analytics platform.
+
+The platform answers questions about the "Asset Search" product feature using ~57 weekly DuckDB tables of raw product event data:
+- search behaviour: initiated, query, result_clicked, empty_state, cleared, suggestion_clicked
+- conversion: invest_now_button_clicked, quick_checkout_invest_clicked, assets_page_views
+- across 6 feature weeks (W1-W6, Apr 2 - May 13 2026)
+
+Output EXACTLY ONE word: reject, haiku, sonnet, or opus
+
+Criteria:
+- reject: the question cannot be answered from the product event data above. Small talk, general knowledge, programming help, jokes, hypotheticals, world events, personal advice, anything outside the product-analytics scope.
+- haiku: ON-TOPIC, single SQL query suffices. Simple lookups, aggregations, filters, sorting. "Show me X", "list the top N", "what is the Y rate", "how many Z".
+- sonnet: ON-TOPIC, multi-step analysis. Comparisons across weeks or segments. Trend interpretation. "Why did X change", "compare A and B", anything needing interpretation beyond raw numbers.
+- opus: ON-TOPIC, rare. Causal/cohort reasoning, hypothesis testing, multi-table interactions with edge cases.
+
+For on-topic questions default to haiku when uncertain. For clearly off-topic questions output reject. Cost and latency matter; only escalate when truly needed."""
+
+REJECTION_MESSAGE = (
+    "I can only answer questions about the **asset_search** product data — search "
+    "behaviour, query terms, zero-result rates, adoption, conversion, issuers, "
+    "weekly cuts (W1–W6).\n\n"
+    "Try something like:\n"
+    "- *What's the zero-result rate by week?*\n"
+    "- *Which issuers have the worst conversion?*\n"
+    "- *Show the top 20 most-searched terms.*"
+)
+
+
+def _latest_user_question(messages: list[dict]) -> str:
+    """Return the most recent user-role string content. Skips tool_result turns
+    (which are also role=user but carry a list of result blocks, not a
+    question). Returns '' if no question found, which routes to the fallback."""
+    for m in reversed(messages):
+        if m.get("role") != "user":
+            continue
+        c = m.get("content", "")
+        if isinstance(c, str) and c.strip():
+            return c
+    return ""
+
+
+def select_model(messages: list[dict]) -> tuple[str | None, str]:
+    """Run the advisor. Returns (model_id, label).
+
+    Labels: 'reject' (off-topic; model_id=None), 'haiku' | 'sonnet' | 'opus'
+    (on-topic; model_id is the API model ID).
+
+    Never raises. Any error → (Haiku, 'haiku') — degrade to "always answer
+    with the cheap model" rather than failing the chat. We'd rather answer
+    an off-topic question imperfectly than 500 the user.
+    """
+    question = _latest_user_question(messages)
+    if not question:
+        return None, "reject"  # empty question → don't waste an answer call
+    try:
+        resp = client.messages.create(
+            model=ROUTER_MODEL,
+            max_tokens=8,
+            system=ROUTER_SYSTEM,
+            messages=[{"role": "user", "content": question}],
+        )
+        text = "".join(b.text for b in resp.content if hasattr(b, "text")).strip().lower()
+        # The advisor occasionally wraps the word in punctuation or quotes;
+        # we match by `in` rather than equality so 'haiku.' or '"sonnet"'
+        # still routes correctly.
+        # Order matters: check 'reject' first so a question that incidentally
+        # contains "haiku" or "sonnet" doesn't get the wrong label.
+        for label in ROUTER_LABELS:
+            if label in text:
+                if label == "reject":
+                    return None, "reject"
+                return MODEL_CHOICES[label], label
+    except Exception as e:
+        print(f"⚠️  advisor fell back to Haiku: {e}")
+    return MODEL_FALLBACK, "haiku"
+
+
+# Kept as a backward-compat default for the sync chat() path below — also the
+# value used if select_model returns the haiku label.
+MODEL = MODEL_FALLBACK
 
 # Tool definition — Claude uses this to write queries
 EXECUTE_SQL_TOOL = {
@@ -87,6 +185,12 @@ You have direct access to raw product event data via the execute_sql tool.
 {EVENT_CONTEXT}
 
 Guidelines:
+- ONLY answer questions about the product event data above. If the user asks
+  something off-topic (small talk, general knowledge, programming, jokes,
+  hypotheticals), politely decline and suggest they ask about search
+  behaviour, conversion, issuers, query terms, or weekly trends instead. Do
+  NOT speculate, do NOT roleplay, do NOT answer the off-topic question even
+  partially — a clean redirect is the right response.
 - Always use execute_sql to answer data questions — never guess numbers.
 - After getting results, explain them in plain English for a product/business audience.
 - If a question is ambiguous, make a reasonable assumption, state it, then query.
@@ -103,13 +207,20 @@ def chat(project_id: str, messages: list[dict], stream_callback=None) -> str:
     Run the tool_use loop for one user turn.
     Returns the final assistant text.
     stream_callback(token: str) → called with each streamed text token if provided.
+
+    Currently unused — kept for interactive REPL use. Mirrors stream_chat's
+    advisor + reject flow so any caller gets identical routing behaviour.
     """
     system = build_system_prompt(project_id)
     current_messages = list(messages)
 
+    model_id, label = select_model(messages)
+    if label == "reject":
+        return REJECTION_MESSAGE
+
     while True:
         response = client.messages.create(
-            model=MODEL,
+            model=model_id,
             max_tokens=2048,
             system=system,
             tools=[EXECUTE_SQL_TOOL],
@@ -168,14 +279,31 @@ async def stream_chat(project_id: str, messages: list[dict]):
     Async generator that yields tokens as they stream.
     First executes tool_use loop (non-streaming for tool calls),
     then streams the final answer.
+
+    Advisor flow: an initial select_model() call decides whether the question
+    is on-topic and which model should answer. The label is emitted as the
+    first SSE event so the UI can show a model badge and reject-state without
+    needing to inspect the body.
     """
     system = build_system_prompt(project_id)
     current_messages = list(messages)
 
+    # Route the question. ~500-1000ms of advisor latency before the actual
+    # answer starts. See ROUTER_SYSTEM for the routing taxonomy.
+    model_id, label = select_model(messages)
+    yield f"data: {json.dumps({'type': 'model', 'label': label})}\n\n"
+
+    # Off-topic — refuse politely with a fixed message; do NOT spend the
+    # answer tokens, do NOT touch DuckDB.
+    if label == "reject":
+        yield f"data: {json.dumps({'type': 'text', 'text': REJECTION_MESSAGE})}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
     # Run tool_use loop until Claude is ready to answer
     while True:
         response = client.messages.create(
-            model=MODEL,
+            model=model_id,
             max_tokens=2048,
             system=system,
             tools=[EXECUTE_SQL_TOOL],
@@ -222,9 +350,9 @@ async def stream_chat(project_id: str, messages: list[dict]):
 
         current_messages.append({"role": "user", "content": tool_results})
 
-    # Stream the final answer
+    # Stream the final answer — uses the advisor-selected model from above.
     with client.messages.stream(
-        model=MODEL,
+        model=model_id,
         max_tokens=2048,
         system=system,
         messages=current_messages,
