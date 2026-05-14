@@ -122,15 +122,36 @@ other origin (custom domain, preview deploys), set
 
 ---
 
-## 5. Keep the backend warm — UptimeRobot (2 min, optional)
+## 5. Keep the backend warm
 
-Render's free tier sleeps after ~15 min idle, so the first request after a nap is
-slow. To avoid that:
+Render's free tier sleeps after ~15 min idle, so the first request after a nap
+costs 30–60s. Two ways to keep it awake — the in-repo workflow is the default;
+UptimeRobot is the optional belt-and-suspenders backup.
+
+### Built-in: GitHub Actions cron (zero setup)
+
+`.github/workflows/keepalive.yml` already runs `GET /ping` every 10 min on
+GitHub Actions. **Nothing to configure** — as long as the workflow is on the
+default branch, it runs. Drift in GH cron is 5–15 min during high-load
+periods; the 10-min cadence leaves ~5 min of buffer below Render's 15-min
+sleep timer.
+
+To verify: GitHub repo → **Actions** tab → **keepalive** workflow → recent
+runs should be green. A persistent red run means Render itself is down (not a
+keep-alive issue).
+
+To disable: delete the workflow file, or comment out the `schedule:` block
+and rely solely on UptimeRobot (below).
+
+### Optional: UptimeRobot (redundancy)
+
+If you want a second pinger from a different network/region (useful when GH
+Actions has its rare incident days):
 
 1. https://uptimerobot.com → free account.
 2. **Add Monitor** → HTTP(s) → URL `https://grip-analytics-api.onrender.com/ping`
-   → interval 5 min (≤ Render's 15-min idle window).
-3. Save. The backend stays up 24/7.
+   → interval 5 min.
+3. Save. Both pingers can coexist — `/ping` is idempotent.
 
 ---
 
@@ -140,7 +161,8 @@ slow. To avoid that:
 |---|---|
 | Vercel (frontend) | $0 |
 | Render (backend) | $0 |
-| UptimeRobot | $0 |
+| GitHub Actions keep-alive | $0 (public repos unlimited; private repos use ~12 min/day of the 2000 min/month free quota) |
+| UptimeRobot (optional) | $0 |
 | Anthropic API (chat) | usage-based, ~a few $/mo at low volume |
 
 ---

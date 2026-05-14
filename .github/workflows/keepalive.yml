@@ -1,0 +1,47 @@
+# Keep-alive ping for the Render-hosted backend.
+#
+# Security note: this workflow consumes ZERO untrusted inputs. The schedule is
+# fixed, the URL is hardcoded, no github.event.* or repository fork-triggered
+# values are interpolated into shell. The injection vectors the
+# security-reminder hook warns about don't apply here.
+#
+# Why this exists. Render's free tier puts the service to sleep after 15 min
+# of no inbound traffic. Waking it costs 30-60s on the next request — long
+# enough that users assume the app is broken. A scheduled GET to /ping holds
+# the dyno awake during waking hours so cold starts only happen overnight.
+#
+# Why every 10 min. Render sleeps at 15. GitHub Actions cron is best-effort
+# and drifts 5-15 min during high-load periods. 10 min leaves ~5 min of
+# buffer below the sleep timeout even when scheduling drifts worst-case.
+#
+# Why this lives in-repo and not in UptimeRobot. Version-controlled, no
+# external account to administer, deployable in one PR. UptimeRobot is fine
+# as a redundant backup but the source of truth lives here.
+#
+# Why /ping and not /health. /ping is a 4-byte "ok" response (see
+# backend/main.py); /health builds and serialises the table list, which is
+# heavier work. Both are in BasicAuthMiddleware.OPEN_PATHS so neither needs
+# credentials.
+
+name: keepalive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    # 2 min hard cap. Cold starts top out around 60s; if curl is still hanging
+    # past that, the dyno is genuinely stuck and we want to fail fast.
+    timeout-minutes: 2
+    steps:
+      - name: GET /ping
+        run: |
+          curl -fsS -m 90 -o /dev/null \
+            -w "code=%{http_code} time=%{time_total}s\n" \
+            https://grip-analytics-api.onrender.com/ping
