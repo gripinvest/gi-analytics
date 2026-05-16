@@ -245,7 +245,11 @@ export function ChatPanel({ projectId, isOpen, onClose }: Props) {
               disabled={loading}
               className="flex-1 resize-none rounded-sm border border-border-default bg-surface px-3 py-2 t-body-sm text-heading outline-none placeholder:text-tertiary focus:border-navy-400 disabled:bg-muted"
             />
-            <Button size="md" onClick={send} disabled={loading || !input.trim()} className="min-w-[3.25rem]">
+            {/* Wrap in an arrow fn — send() now takes an optional string
+                override (for suggestion chips). Passing `send` bare would
+                hand the click MouseEvent in as `override`, which both
+                type-errors and would send the event object as a question. */}
+            <Button size="md" onClick={() => send()} disabled={loading || !input.trim()} className="min-w-[3.25rem]">
               {loading ? <Spinner size="sm" /> : "Ask"}
             </Button>
           </div>

@@ -12,8 +12,13 @@ Flow:
 
 import os
 import json
+from pathlib import Path
 import anthropic
 from services.duck import db
+
+# Where project.json files live — mirrors routers/projects.py. Used to read
+# each project's chat_context (the per-project domain glossary).
+DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
@@ -53,56 +58,61 @@ ROUTER_MODEL = os.getenv("CHAT_ROUTER_MODEL", "claude-sonnet-4-6")
 # is misclassifying too many on-topic follow-ups.
 DISABLE_REJECT = os.getenv("CHAT_DISABLE_REJECT") == "1"
 
-ROUTER_SYSTEM = """You route product-analytics chat questions for Grip Invest's internal analytics platform.
+def _router_system(project_context: str) -> str:
+    """Build the router's system prompt for a given project.
 
-The platform answers questions about the "Asset Search" product feature using ~57 weekly DuckDB tables of raw product event data:
-- search behaviour: initiated, query, result_clicked, empty_state, cleared, suggestion_clicked
-- conversion: invest_now_button_clicked, quick_checkout_invest_clicked, assets_page_views
-- across 6 feature weeks (W1-W6, Apr 2 - May 13 2026)
+    The router used to be hardcoded to the asset_search domain, which meant a
+    perfectly valid question about another project (e.g. 'compare AUM across
+    partners' on Grip Connect) got rejected as off-topic. We now inject the
+    project's own chat_context so 'on-topic' is judged against the right
+    project's vocabulary.
+    """
+    ctx = project_context.strip() or "(no extra project context provided)"
+    return f"""You route analytics chat questions for Grip Invest's internal analytics platform.
 
-The platform's domain vocabulary (these are ALWAYS on-topic — definition questions about them belong on haiku):
-- ZRR: zero-result rate (% of queries returning no results)
-- CVR / conversion rate / search lift: searchers vs non-searchers conversion ratio
-- adoption rate: share of visitors who focus the search box
-- refinement rate: share of queries flagged is_refinement=true
-- suggestion CTR: share of focused sessions that clicked a suggestion
-- abandonment / frustrated users: sessions where the user cleared search with had_results=false
-- relevance gap: sessions where had_results=true but no result was clicked
-- issuers, keywords, terms, weekly cohorts (W1-W6), invest CTAs, quick checkout
+The platform hosts multiple analytics projects. The user is currently working inside ONE project. Here is that project's domain context — treat anything it describes as ON-TOPIC:
 
-You will see the most recent few turns of the conversation, not just the latest question. Use the prior turns to interpret pronouns and references — a follow-up like "what are the conversion numbers for these terms" inherits "these terms" from the prior turn, and is ON-TOPIC if the conversation has been about search data even when the latest message in isolation looks vague.
+--- PROJECT CONTEXT ---
+{ctx}
+--- END PROJECT CONTEXT ---
+
+You will see the most recent few turns of the conversation, not just the latest question. Use the prior turns to interpret pronouns and references — a follow-up like "what are the conversion numbers for these" inherits its subject from the prior turn, and is ON-TOPIC if the conversation has been about this project's data even when the latest message in isolation looks vague.
 
 Output EXACTLY ONE word: reject, haiku, sonnet, or opus
 
 Criteria:
-- reject: the question cannot be answered from the product event data above AND the question doesn't reference any term from the domain vocabulary list above. Small talk, general knowledge, programming help, jokes, hypotheticals, world events, personal advice. Be conservative — if any reasonable interpretation given conversation context OR the domain vocabulary is on-topic, route on-topic instead.
-- haiku: ON-TOPIC. Single SQL query suffices, OR a definition / methodology question about a domain term. "Show me X", "list the top N", "what is the Y rate", "how many Z", "what is ZRR", "how is adoption computed". Follow-ups to prior on-topic answers default here.
-- sonnet: ON-TOPIC, multi-step analysis. Comparisons across weeks or segments. Trend interpretation. "Why did X change", "compare A and B", anything needing interpretation beyond raw numbers.
+- reject: the question cannot be answered from this project's data AND doesn't reference anything in the project context above. Small talk, general knowledge, programming help, jokes, hypotheticals, world events, personal advice. Be conservative — if any reasonable interpretation given conversation context OR the project context is on-topic, route on-topic instead.
+- haiku: ON-TOPIC. Single SQL query suffices, OR a definition / methodology question about a project term. "Show me X", "list the top N", "what is the Y rate", "how many Z", "how is X computed". Follow-ups to prior on-topic answers default here.
+- sonnet: ON-TOPIC, multi-step analysis. Comparisons across segments or periods. Trend interpretation. "Why did X change", "compare A and B", anything needing interpretation beyond raw numbers.
 - opus: ON-TOPIC, rare. Causal/cohort reasoning, hypothesis testing, multi-table interactions with edge cases.
 
-For on-topic questions default to haiku when uncertain. Only reject when the question is unambiguously outside the product-analytics scope AND outside the domain vocabulary. Cost and latency matter; only escalate when truly needed."""
+For on-topic questions default to haiku when uncertain. Only reject when the question is unambiguously outside the project's analytics scope. Cost and latency matter; only escalate when truly needed."""
+
 
 REJECTION_MESSAGE = (
-    "I can only answer questions about the **asset_search** product data — search "
-    "behaviour, query terms, zero-result rates, adoption, conversion, issuers, "
-    "weekly cuts (W1–W6).\n\n"
-    "Try something like:\n"
-    "- *What's the zero-result rate by week?*\n"
-    "- *Which issuers have the worst conversion?*\n"
-    "- *Show the top 20 most-searched terms.*"
+    "I can only answer questions about this project's data. Ask about the "
+    "metrics, tables, and trends this dashboard covers — for example a "
+    "breakdown by segment or period, a comparison between groups, or the "
+    "definition of one of the metrics shown above."
 )
 
-FOLLOWUPS_SYSTEM = """You suggest 3 follow-up questions a product manager might ask next about Grip's asset_search product data.
 
-Context: the platform answers questions over weekly product event tables (search initiated/query/cleared/empty_state, result clicks, suggestions, invest CTAs, page views) across W1-W6 (Apr 2 - May 13 2026).
+def _followups_system(project_context: str) -> str:
+    """Build the follow-up-suggestion system prompt for a given project."""
+    ctx = project_context.strip() or "(no extra project context provided)"
+    return f"""You suggest 3 follow-up questions an analyst might ask next, scoped to ONE analytics project.
 
-Given the user's prior question and the analyst's answer, output 3 SHORT follow-up questions — concise, on-topic, distinct from the original question, each ≤ 12 words. Good follow-ups dig deeper (break down by week/issuer/term, compare segments, ask "why").
+--- PROJECT CONTEXT ---
+{ctx}
+--- END PROJECT CONTEXT ---
+
+Given the user's prior question and the analyst's answer, output 3 SHORT follow-up questions — concise, on-topic for THIS project, distinct from the original question, each ≤ 12 words. Good follow-ups dig deeper (break down by segment/period, compare groups, ask "why").
 
 Output ONLY a JSON array of 3 strings, nothing else. Example:
-["Break this down by week", "Compare W3 vs W6 on the same metric", "Which issuers dominate the top results?"]"""
+["Break this down by segment", "Compare the two best performers", "Which metric moved the most?"]"""
 
 
-def _suggest_followups(question: str, answer: str) -> list[str]:
+def _suggest_followups(question: str, answer: str, project_context: str = "") -> list[str]:
     """Generate 3 follow-up question suggestions. Always uses Haiku — this is
     cheap classification + light creativity, not analytical reasoning. Returns
     [] on any failure (UI gracefully hides the chip row when empty).
@@ -116,7 +126,7 @@ def _suggest_followups(question: str, answer: str) -> list[str]:
         resp = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=200,
-            system=FOLLOWUPS_SYSTEM,
+            system=_followups_system(project_context),
             messages=[{
                 "role": "user",
                 "content": f"User asked: {question}\n\nAnalyst answered (possibly truncated): {answer[:1500]}\n\nThree follow-up questions:",
@@ -220,11 +230,16 @@ def _conversation_excerpt(messages: list[dict], max_chars: int = 1800) -> str:
     return "\n\n".join(reversed(parts))
 
 
-def select_model(messages: list[dict]) -> tuple[str | None, str]:
+def select_model(messages: list[dict], project_context: str = "") -> tuple[str | None, str]:
     """Run the advisor. Returns (model_id, label).
 
     Labels: 'reject' (off-topic; model_id=None), 'haiku' | 'sonnet' | 'opus'
     (on-topic; model_id is the API model ID).
+
+    `project_context` is the active project's chat_context — it's injected
+    into the router prompt so 'on-topic' is judged against the right
+    project's vocabulary (a Grip Connect question must not be rejected just
+    because it isn't about asset_search).
 
     Never raises. Any error → (Haiku, 'haiku') — degrade to "always answer
     with the cheap model" rather than failing the chat. We'd rather answer
@@ -248,7 +263,7 @@ def select_model(messages: list[dict]) -> tuple[str | None, str]:
         resp = client.messages.create(
             model=ROUTER_MODEL,
             max_tokens=8,
-            system=ROUTER_SYSTEM,
+            system=_router_system(project_context),
             messages=[{"role": "user", "content": router_input}],
         )
         text = "".join(b.text for b in resp.content if hasattr(b, "text")).strip().lower()
@@ -302,7 +317,11 @@ EXECUTE_SQL_TOOL = {
     }
 }
 
-EVENT_CONTEXT = """
+# Default domain context for the asset_search project. Projects can override
+# this with a `chat_context` string in their project.json (see
+# _project_chat_context below) — asset_search keeps this hardcoded default for
+# back-compat since its project.json predates the chat_context convention.
+ASSET_SEARCH_CONTEXT = """
 Event schema notes (Grip Asset Search feature):
 - asset_search_initiated: fires when user focuses search input. Payload: active_tab, assets_visible_count.
 - asset_search_query: fires per query change (debounced 300ms, query ≥ 3 chars). 
@@ -320,44 +339,72 @@ Event schema notes (Grip Asset Search feature):
   NOTE: this fires on FOCUS, not after zero results. It is a pre-search discovery event.
 
 All tables use context_session_id for session tracking and user_id for user tracking.
-Test user IDs to exclude: 3, 4, 207871, 207875, 207878, 207879.
+Test user IDs to exclude from all queries: 3, 4, 207871, 207875, 207878, 207879.
 Weeks are feature-relative from Apr 2 2026 launch: W1=Apr2-8, W2=Apr9-15, W3=Apr16-22, W4=Apr23-29, W5=Apr30-May6, W6=May7+.
-"""
 
-
-def build_system_prompt(project_id: str) -> str:
-    schema = db.get_schema(project_id)
-    return f"""You are an analytics assistant for Grip Invest's internal analytics platform.
-You have direct access to raw product event data via the execute_sql tool.
-
-{schema}
-
-{EVENT_CONTEXT}
-
-Guidelines:
-- ONLY answer questions about the product event data above. If the user asks
-  something off-topic (small talk, general knowledge, programming, jokes,
-  hypotheticals), politely decline and suggest they ask about search
-  behaviour, conversion, issuers, query terms, or weekly trends instead. Do
-  NOT speculate, do NOT roleplay, do NOT answer the off-topic question even
-  partially — a clean redirect is the right response.
-- Use execute_sql for DATA questions (anything requiring numbers from the
-  tables). For DEFINITION / METHODOLOGY questions about platform terms (ZRR,
-  CVR, adoption rate, refinement rate, search lift, abandonment, relevance
-  gap, etc.) you may answer directly from the definitions below WITHOUT
-  calling execute_sql — those questions don't need a query, just a clear
-  explanation grounded in the schema.
-- Never guess numbers — if a number isn't available from execute_sql or
-  from a prior tool call in this turn, say you'd need to query.
-- After getting results, explain them in plain English for a product/business audience.
-- If a question is ambiguous, make a reasonable assumption, state it, then query.
-- When showing numbers, round appropriately (no floating point noise).
-- Exclude test users (IDs: 3, 4, 207871, 207875, 207878, 207879) from all queries.
+Metric definitions (you may answer definition questions about these directly, no SQL needed):
 - ZRR = zero-result rate. Computed at query level: rows where results_count=0 / total rows in asset_search_query.
 - CVR / search lift = searchers' conversion rate ÷ non-searchers' conversion rate. Searcher = appears in asset_search_initiated. Converted = appears in invest_now_button_clicked / quick_checkout_invest_clicked.
 - Adoption rate = COUNT(DISTINCT user_id) in asset_search_initiated ÷ COUNT(DISTINCT user_id) in (assets_page_views ∪ asset_search_initiated), per week.
 - "Frustrated users" / abandonment = sessions in asset_search_cleared where had_results='false'.
 - "Relevance gap" = sessions in asset_search_cleared where had_results='true' AND any_result_clicked='false'.
+"""
+
+
+def _project_chat_context(project_id: str) -> str:
+    """Return the domain glossary for a project's chat system prompt.
+
+    Resolution order:
+      1. `chat_context` string in the project's project.json — the per-project
+         convention; every new project should set this.
+      2. ASSET_SEARCH_CONTEXT for the asset_search project — back-compat, its
+         project.json predates the convention.
+      3. Empty string — the schema dump alone still lets the model query; it
+         just lacks the human glossary.
+    """
+    meta_path = DATA_DIR / project_id / "project.json"
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+            ctx = meta.get("chat_context")
+            if isinstance(ctx, str) and ctx.strip():
+                return ctx
+        except Exception as e:
+            print(f"⚠️  could not read chat_context for {project_id}: {e}")
+    if project_id == "asset_search":
+        return ASSET_SEARCH_CONTEXT
+    return ""
+
+
+def build_system_prompt(project_id: str) -> str:
+    schema = db.get_schema(project_id)
+    context = _project_chat_context(project_id)
+    return f"""You are an analytics assistant for Grip Invest's internal analytics platform.
+You have direct access to raw product event data via the execute_sql tool.
+
+{schema}
+
+{context}
+
+Guidelines:
+- ONLY answer questions about this project's data (the schema and project
+  context above). If the user asks something off-topic (small talk, general
+  knowledge, programming, jokes, hypotheticals), politely decline and suggest
+  they ask about the metrics, tables, or trends this project covers. Do NOT
+  speculate, do NOT roleplay, do NOT answer the off-topic question even
+  partially — a clean redirect is the right response.
+- Use execute_sql for DATA questions (anything requiring numbers from the
+  tables). For DEFINITION / METHODOLOGY questions about a metric you may
+  answer directly from the project context above WITHOUT calling execute_sql
+  — those questions don't need a query, just a clear explanation grounded in
+  the schema.
+- Never guess numbers — if a number isn't available from execute_sql or
+  from a prior tool call in this turn, say you'd need to query.
+- Follow any project-specific rules in the project context above (test-user
+  exclusions, metric definitions, units, etc.).
+- After getting results, explain them in plain English for a product/business audience.
+- If a question is ambiguous, make a reasonable assumption, state it, then query.
+- When showing numbers, round appropriately (no floating point noise).
 """
 
 
@@ -371,9 +418,10 @@ def chat(project_id: str, messages: list[dict], stream_callback=None) -> str:
     advisor + reject flow so any caller gets identical routing behaviour.
     """
     system = build_system_prompt(project_id)
+    project_context = _project_chat_context(project_id)
     current_messages = _sanitise_for_api(messages)
 
-    model_id, label = select_model(current_messages)
+    model_id, label = select_model(current_messages, project_context)
     if label == "reject":
         return REJECTION_MESSAGE
 
@@ -460,6 +508,7 @@ async def stream_chat(project_id: str, messages: list[dict]):
     breadcrumb so we can debug).
     """
     system = build_system_prompt(project_id)
+    project_context = _project_chat_context(project_id)
     # Strip frontend-only fields (model, followups) before any API call —
     # see _sanitise_for_api docstring. This MUST happen before select_model
     # too because the router builds an excerpt from messages that gets sent
@@ -468,8 +517,8 @@ async def stream_chat(project_id: str, messages: list[dict]):
 
     try:
         # Route the question. ~500-1000ms of advisor latency before the actual
-        # answer starts. See ROUTER_SYSTEM for the routing taxonomy.
-        model_id, label = select_model(current_messages)
+        # answer starts. The project_context scopes 'on-topic' to this project.
+        model_id, label = select_model(current_messages, project_context)
         yield f"data: {json.dumps({'type': 'model', 'label': label})}\n\n"
 
         # Off-topic — refuse politely with a fixed message; do NOT spend the
@@ -559,7 +608,7 @@ async def stream_chat(project_id: str, messages: list[dict]):
         # any failure, and the UI hides the chip row when the array is empty,
         # so this path can never break the chat.
         user_question = _latest_user_question(current_messages)
-        suggestions = _suggest_followups(user_question, answer_text)
+        suggestions = _suggest_followups(user_question, answer_text, project_context)
         if suggestions:
             yield f"data: {json.dumps({'type': 'followups', 'suggestions': suggestions})}\n\n"
 
