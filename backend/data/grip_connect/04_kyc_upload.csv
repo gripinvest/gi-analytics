@@ -1,0 +1,3 @@
+partner,week,doc_type,requests,success,errors,error_rate_pct
+ET Money,2026-05-04,PAN,2859,2799,60,2.10
+ET Money,2026-05-04,Bank (cheque),212,212,0,0.00
