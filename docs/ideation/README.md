@@ -19,7 +19,7 @@ quality bar at small viewports (mobile-first).
 | Thread | One-line | Doc |
 |---|---|---|
 | **Multi-project platform** | Many projects across feature, journey, domain, external. Generic config-driven dashboards as the default; bespoke as the exception. | [multi-project-platform.md](./multi-project-platform.md) |
-| **Config-driven dashboards** | One `GenericDashboard` renders from a `project.json` `dashboard` config. New dashboard = config edit, then a form, then a drag-editor. Self-serve authoring over any data source. | [config-dashboard.md](./config-dashboard.md) |
+| **Config-driven dashboards** | One `GenericDashboard` renders from a `project.json` `dashboard` config. AI-authored from plain language against a defined widget catalogue; unmet requests become developer tickets. Interactive `explorer` sections, a plug-and-play component repository, any data source. | [config-dashboard.md](./config-dashboard.md) |
 | **Mobile-first, always** | Standing principle. Every UI starts at ≤375px. | [mobile-first.md](./mobile-first.md) |
 | **PWA + installable + offline** | Goal: installable home-screen app + offline-resilient reading. Chat offline is **not** a goal. | [pwa-offline.md](./pwa-offline.md) |
 | **Data integrations + refresh** | Pluggable adapters per source (Metabase today; Sentry, Google Play, App Store, New Relic, YouTube, custom DBs next). Platform owns canonical raw data. | [data-integrations.md](./data-integrations.md) |
