@@ -14,6 +14,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { runQuery, refreshProject, pollRefresh } from "@/lib/api";
+import GripConnectPartnerEdition from "./GripConnectPartnerEdition";
 
 /* ── partner colour-coding ────────────────────────────────────────────────
    Each partner gets a stable accent so it's recognisable across sections.
@@ -28,6 +29,15 @@ const RAW_TO_DISPLAY = {
   "Paisa Bazaar": "Paisa Bazaar",
   "Mobikwik": "Mobikwik",
   "Tata Digital Private Ltd": "Tata Digital",
+};
+
+/* The inverse — display name -> raw Metabase name, for WHERE-clause filters
+   against the layer-1 card tables. */
+export const DISPLAY_TO_RAW = {
+  "ET Money": "ET money",
+  "Paisa Bazaar": "Paisa Bazaar",
+  "Mobikwik": "Mobikwik",
+  "Tata Digital": "Tata Digital Private Ltd",
 };
 
 /* ── number formatting ────────────────────────────────────────────────────*/
@@ -184,7 +194,7 @@ function LedgerTable({ cols, rows, loading }) {
 }
 
 /* ── Section I — North Star ───────────────────────────────────────────────*/
-function NorthStarSection({ rows, dailyRows, loading }) {
+function NorthStarSection({ rows, dailyRows, loading, onPartnerSelect }) {
   // Pivot the long table into { partner: { AUM, FTI, Repeat } }.
   const byPartner = {};
   for (const r of rows || []) {
@@ -207,7 +217,15 @@ function NorthStarSection({ rows, dailyRows, loading }) {
             const m = byPartner[partner];
             return (
               <div key={partner} className="ed-set">
-                <p className="ed-overline mb-3" style={{ color: "var(--ed-ink)" }}>{partner}</p>
+                <button
+                  type="button"
+                  onClick={() => onPartnerSelect && onPartnerSelect(partner)}
+                  className="ed-overline mb-3 hover:underline"
+                  style={{ color: "var(--ed-ink)", display: "block", minHeight: 30 }}
+                  title={`Open the ${partner} dossier`}
+                >
+                  {partner} →
+                </button>
                 <div className="grid grid-cols-3 gap-x-4">
                   <NorthStarFigure label="AUM" row={m.AUM} fmt={fmtAum} />
                   <NorthStarFigure label="First-time" row={m.FTI} fmt={fmtCount} />
@@ -408,6 +426,47 @@ function AwaitingPlate({ no, title, deck, partners }) {
   );
 }
 
+/* ── partner navigation — switch between the combined report and each
+   partner's dossier. Horizontal-scrolls on mobile (mobile-first §A). ────────*/
+function PartnerNav({ view, onSelect }) {
+  const tabs = ["overview", ...PARTNER_ORDER];
+  return (
+    <nav
+      className="mt-6 overflow-x-auto"
+      style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+      aria-label="Report sections"
+    >
+      <div
+        className="flex"
+        style={{ borderTop: "1px solid var(--ed-ink)", borderBottom: "1px solid var(--ed-rule-faint)" }}
+      >
+        {tabs.map((t) => {
+          const active = view === t;
+          const label = t === "overview" ? "The Combined Report" : t;
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => onSelect(t)}
+              className="ed-caption shrink-0 whitespace-nowrap"
+              style={{
+                minHeight: 44,
+                padding: "0 16px",
+                color: active ? "var(--ed-ink)" : "var(--ed-ink-faint)",
+                fontWeight: active ? 600 : 400,
+                borderBottom: active ? "2px solid var(--ed-ink)" : "2px solid transparent",
+                background: active ? "var(--ed-paper-deep)" : "transparent",
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
 /* ── main ─────────────────────────────────────────────────────────────────*/
 export default function GripConnectDashboardEditorial({ project }) {
   const [nonce, setNonce] = React.useState(0);
@@ -416,6 +475,7 @@ export default function GripConnectDashboardEditorial({ project }) {
   const [asOf, setAsOf] = React.useState(
     (project.manifest && project.manifest.refreshed_at) || null
   );
+  const [view, setView] = React.useState("overview");
 
   // Trigger a background refresh: POST, poll to completion, then bump `nonce`
   // so useGripConnect re-fetches and the report updates in place.
@@ -535,32 +595,53 @@ export default function GripConnectDashboardEditorial({ project }) {
         </div>
       </header>
 
-      {/* ── LEDE ─────────────────────────────────────────────────────────── */}
-      <section className="mt-10 ed-set ed-set-delay-1">
-        <p className="ed-overline mb-3">FROM THE EDITOR</p>
-        <p className="ed-lede ed-dropcap" style={{ maxWidth: "60ch" }}>
-          Grip Connect places Grip's investment products inside four partner apps. This report
-          tracks the money they bring in and the friction along the way — from the first redirect,
-          through registration and KYC, to a completed investment.
-        </p>
-      </section>
+      <PartnerNav view={view} onSelect={setView} />
 
-      <NorthStarSection rows={rowsOf("northStar")} dailyRows={rowsOf("dodAum")} loading={loading} />
-      <RegKycSection rows={rowsOf("regKyc")} loading={loading} />
-      <RedirectSection rows={rowsOf("redirect")} loading={loading} />
-      <KycUploadSection rows={rowsOf("kycUpload")} loading={loading} />
-      <AwaitingPlate
-        no="V"
-        title="Webhook delivery"
-        deck="Order- and KYC-confirmation webhook delivery success per partner. Instrumentation pending."
-        partners={PARTNER_ORDER}
-      />
-      <AwaitingPlate
-        no="VI"
-        title="App adoption"
-        deck="Share of invested users who also hold the Grip app — active app holders over lifetime invested users. Instrumentation pending."
-        partners={PARTNER_ORDER}
-      />
+      {view === "overview" ? (
+        <>
+          {/* ── LEDE ───────────────────────────────────────────────────── */}
+          <section className="mt-10 ed-set ed-set-delay-1">
+            <p className="ed-overline mb-3">FROM THE EDITOR</p>
+            <p className="ed-lede ed-dropcap" style={{ maxWidth: "60ch" }}>
+              Grip Connect places Grip's investment products inside four partner apps. This report
+              tracks the money they bring in and the friction along the way — from the first redirect,
+              through registration and KYC, to a completed investment.
+            </p>
+          </section>
+
+          <NorthStarSection
+            rows={rowsOf("northStar")}
+            dailyRows={rowsOf("dodAum")}
+            loading={loading}
+            onPartnerSelect={setView}
+          />
+          <RegKycSection rows={rowsOf("regKyc")} loading={loading} />
+          <RedirectSection rows={rowsOf("redirect")} loading={loading} />
+          <KycUploadSection rows={rowsOf("kycUpload")} loading={loading} />
+          <AwaitingPlate
+            no="V"
+            title="Webhook delivery"
+            deck="Order- and KYC-confirmation webhook delivery success per partner. Instrumentation pending."
+            partners={PARTNER_ORDER}
+          />
+          <AwaitingPlate
+            no="VI"
+            title="App adoption"
+            deck="Share of invested users who also hold the Grip app — active app holders over lifetime invested users. Instrumentation pending."
+            partners={PARTNER_ORDER}
+          />
+        </>
+      ) : (
+        <div className="mt-10">
+          <GripConnectPartnerEdition
+            project={project}
+            partner={view}
+            northStar={rowsOf("northStar").filter((r) => r.partner === view)}
+            funnel={rowsOf("regKyc").find((r) => r.partner === view) || null}
+            onBack={() => setView("overview")}
+          />
+        </div>
+      )}
 
       {/* ── COLOPHON ─────────────────────────────────────────────────────── */}
       <footer className="mt-16">
@@ -574,3 +655,10 @@ export default function GripConnectDashboardEditorial({ project }) {
     </article>
   );
 }
+
+/* Named exports — the editorial primitives shared with the partner dossier
+   (GripConnectPartnerEdition.jsx). */
+export {
+  fmtAum, fmtCount, fmtPct, Delta, SkeletonBlock, LedgerTable,
+  NorthStarFigure, resolveTable,
+};
