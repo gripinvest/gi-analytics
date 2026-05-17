@@ -40,6 +40,7 @@ const fmtAsOf = (iso) => {
    project metadata hasn't loaded the tables list yet. */
 const TABLE_SUFFIXES = {
   northStar:  "01_north_star",
+  dodAum:     "card_3843_summary_dod",
   regKyc:     "02_reg_to_kyc",
   redirect:   "03_redirect_handoff",
   kycUpload:  "04_kyc_upload",
@@ -168,7 +169,7 @@ function LedgerTable({ cols, rows, loading }) {
 }
 
 /* ── Section I — North Star ───────────────────────────────────────────────*/
-function NorthStarSection({ rows, loading }) {
+function NorthStarSection({ rows, dailyRows, loading }) {
   // Pivot the long table into { partner: { AUM, FTI, Repeat } }.
   const byPartner = {};
   for (const r of rows || []) {
@@ -202,6 +203,7 @@ function NorthStarSection({ rows, loading }) {
           })}
         </div>
       )}
+      {!loading && <AumTrend dailyRows={dailyRows} />}
     </section>
   );
 }
@@ -216,6 +218,64 @@ function NorthStarFigure({ label, row, fmt }) {
       <div className="ed-caption" style={{ opacity: 0.7 }}>
         was {fmt(row.lmtd)}
       </div>
+    </div>
+  );
+}
+
+/* Daily AUM trajectory — a ledger of the last 10 days, one column per partner.
+   Fed by the layer-1 `card_3843_summary_dod` table, which only exists after a
+   live refresh; until then it shows an honest "awaiting" plate. The date/AUM
+   column names are detected (not hardcoded) since the exact card schema is
+   pinned only against a live response. Raw card AUM is in rupees → ÷1e7 = Cr. */
+function AumTrend({ dailyRows }) {
+  const rows = dailyRows || [];
+  let dateKey = null;
+  let aumKey = null;
+  if (rows.length) {
+    const keys = Object.keys(rows[0]);
+    dateKey = keys.find((k) => /date|day/i.test(k)) || keys[0];
+    aumKey = keys.find((k) => /aum/i.test(k));
+  }
+  const byDate = {};
+  for (const r of rows) {
+    const d = String(r[dateKey] ?? "").slice(0, 10);
+    if (!d) continue;
+    (byDate[d] ||= {})[r.partner] = aumKey ? r[aumKey] : null;
+  }
+  const dates = Object.keys(byDate).sort().slice(-10);
+
+  return (
+    <div className="mt-10">
+      <hr className="ed-rule mb-4" />
+      <p className="ed-overline mb-3">AUM — daily trajectory</p>
+      {dates.length === 0 ? (
+        <div
+          className="px-5 py-5"
+          style={{ border: "1px solid var(--ed-rule-faint)", background: "var(--ed-paper-deep)" }}
+        >
+          <p className="ed-caption mb-1" style={{ color: "var(--ed-gold)" }}>◷ Awaiting the first live refresh</p>
+          <p className="ed-prose-italic">
+            The day-by-day series fills in once a Metabase refresh has run — press “Refresh data” above.
+          </p>
+        </div>
+      ) : (
+        <LedgerTable
+          loading={false}
+          cols={[
+            { key: "date", label: "Date" },
+            ...PARTNER_ORDER.map((p) => ({
+              key: p, label: p, align: "right", mono: true,
+              render: (r) => {
+                const v = r[p];
+                if (v == null || v === "") return "—";
+                const n = Number(v);
+                return Number.isNaN(n) ? "—" : fmtAum(n / 1e7);
+              },
+            })),
+          ]}
+          rows={dates.map((d) => ({ date: d, ...byDate[d] }))}
+        />
+      )}
     </div>
   );
 }
@@ -469,7 +529,7 @@ export default function GripConnectDashboardEditorial({ project }) {
         </p>
       </section>
 
-      <NorthStarSection rows={rowsOf("northStar")} loading={loading} />
+      <NorthStarSection rows={rowsOf("northStar")} dailyRows={rowsOf("dodAum")} loading={loading} />
       <RegKycSection rows={rowsOf("regKyc")} loading={loading} />
       <RedirectSection rows={rowsOf("redirect")} loading={loading} />
       <KycUploadSection rows={rowsOf("kycUpload")} loading={loading} />
