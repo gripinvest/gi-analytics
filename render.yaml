@@ -24,3 +24,10 @@ services:
         sync: false                       # set to your Vercel URL once the frontend deploys
       - key: PYTHON_VERSION
         value: "3.12.8"
+      # Metabase — powers the Grip Connect live-data refresh endpoint.
+      - key: METABASE_URL
+        value: https://metabase.gripinvest.in
+      - key: METABASE_EMAIL
+        sync: false                       # paste in the Render dashboard
+      - key: METABASE_PASSWORD
+        sync: false                       # paste in the Render dashboard

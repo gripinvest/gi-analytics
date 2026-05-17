@@ -24,6 +24,13 @@ export interface Project {
   updated_at: string;
   owner?: string;
   jira_ticket?: string;
+  dashboard_component?: string;
+  refreshable?: boolean;
+  freshness?: { reuse_window_minutes?: number };
+  manifest?: {
+    refreshed_at?: string;
+    tables?: Record<string, { last_refreshed_at: string }>;
+  } | null;
 }
 
 export interface QueryResult {
@@ -149,4 +156,38 @@ export async function* streamChat(
       }
     }
   }
+}
+
+// ── Refresh ───────────────────────────────────────────────────────────────────
+
+export interface RefreshJob {
+  status: "running" | "done" | "error";
+  log?: string[];
+  error?: string | null;
+}
+
+// Kick a background refresh; returns a job id to poll. A 409 (a refresh is
+// already running) resolves to the in-flight job's id rather than throwing.
+export async function refreshProject(
+  projectId: string
+): Promise<{ job_id: string }> {
+  const res = await fetch(`${BASE}/api/projects/${projectId}/refresh`, {
+    method: "POST",
+  });
+  if (res.status === 409) {
+    const body = await res.json();
+    return { job_id: body?.detail?.job_id ?? "" };
+  }
+  if (!res.ok) throw new Error(`refresh failed: ${res.status}`);
+  return res.json();
+}
+
+// Poll a refresh job. status is "running" | "done" | "error".
+export async function pollRefresh(
+  projectId: string,
+  jobId: string
+): Promise<RefreshJob> {
+  const res = await fetch(`${BASE}/api/projects/${projectId}/refresh/${jobId}`);
+  if (!res.ok) throw new Error(`poll failed: ${res.status}`);
+  return res.json();
 }
