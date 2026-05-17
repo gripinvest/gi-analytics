@@ -20,6 +20,16 @@ import { runQuery, refreshProject, pollRefresh } from "@/lib/api";
    Drawn from the editorial palette — muted, print-appropriate. */
 const PARTNER_ORDER = ["ET Money", "Paisa Bazaar", "Mobikwik", "Tata Digital"];
 
+/* The layer-1 card tables (card_3841/3843/4499) store RAW Metabase partner
+   names; the layer-2 tables and PARTNER_ORDER use display names. Map raw ->
+   display when reading any layer-1 table. */
+const RAW_TO_DISPLAY = {
+  "ET money": "ET Money",
+  "Paisa Bazaar": "Paisa Bazaar",
+  "Mobikwik": "Mobikwik",
+  "Tata Digital Private Ltd": "Tata Digital",
+};
+
 /* ── number formatting ────────────────────────────────────────────────────*/
 const nf = new Intl.NumberFormat("en-IN");
 const fmtPct = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? "—" : `${Number(v).toFixed(1)}%`);
@@ -64,7 +74,12 @@ function useGripConnect(project, nonce) {
     Promise.all(
       keys.map((k) => {
         const table = resolveTable(project.tables, TABLE_SUFFIXES[k], project.id);
-        return runQuery(project.id, `SELECT * FROM "${table}"`, 200)
+        // dodAum is the one large table (one row per partner-day, years of
+        // history) — pull just the most recent slice, newest first.
+        const sql = k === "dodAum"
+          ? `SELECT * FROM "${table}" ORDER BY day DESC LIMIT 160`
+          : `SELECT * FROM "${table}"`;
+        return runQuery(project.id, sql, 200)
           .then((r) => [k, r])
           .catch((e) => [k, { error: String((e && e.message) || e) }]);
       })
@@ -240,7 +255,8 @@ function AumTrend({ dailyRows }) {
   for (const r of rows) {
     const d = String(r[dateKey] ?? "").slice(0, 10);
     if (!d) continue;
-    (byDate[d] ||= {})[r.partner] = aumKey ? r[aumKey] : null;
+    const partner = RAW_TO_DISPLAY[r.partner] || r.partner;
+    (byDate[d] ||= {})[partner] = aumKey ? r[aumKey] : null;
   }
   const dates = Object.keys(byDate).sort().slice(-10);
 
