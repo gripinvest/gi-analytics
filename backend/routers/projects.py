@@ -45,10 +45,16 @@ def get_project(project_id: str):
     # directly server-side — the frontend never reads it.
     meta_path = DATA_DIR / project_id / "project.json"
     meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    # The refresh runner (services/integrations/refresh.py) writes _manifest.json
+    # with per-table last_refreshed_at. The dashboard reads it for the "as of"
+    # marker and the on-open staleness check.
+    manifest_path = DATA_DIR / project_id / "_manifest.json"
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else None
     return {
         "id": project_id,
         **meta,
         "tables": db.tables_for_project(project_id),
+        "manifest": manifest,
     }
 
 

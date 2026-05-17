@@ -24,6 +24,13 @@ export interface Project {
   updated_at: string;
   owner?: string;
   jira_ticket?: string;
+  dashboard_component?: string;
+  refreshable?: boolean;
+  freshness?: { reuse_window_minutes?: number };
+  manifest?: {
+    refreshed_at?: string;
+    tables?: Record<string, { last_refreshed_at: string }>;
+  } | null;
 }
 
 export interface QueryResult {

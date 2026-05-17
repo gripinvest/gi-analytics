@@ -13,7 +13,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { runQuery } from "@/lib/api";
+import { runQuery, refreshProject, pollRefresh } from "@/lib/api";
 
 /* ── partner colour-coding ────────────────────────────────────────────────
    Each partner gets a stable accent so it's recognisable across sections.
@@ -25,6 +25,13 @@ const nf = new Intl.NumberFormat("en-IN");
 const fmtPct = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? "—" : `${Number(v).toFixed(1)}%`);
 const fmtCount = (v) => (v == null || v === "" ? "—" : nf.format(Number(v)));
 const fmtAum = (v) => (v == null || v === "" ? "—" : `₹${Number(v).toFixed(2)}Cr`);
+const fmtAsOf = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? String(iso)
+    : d.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+};
 
 /* ── data loading ─────────────────────────────────────────────────────────
    Resolves each table by filename-stem suffix against project.tables (the
@@ -45,7 +52,7 @@ function resolveTable(tables, suffix, projectId) {
   return hit || `${projectId}__${suffix}`;
 }
 
-function useGripConnect(project) {
+function useGripConnect(project, nonce) {
   const [state, setState] = React.useState({ loading: true, error: null, data: {} });
 
   React.useEffect(() => {
@@ -75,7 +82,7 @@ function useGripConnect(project) {
     });
 
     return () => { cancelled = true; };
-  }, [project.id, project.tables]);
+  }, [project.id, project.tables, nonce]);
 
   return state;
 }
@@ -327,7 +334,55 @@ function AwaitingPlate({ no, title, deck, partners }) {
 
 /* ── main ─────────────────────────────────────────────────────────────────*/
 export default function GripConnectDashboardEditorial({ project }) {
-  const { loading, error, data } = useGripConnect(project);
+  const [nonce, setNonce] = React.useState(0);
+  const { loading, error, data } = useGripConnect(project, nonce);
+  const [refresh, setRefresh] = React.useState({ state: "idle", error: null });
+  const [asOf, setAsOf] = React.useState(
+    (project.manifest && project.manifest.refreshed_at) || null
+  );
+
+  // Trigger a background refresh: POST, poll to completion, then bump `nonce`
+  // so useGripConnect re-fetches and the report updates in place.
+  const handleRefresh = React.useCallback(async () => {
+    setRefresh({ state: "running", error: null });
+    try {
+      const { job_id } = await refreshProject(project.id);
+      if (!job_id) throw new Error("no job id returned");
+      let done = null;
+      for (let i = 0; i < 150 && !done; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const p = await pollRefresh(project.id, job_id);
+        if (p.status === "done") done = p;
+        else if (p.status === "error") {
+          setRefresh({ state: "error", error: p.error || "refresh failed" });
+          return;
+        }
+      }
+      if (!done) { setRefresh({ state: "error", error: "refresh timed out" }); return; }
+      setNonce((n) => n + 1);
+      setAsOf(done.finished_at || new Date().toISOString());
+      setRefresh({ state: "done", error: null });
+      setTimeout(() => setRefresh({ state: "idle", error: null }), 3000);
+    } catch (e) {
+      setRefresh({ state: "error", error: String((e && e.message) || e) });
+    }
+  }, [project.id]);
+
+  // On open: if the snapshot is older than the project's reuse window, refresh
+  // in the background. The report has already rendered cached data, so this
+  // only updates it in place. Fires at most once per mount, and never before
+  // a first refresh has produced a manifest.
+  const autoFired = React.useRef(false);
+  React.useEffect(() => {
+    if (autoFired.current) return;
+    const win = project.freshness && project.freshness.reuse_window_minutes;
+    const stamp = project.manifest && project.manifest.refreshed_at;
+    if (!project.refreshable || !win || !stamp) return;
+    if ((Date.now() - new Date(stamp).getTime()) / 60000 > win) {
+      autoFired.current = true;
+      handleRefresh();
+    }
+  }, [project.refreshable, project.freshness, project.manifest, handleRefresh]);
 
   const rowsOf = (key) => (data[key] && !data[key].error ? data[key].rows || [] : []);
 
@@ -376,6 +431,32 @@ export default function GripConnectDashboardEditorial({ project }) {
             </>
           )}
         </p>
+
+        {/* ── Refresh control — live data from Metabase ─────────────────── */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refresh.state === "running"}
+            className="ed-btn ed-btn-ghost"
+            style={{ minHeight: 44, minWidth: 44, fontSize: 12 }}
+          >
+            {refresh.state === "running" ? "Refreshing…" : "Refresh data ↻"}
+          </button>
+          {refresh.state === "done" && (
+            <span className="ed-caption" style={{ color: "var(--ed-forest)" }}>Updated ✓</span>
+          )}
+          {refresh.state === "error" && (
+            <span className="ed-caption" style={{ color: "var(--ed-rust)" }} title={refresh.error || ""}>
+              Refresh failed ⚠
+            </span>
+          )}
+          {asOf && refresh.state !== "running" && (
+            <span className="ed-caption" style={{ color: "var(--ed-ink-faint)" }}>
+              as of {fmtAsOf(asOf)}
+            </span>
+          )}
+        </div>
       </header>
 
       {/* ── LEDE ─────────────────────────────────────────────────────────── */}
