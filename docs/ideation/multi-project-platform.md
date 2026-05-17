@@ -44,6 +44,12 @@ Stored on `project.json` as `category: "feature" | "journey" | "domain" | "exter
 
 ### C. Two dashboard paths — rebalanced
 
+> **Status (2026-05-17):** the second project — **Grip Connect** — shipped
+> bespoke, completing the "build the second project bespoke too" step of the
+> migration plan below. The config-driven path is now the active next thread
+> and has its own deep doc: **[config-dashboard.md](./config-dashboard.md)**.
+> The schema sketch in C1 below is the short version; that doc specifies it.
+
 **C1. Generic / config-driven dashboard (default for new projects)**
 - One configurable React component (`GenericDashboard.jsx` — already stubbed).
 - Reads `project.json.dashboard` for what to render. Schema sketch:
@@ -79,9 +85,9 @@ Stored on `project.json` as `category: "feature" | "journey" | "domain" | "exter
 - *Default expectation:* most projects do NOT go this route.
 
 **Migration plan:**
-- Keep asset_search bespoke (it set the bar).
-- Build the **second project** bespoke too — that gives the second concrete example to extract patterns from.
-- The **third project onward** uses the generic path.
+- ~~Keep asset_search bespoke (it set the bar).~~ ✅ done.
+- ~~Build the **second project** bespoke too~~ ✅ done — Grip Connect shipped 2026-05-17.
+- The **third project onward** uses the generic path → spec'd in [config-dashboard.md](./config-dashboard.md).
 - *Refactor:* once 3+ generic projects exist, see what they keep configuring around. Those are the missing config keys; bake them into the schema.
 
 ### D. Self-serve dashboard creation

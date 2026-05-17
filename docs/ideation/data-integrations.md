@@ -77,12 +77,22 @@ its own var:
 |---|---|---|
 | `metabase` | `METABASE_URL`, `METABASE_API_KEY` | API key header. Already in `.env.example`. |
 | `sentry` | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` | Bearer token. |
-| `gplay` | `GPLAY_SERVICE_ACCOUNT_JSON` | Google service-account JSON (base64-encoded). |
-| `youtube` | `YOUTUBE_API_KEY` | Public API key works for read-only endpoints. |
+| `gplay` | `GPLAY_SERVICE_ACCOUNT_JSON` | Google service-account JSON (base64-encoded). Reviews, installs, crashes. |
+| `appstore` | `APPSTORE_KEY_ID`, `APPSTORE_ISSUER_ID`, `APPSTORE_PRIVATE_KEY` | App Store Connect API — JWT signed with the private key. Ratings, downloads, crashes. |
+| `newrelic` | `NEWRELIC_API_KEY`, `NEWRELIC_ACCOUNT_ID` | NerdGraph (GraphQL) — NRQL queries for app crash rate, latency, throughput. |
+| `youtube` | `YOUTUBE_API_KEY` | Public API key works for read-only endpoints. Channel/video/comment stats — incl. comparing our channel against others by channel ID. |
 | `csv_url` | (none) | Public URL fetch. |
 | `postgres` | `PG_HOST`, `PG_USER`, … per project | Multiple projects may want different DBs; key by `${id.upper()}_PG_HOST` etc. |
 
 Project owners never see credentials in `project.json`. Credentials are infra-team concerns.
+
+These adapters are the new-work side of the platform: each source kind is a
+file written once, reused by every project that points at it. The dashboard
+that renders the result is *config*, not code — see
+[config-dashboard.md](./config-dashboard.md) §E for how the two decouple
+(an "app health" dashboard over `newrelic` + `appstore` + `gplay`, or a
+"YouTube channel comparison" over `youtube`, is the same `GenericDashboard`
+with a different `project.json`).
 
 ### C. Output canonicalization
 
