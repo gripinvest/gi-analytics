@@ -5,10 +5,10 @@ Layer 2 = derived dashboard tables (North Star, reg-to-KYC funnel).
 Card IDs, partner list and RETENTION_FIELD_MAP are lifted from
 gc-analyst's metabase_fetch.py.
 """
+import math
 from datetime import date
 from .transforms import (
-    compute_mtd_from_dod, compute_retention_metrics,
-    detect_dod_date_column, detect_dod_aum_column, to_float,
+    compute_mtd_from_dod, detect_dod_date_column, detect_dod_aum_column, to_float,
 )
 
 # Card registry — keyed by a stable short name. (metabase_fetch.py:35-54 + 5042/5046)
@@ -24,21 +24,15 @@ CARDS = {
 # Metabase `gc_name` filter values exactly (metabase_fetch.py:57-69).
 PARTNERS = ["ET money", "Paisa Bazaar", "Mobikwik", "Tata Digital Private Ltd"]
 
-# Per-partner retention column map (metabase_fetch.py:94-125).
-RETENTION_FIELD_MAP = {
-    "ET money": {"d1_mtd_repeat": "mtd_et_repeat", "d1_lmtd_repeat": "LMTD_et_repeat",
-                 "d2_mtd_unique": "mtd_et_unique_inv", "d2_lmtd_unique": "lmtd_et_unique_inv"},
-    "Tata Digital Private Ltd": {"d1_mtd_repeat": "mtd_tdl_repeat", "d1_lmtd_repeat": "LMTD_tdl_repeat",
-                 "d2_mtd_unique": "mtd_tdl_unique_inv", "d2_lmtd_unique": "lmtd_tdl_unique_inv"},
-    "Paisa Bazaar": {"d1_mtd_repeat": "mtd_pb_repeat", "d1_lmtd_repeat": "LMTD_pb_repeat",
-                 "d2_mtd_unique": "mtd_pb_unique_inv", "d2_lmtd_unique": "lmtd_pb_unique_inv"},
-    "Mobikwik": {"d1_mtd_repeat": "mtd_mbk_repeat", "d1_lmtd_repeat": "LMTD_mbk_repeat",
-                 "d2_mtd_unique": "mtd_mbk_unique_inv", "d2_lmtd_unique": "lmtd_mbk_unique_inv"},
-}
+# Partner string -> the display name the dashboard expects (its PARTNER_ORDER:
+# "ET Money", "Paisa Bazaar", "Mobikwik", "Tata Digital").
+DISPLAY_NAMES = {"ET money": "ET Money", "Paisa Bazaar": "Paisa Bazaar",
+                 "Mobikwik": "Mobikwik", "Tata Digital Private Ltd": "Tata Digital"}
 
-# Partner string -> the display name used in the dashboard (metabase_fetch.py:72-79).
-DISPLAY_NAMES = {"ET money": "ET Money", "Paisa Bazaar": "Paisabazaar",
-                 "Mobikwik": "MobiKwik", "Tata Digital Private Ltd": "Tata Digital"}
+# Partner string -> the short code used in cards 5042/5046 column names
+# (mtd_<code>_fti, mtd_<code>_repeat, LMTD_<code>_fti, ...).
+RETENTION_CODES = {"ET money": "et", "Paisa Bazaar": "pb",
+                   "Mobikwik": "mbk", "Tata Digital Private Ltd": "tdl"}
 
 
 def build_layer1(client, partners=PARTNERS, cards=None) -> dict[str, list[dict]]:
@@ -72,48 +66,83 @@ def build_layer2(layer1, partners=PARTNERS, active_week_start: date | None = Non
     """Derive the dashboard tables from layer-1.
 
     01_north_star: long format — one row per (partner, metric in AUM/FTI/Repeat).
-    02_reg_to_kyc: the funnel — passed through from card 4499, latest week per partner.
+      · AUM    — month-to-date sum of the DoD card's daily AUM (rupees -> Cr),
+                 against the same window one month prior.
+      · FTI    — month-to-date / last-MTD first-time investors, read straight
+                 from the D1 retention card (card 5042).
+      · Repeat — same, from card 5042's repeat columns.
+    02_reg_to_kyc: the latest week of card 4499, mapped to the six percentage
+      columns the dashboard renders.
     """
     active_week_start = active_week_start or date.today()
-    wow = layer1.get("card_3841_summary_wow", [])
     dod = layer1.get("card_3843_summary_dod", [])
-    d1 = layer1.get("card_5042_retention_d1", [{}])
-    d2 = layer1.get("card_5046_retention_d2", [{}])
+    d1 = (layer1.get("card_5042_retention_d1") or [{}])[0]
     funnel = layer1.get("card_4499_kyc_funnel", [])
 
     north_star: list[dict] = []
     for partner in partners:
-        # AUM — MTD vs LMTD from the DoD card.
+        # AUM — month-to-date sum of daily AUM from the DoD card.
         p_dod = [r for r in dod if r.get("partner") == partner]
-        date_col = detect_dod_date_column(list(p_dod[0])) if p_dod else "date"
+        date_col = detect_dod_date_column(list(p_dod[0])) if p_dod else "day"
         aum_col = detect_dod_aum_column(list(p_dod[0])) if p_dod else "aum"
         cur, prior = compute_mtd_from_dod(p_dod, date_col, aum_col, active_week_start)
         north_star.append(_metric_row(partner, "AUM", cur, prior, unit="cr", scale=1e7))
 
-        # FTI — latest WoW row's fti_count.
-        p_wow = [r for r in wow if r.get("partner") == partner]
-        latest = p_wow[-1] if p_wow else {}
-        north_star.append(_metric_row(partner, "FTI", to_float(latest.get("fti_count")),
-                                      None, unit="count", scale=1))
+        # FTI + Repeat — month-to-date / LMTD straight from the D1 retention card,
+        # whose columns are keyed by the partner's short code (et / pb / mbk / tdl).
+        code = RETENTION_CODES.get(partner)
+        fti_mtd = to_float(d1.get(f"mtd_{code}_fti")) if code else None
+        fti_lmtd = to_float(d1.get(f"LMTD_{code}_fti")) if code else None
+        rep_mtd = to_float(d1.get(f"mtd_{code}_repeat")) if code else None
+        rep_lmtd = to_float(d1.get(f"LMTD_{code}_repeat")) if code else None
+        north_star.append(_metric_row(partner, "FTI", fti_mtd, fti_lmtd, unit="count", scale=1))
+        north_star.append(_metric_row(partner, "Repeat", rep_mtd, rep_lmtd, unit="count", scale=1))
 
-        # Repeat — from retention cards.
-        fmap = RETENTION_FIELD_MAP.get(partner)
-        rep = compute_retention_metrics(d1[0], d2[0], fmap) if fmap else {}
-        north_star.append(_metric_row(partner, "Repeat", rep.get("mtd_repeat"),
-                                      rep.get("lmtd_repeat"), unit="count", scale=1))
-
-    # Funnel: keep the latest row per partner.
-    by_partner: dict[str, dict] = {}
-    for r in funnel:
-        by_partner[r.get("partner")] = r
-    return {"01_north_star": north_star, "02_reg_to_kyc": list(by_partner.values())}
+    # Funnel — the latest week per partner from card 4499, mapped to the
+    # dashboard's six pct columns. Card 4499 stores some ratios as 0-1 fractions;
+    # the dashboard renders pct numbers (90.5 == 90.5%), so fractions are x100.
+    reg_to_kyc: list[dict] = []
+    for partner in partners:
+        p_rows = [r for r in funnel if r.get("partner") == partner]
+        if not p_rows:
+            continue
+        latest = max(p_rows, key=lambda r: str(r.get("week", "")))
+        total = latest.get("no_of_total_reg")
+        reg_to_kyc.append({
+            "partner": DISPLAY_NAMES.get(partner, partner),
+            "week": latest.get("week"),
+            "reg_success_pct":     _pct_of(latest.get("no_of_full_reg"), total),
+            "email_verified_pct":  _pct_of(latest.get("email_verified_users"), total),
+            "mobile_verified_pct": _pct_of(latest.get("mobile_verified_users"), total),
+            "landed_pan_pct":      _as_pct(latest.get("%landed on PAN/full_reg")),
+            "kyc_init_pct":        _as_pct(latest.get("%_kyc_initiated")),
+            "ucc_kyc_init_pct":    _as_pct(latest.get("%ucc/kyc_initiation")),
+        })
+    return {"01_north_star": north_star, "02_reg_to_kyc": reg_to_kyc}
 
 
 def _metric_row(partner, metric, mtd_raw, lmtd_raw, unit, scale):
-    mtd = (mtd_raw / scale) if mtd_raw is not None else None
-    lmtd = (lmtd_raw / scale) if lmtd_raw is not None else None
+    mtd = round(mtd_raw / scale, 2) if mtd_raw is not None else None
+    lmtd = round(lmtd_raw / scale, 2) if lmtd_raw is not None else None
     delta = None
     if mtd is not None and lmtd not in (None, 0):
         delta = round(100.0 * (mtd - lmtd) / lmtd, 2)
     return {"partner": DISPLAY_NAMES.get(partner, partner), "metric": metric,
             "mtd": mtd, "lmtd": lmtd, "delta_pct": delta, "unit": unit}
+
+
+def _pct_of(num, den):
+    """num/den as a percentage number (90.5 == 90.5%), or None."""
+    n, d = to_float(num), to_float(den)
+    if n is None or not d or not math.isfinite(n / d):
+        return None
+    return round(100.0 * n / d, 2)
+
+
+def _as_pct(frac):
+    """A 0-1 fraction -> a percentage number, or None. Drops Infinity/NaN
+    (card 4499's early weeks carry those for zero-denominator ratios)."""
+    f = to_float(frac)
+    if f is None or not math.isfinite(f):
+        return None
+    return round(100.0 * f, 2)

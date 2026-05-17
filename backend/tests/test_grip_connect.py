@@ -27,15 +27,42 @@ def test_build_layer1_tags_rows_with_partner():
     assert rows == [{"partner": "ET money", "week": "2026-05-04", "aum": 1e7}]
 
 
-def test_build_layer2_north_star_has_one_row_per_partner_metric():
+def test_build_layer2_north_star_and_funnel():
+    import datetime
     layer1 = {
-        "card_3841_summary_wow": [{"partner": "ET money", "week": "2026-05-11",
-                                   "aum": 5e7, "fti_count": 12}],
-        "card_3843_summary_dod": [{"partner": "ET money", "date": "2026-05-11", "aum": 1e7}],
-        "card_5042_retention_d1": [{"mtd_et_repeat": 30, "LMTD_et_repeat": 20}],
-        "card_5046_retention_d2": [{"mtd_et_unique_inv": 100, "lmtd_et_unique_inv": 80}],
+        # Daily AUM (rupees) — column name is `day`, matching the real card.
+        "card_3843_summary_dod": [
+            {"partner": "ET money", "day": "2026-05-02", "aum": 1e7},
+            {"partner": "ET money", "day": "2026-05-05", "aum": 2e7},
+        ],
+        # FTI + Repeat come straight from card 5042's mtd_/LMTD_ <code> columns.
+        "card_5042_retention_d1": [{
+            "mtd_et_fti": 90, "LMTD_et_fti": 62,
+            "mtd_et_repeat": 258, "LMTD_et_repeat": 160,
+        }],
+        # Two weeks of the funnel — the latest week must win.
+        "card_4499_kyc_funnel": [
+            {"partner": "ET money", "week": "2026-04-27", "no_of_total_reg": 100,
+             "no_of_full_reg": 80, "email_verified_users": 100, "mobile_verified_users": 100,
+             "%landed on PAN/full_reg": 0.05, "%_kyc_initiated": 0.03, "%ucc/kyc_initiation": 0.24},
+            {"partner": "ET money", "week": "2026-05-04", "no_of_total_reg": 200,
+             "no_of_full_reg": 188, "email_verified_users": 200, "mobile_verified_users": 200,
+             "%landed on PAN/full_reg": 0.051, "%_kyc_initiated": 0.034, "%ucc/kyc_initiation": 0.242},
+        ],
     }
-    l2 = build_layer2(layer1, partners=["ET money"], active_week_start=__import__("datetime").date(2026, 5, 11))
-    ns = l2["01_north_star"]
-    metrics = {r["metric"] for r in ns if r["partner"] == "ET Money"}
-    assert metrics == {"AUM", "FTI", "Repeat"}
+    l2 = build_layer2(layer1, partners=["ET money"],
+                      active_week_start=datetime.date(2026, 5, 17))
+
+    ns = {r["metric"]: r for r in l2["01_north_star"]}
+    assert set(ns) == {"AUM", "FTI", "Repeat"}
+    assert ns["AUM"]["partner"] == "ET Money"        # display name applied
+    assert ns["AUM"]["mtd"] == 3.0                    # (1e7 + 2e7) / 1e7
+    assert ns["FTI"]["mtd"] == 90 and ns["FTI"]["lmtd"] == 62
+    assert ns["Repeat"]["mtd"] == 258
+
+    funnel = l2["02_reg_to_kyc"]
+    assert len(funnel) == 1
+    assert funnel[0]["partner"] == "ET Money"
+    assert funnel[0]["week"] == "2026-05-04"          # latest week wins
+    assert funnel[0]["reg_success_pct"] == 94.0       # 188 / 200 * 100
+    assert funnel[0]["landed_pan_pct"] == 5.1         # 0.051 * 100

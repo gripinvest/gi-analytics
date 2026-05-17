@@ -5,7 +5,7 @@
 import json
 import os
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from .grip_connect import CARDS, PARTNERS, build_layer1, build_layer2
@@ -15,17 +15,12 @@ from .metabase import MetabaseClient
 KEYS = {
     "card_3841_summary_wow":  ["partner", "week"],
     "card_4499_kyc_funnel":   ["partner", "week"],
-    "card_3843_summary_dod":  ["partner", "date"],
+    "card_3843_summary_dod":  ["partner", "day"],
     "card_5042_retention_d1": ["partner"],
     "card_5046_retention_d2": ["partner"],
     "01_north_star":          ["partner", "metric"],
     "02_reg_to_kyc":          ["partner"],
 }
-
-
-def _active_week_start() -> date:
-    today = date.today()
-    return today - timedelta(days=today.weekday() + 7)
 
 
 def run_refresh(client, data_dir, partners=PARTNERS, active_week_start=None) -> dict:
@@ -37,7 +32,7 @@ def run_refresh(client, data_dir, partners=PARTNERS, active_week_start=None) -> 
     """
     from .accumulate import upsert_csv  # local import keeps this importable w/o cycles
     data_dir = Path(data_dir)
-    active_week_start = active_week_start or _active_week_start()
+    active_week_start = active_week_start or date.today()
     log: list[str] = []
 
     layer1 = build_layer1(client, partners=partners)
@@ -59,6 +54,10 @@ def run_refresh(client, data_dir, partners=PARTNERS, active_week_start=None) -> 
 
 
 def main() -> int:
+    # Standalone CLI: load .env so METABASE_* are available (the FastAPI app
+    # loads it in main.py; the GitHub Action injects real env vars instead).
+    from dotenv import load_dotenv
+    load_dotenv()
     base = os.getenv("METABASE_URL", "https://metabase.gripinvest.in")
     email, password = os.getenv("METABASE_EMAIL"), os.getenv("METABASE_PASSWORD")
     if not email or not password:
