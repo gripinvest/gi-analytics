@@ -84,6 +84,14 @@ Stored on `project.json` as `category: "feature" | "journey" | "domain" | "exter
 - *When to use:* a flagship project that earns the engineering investment (asset_search did because of the editorial design + the search-lift narrative).
 - *Default expectation:* most projects do NOT go this route.
 
+> **Refinement (2026-05-17):** C1 and C2 are not actually two *paths* — see
+> [config-dashboard.md](./config-dashboard.md) §G. The end state is one path:
+> bespoke React becomes a `custom` *widget* placed inside a C1 config
+> dashboard. A 100%-bespoke dashboard is just the extreme (one section, one
+> `custom` widget). The `dashboard_component` registry is the transitional
+> form. This also makes bespoke-ness *per-widget* — a dashboard can be 90%
+> config with one hand-built figure, no all-or-nothing choice.
+
 **Migration plan:**
 - ~~Keep asset_search bespoke (it set the bar).~~ ✅ done.
 - ~~Build the **second project** bespoke too~~ ✅ done — Grip Connect shipped 2026-05-17.

@@ -45,9 +45,15 @@ changes *presentation*:
   entry, no PR.
 
 `getDashboard()` resolves in this order: a registered `dashboard_component`
-wins (eject hatch); else if a `dashboard` config object is present, use
-`GenericDashboard`; else fall back to the bare table-list + SQL console that
-`GenericDashboard.jsx` is today.
+wins; else if a `dashboard` config object is present, use `GenericDashboard`;
+else fall back to the bare table-list + SQL console that `GenericDashboard.jsx`
+is today.
+
+**But "bespoke vs config" is not the right fork** — see §G. The end state is
+one path: every dashboard is a `dashboard` config, and bespoke React lives
+*inside* it as a `custom` widget. The `dashboard_component` registry above is
+the transitional form, kept until the two existing bespoke dashboards migrate
+to a single-`custom`-widget config.
 
 ### B. The `dashboard` config schema
 
@@ -123,6 +129,7 @@ branch in `GenericDashboard`; keep the set small and earn each addition.
 | `chart` | Recharts figure; `subtype: bar\|line\|area\|composed`, `x`, `series` | AssetSearch weekly figures |
 | `prose` | An editorial text block (lede, editor's note) | AssetSearch lede |
 | `placeholder` | An "awaiting instrumentation" plate | Grip Connect webhook / app-adoption sections |
+| `custom` | A bespoke React component, placed by config, fed the same `data` binding + `props` | the escape hatch — see §G |
 
 `format` enum (shared by stats, table columns, chart tooltips):
 `number · count · pct · pct1 · inr · inr_cr · delta_pct · date · text`.
@@ -189,15 +196,61 @@ The config schema is the contract that lets all four stages coexist — CLI,
 form, and editor all just produce the same `dashboard` JSON, and
 `GenericDashboard` renders whatever any of them wrote.
 
+### G. Bespoke flexibility — a dial, not a fork
+
+The worry with config-only is a ceiling: someday an author wants a figure the
+six widget types can't express. The answer is **not** "then they write a whole
+bespoke dashboard instead." Bespoke is not a *parallel path* — it's a
+**`custom` widget that lives inside a config dashboard**.
+
+A `custom` widget names a registered React component and gets handed the same
+`data` binding and a `props` object from config:
+
+```jsonc
+{ "type": "custom", "component": "SearchLiftNarrative",
+  "data": { "query_key": "cohort" },
+  "props": { "target": 1.5 } }
+```
+
+So a single dashboard freely mixes catalogue widgets with custom ones — a
+config layout with one hand-built hero figure, or three. This collapses the
+"two paths" into one: a **100%-custom dashboard is just the extreme** — one
+section, one `custom` widget that is the whole page. That extreme *is* what
+AssetSearch is today. Once `custom` exists, the `dashboard_component` registry
+is redundant: the two bespoke dashboards become config files with a single
+`custom` widget each, and there is exactly one render path to maintain.
+
+This also means **the bespoke-ness is per-widget, not per-project**. You don't
+choose "config project" or "bespoke project" up front. You build with
+catalogue widgets and drop to custom only for the specific figure that needs
+it. The 90%-config / 10%-bespoke dashboard — the common real case — is a
+first-class citizen, not a compromise.
+
+**Self-serve, though, is a separate axis from bespoke.** "Can someone make a
+custom widget without a PR?" has three tiers, increasing in power and cost:
+
+| Tier | What the author can do | Self-serve? | Cost / risk |
+|---|---|---|---|
+| **T1 — registered component** | Place an existing `custom` widget via config; tune its `props`. | Placing: yes. Authoring the component: no — a builder writes it in a reviewed PR. | Low. The component is normal vetted code. |
+| **T2 — free-form blocks** | A `markdown` widget for narrative; a `metric` widget with a small **safe expression language** (`sum(col) / count(*)`, no arbitrary JS) for derived numbers. | Fully. | Low — the expression language is sandboxed by construction; markdown is sanitised. |
+| **T3 — sandboxed code widget** | Write a widget's render logic in JS, executed in a constrained sandbox (iframe-isolated, vetted runtime, no arbitrary network or npm). | Fully. | High — real isolation work, a stable widget API surface, an XSS/supply-chain threat model. A deliberate later decision. |
+
+The honest read: **T1 + T2 meet most "the catalogue can't do this" needs.** A
+builder adds a custom widget once; everyone else places it. Free-form markdown
+and safe-expression metrics cover the rest. **T3 is the only path to *fully
+self-serve arbitrary bespoke*** — and it's expensive enough that it should wait
+for sustained, specific demand rather than being built speculatively. The
+platform stays safe and useful long before T3 exists.
+
 ## Trade-offs
 
-- **The config ceiling is real.** A schema can't express every bespoke flourish
-  (AssetSearch's drop-cap, pull-quote, the search-lift narrative). Accepted:
-  generic dashboards inherit a strong *default* editorial treatment, and the
-  `prose` widget carries any narrative text. The rare project that genuinely
-  needs more ejects to a bespoke component. The platform's value is
-  *uniformity*; fighting that with per-project config knobs recreates the
-  maintenance cost we're escaping.
+- **The config ceiling is real — but the `custom` widget is the relief valve.**
+  A schema can't express every bespoke flourish (AssetSearch's drop-cap,
+  pull-quote, search-lift narrative). That's fine: the figure that needs it
+  becomes a `custom` widget (§G) inside an otherwise-config dashboard — not a
+  whole parallel bespoke dashboard. The platform's value is still *uniformity*;
+  the `custom` widget is the deliberate, contained exception, and keeping it a
+  widget (not a path) means there's still exactly one render pipeline.
 - **Every widget type is two commits forever** — a schema key and a
   `GenericDashboard` branch, both maintained for the platform's life. Adding
   types is not free; the v1 catalogue (§C) should resist growth until a real
@@ -215,6 +268,12 @@ form, and editor all just produce the same `dashboard` JSON, and
   can't just be a refactor — old `project.json` files in the wild must keep
   rendering. Add a `"schema_version"` to the `dashboard` object before stage
   §F.3, not after.
+- **The `custom` widget is a real-code surface.** A T1 custom widget (§G) is
+  vetted PR'd code, low-risk. But it still gets a `data` binding and `props`
+  from a config that may, post-§F.3, be authored by a non-builder — so the
+  component must treat its props defensively (missing columns, empty rows) the
+  way a catalogue widget does. T3 (sandboxed code) is a much larger surface and
+  is explicitly *not* in any near-term slice.
 
 ## Open questions
 
@@ -226,10 +285,11 @@ form, and editor all just produce the same `dashboard` JSON, and
    in `backend/data/<id>/`. Self-serve writes need a path — backend endpoint
    that writes the file, or a small metadata store. Ties into
    data-integrations.md's refresh-endpoint work.
-3. **Which is the first config-driven project?** It should NOT be a port of
-   AssetSearch or Grip Connect (those stay bespoke). It should be a genuinely
-   new, simple project — a candidate that proves the schema without needing
-   the eject hatch on day one.
+3. **Which is the first config-driven project?** It should NOT be AssetSearch
+   or Grip Connect — those stay on the `dashboard_component` registry until
+   `custom` widgets exist (§G), at which point they migrate to single-`custom`
+   configs. The first config project should be a genuinely new, simple one
+   that proves the *catalogue* widgets without reaching for `custom` on day one.
 4. **Validation home.** Shared validator for the schema — does it live in the
    backend (Python, runs on write) or frontend (JS, runs in the authoring
    form), or both? Both means two implementations to keep in sync.
@@ -237,12 +297,18 @@ form, and editor all just produce the same `dashboard` JSON, and
    per-project `chat_context`. Could the `dashboard` config also seed chat
    starter questions ("a figure shows X — offer 'break X down by week'")?
    Probably later, but the config is the natural place for it.
+6. **How far into T3 (sandboxed code widgets), and when?** §G argues T1 + T2
+   cover most needs and T3 is expensive. The open call is whether T3 is ever
+   worth it for an internal tool, or whether "a builder PRs a `custom` widget"
+   (T1) is permanently good enough. Decide only when a concrete request can't
+   be met by T1/T2 — not speculatively.
 
 ## Suggested first slice
 
-1. **Freeze the v1 widget catalogue** at the six types in §C — `stat-row`,
+1. **Freeze the v1 catalogue** at the six widget types in §C — `stat-row`,
    `comparison-grid`, `table`, `chart`, `prose`, `placeholder`. They cover
-   everything the two bespoke dashboards do.
+   everything the two bespoke dashboards do. `custom` (§G) is the seventh type
+   but comes in step 5, not here.
 2. **Build the config renderer.** A new `GenericDashboard` (config-aware) that
    reads `project.json.dashboard`, fetches the distinct data bindings, and
    renders the six widget types in editorial mode. Grip Connect is the test
@@ -252,12 +318,18 @@ form, and editor all just produce the same `dashboard` JSON, and
 3. **Add `schema_version`** to the `dashboard` object from the first commit.
 4. **Write the scaffold CLI** (§F.1) — it makes the renderer immediately
    usable by builders and shakes out the schema before any form is built.
-5. **Pick and ship the first genuinely-new config-driven project** (open
+5. **Add the `custom` widget type.** A `custom`-widget branch in
+   `GenericDashboard` that resolves `component` against a registry and passes
+   `data` + `props`. Prove it by migrating Grip Connect to a config whose one
+   non-trivial figure (or the whole thing) is a `custom` widget — that retires
+   its `dashboard_component` entry and shrinks the platform to one render path.
+6. **Pick and ship the first genuinely-new config-driven project** (open
    question 3) — ideally one whose data is simple and pre-aggregated, so the
    first real config doesn't fight the schema.
-6. Only after 3+ config-driven projects exist: build the in-app authoring page
+7. Only after 3+ config-driven projects exist: build the in-app authoring page
    (§F.3). By then the schema has stopped moving and the form has a stable
-   target.
+   target. T2 free-form widgets (`markdown`, safe-expression `metric`) land
+   around here; T3 (open question 6) stays deferred.
 
 The gating decision is **open question 3** — picking the first project that's
 *born* config-driven. Everything else is code that follows from the schema in
