@@ -35,6 +35,13 @@ These cross-project ideation docs currently still live under `docs/ideation/`
   schema (the long-term generalisation of the per-project fetch modules).
 - `ideation/mobile-first.md` — the platform-wide mobile-first UI standard.
 
+## Documents
+
+- [architecture-options.md](architecture-options.md) — review of the platform's
+  hosting, query-layer, build-vs-buy and pipeline options (2026-05-18). The
+  alternatives to the current Render + DuckDB MVP, with trade-offs and the
+  triggers that force each move.
+
 ## What does NOT belong here
 
 A project's data sources, metric definitions, dashboard design, or roadmap —
