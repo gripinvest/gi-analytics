@@ -27,11 +27,22 @@ Wrote [`specs/2026-05-19-asset-search-live-data-design.md`](./specs/2026-05-19-a
 - Covers onboarding the 5 not-yet-exported tables (`view_payment_page_loaded`,
   `view_payment_status_page`, `new_user_order`, `order_summary_clicked`,
   `asset_card_clicked`) — fetch only; dashboard exhibits are roadmap #2.
-- Open items pinned for S5 Phase 1: timezone, the Rudder `id` upsert key,
-  native-query permission, `view_payment_status_page` schema.
+- Open items pinned for S5: native-query permission and the timestamp timezone
+  are **pre-S5 gates**; the rest pin in Phase 1.
+
+**Reviewed & revised** — ran an 8-agent review (6-step spec review + a
+SOLID/KISS/YAGNI pass + a devil's-advocate pass). The spec was revised to fix
+factual errors (CSV filename format, the `refresh.py`/router dispatch reality,
+a wrong claim that `page.jsx` already has refresh logic) and to act on the
+design critique: dropped the redundant upsert-by-`id` for a plain atomic
+week-file replace; dropped the GC-inherited on-open auto-refresh (wrong for a
+daily-grain dataset); split the daily commit (search events daily, heavy
+browse/conversion tables weekly) to bound git growth; gated the 5 consumer-less
+new tables' fetch on roadmap #2; added a cut-over section, a trade-offs/risks
+section, and cron-failure + staleness alerting.
 
 **Next:** S5 (implementation) — now unblocked, still gated on Metabase
-credentials being available to the fetch (`backend/.env`).
+credentials and the §18 native-query-permission check.
 
 ---
 
