@@ -52,11 +52,25 @@ calibration pins (documented in the report's "Method" section): the `timestamp`
 column is assumed naive-UTC, and `user_id` is cast TEXT→DOUBLE — both fail loud
 as a SQL error if wrong, never silently.
 
+### Follow-ups (same PR)
+
+- **Internal-consistency tier** — 7 invariant checks on the local data alone
+  (no Metabase, no credentials): funnel buckets exhaustive, ZRR/refinement
+  bounded, by-tab split reconciles, issuer roll-ups bounded, position clicks
+  bounded, funnel monotonic. All 7 **CONFIRMED** — the dashboard numbers are
+  mathematically sound. This is the validation that needs no production access.
+- **Read-only guard** — the harness prefers a read-only `METABASE_API_KEY`
+  over a session login, and `assert_read_only()` rejects anything that is not
+  a single bare `SELECT`/`WITH`. The credentialed run is provably incapable of
+  writing to Metabase; scope the key read-only in Metabase as defence-in-depth.
+- The 10 stale `W6_may07-may11_*` partial exports were moved to Trash from
+  `metabase-connect/` (not git-tracked) so the F1 double-count cannot recur.
+
 ### When resuming
 
 S3 is done. Next per `sessions/README.md`: S1 / S2 / S4 (parallel-safe), then
-S5. The harness's `MetabaseClient.run_sql` + window-anchoring code is reusable
-by the S5 fetch pipeline.
+S5. The harness's `MetabaseClient.run_sql`, API-key auth and window-anchoring
+code is reusable by the S5 fetch pipeline.
 
 ---
 
