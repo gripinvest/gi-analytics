@@ -217,3 +217,36 @@ def build_engagement_breakdown(video_rows) -> list[dict]:
         for category, group in sorted(cats.items()):
             out.append(_engagement_row(handle, snap, "category", category, group))
     return out
+
+
+_IST_OFFSET = timedelta(hours=5, minutes=30)
+
+
+def _to_ist(iso: str) -> datetime:
+    return _parse_dt(iso) + _IST_OFFSET
+
+
+def build_posting_patterns(video_rows) -> list[dict]:
+    """Upload counts and avg views by IST posting weekday and hour."""
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        snap = vids[0]["snapshot_date"]
+        day_groups = defaultdict(list)
+        hour_groups = defaultdict(list)
+        for v in vids:
+            ist = _to_ist(v["published_at"])
+            day_groups[ist.strftime("%A")].append(v["views"])
+            hour_groups[str(ist.hour)].append(v["views"])
+        for dimension, groups in (("day", day_groups), ("hour", hour_groups)):
+            for bucket, views in groups.items():
+                out.append({
+                    "channel_handle": handle,
+                    "snapshot_date": snap,
+                    "dimension": dimension,
+                    "bucket": bucket,
+                    "video_count": len(views),
+                    "avg_views": round(safe_div(sum(views), len(views)), 1),
+                })
+    return out
