@@ -32,6 +32,43 @@ worktrees). S5 must follow S4.
 - Reference pattern for the live-data work: the approved Grip Connect spec
   `docs/specs/2026-05-17-grip-connect-live-data-design.md` — adapt, don't copy.
 
+## Starting a session — kickoff prompt
+
+Hand the next agent this prompt. Change only the **one** config line.
+
+```
+You are picking up a scoped work session on the Grip Analytics repo.
+
+### CONFIG — set this
+Session to work: S1      # one of: S1, S2, S3, S4, S5
+
+### Repo
+/Users/purujit/grip/grip-code/grip_analytics/grip-analytics
+
+### Steps
+1. Read docs/projects/asset-search/sessions/README.md, then the brief for your
+   session (docs/projects/asset-search/sessions/S<n>-*.md). It defines the
+   goal, cold-start context, scope, and definition of done — follow it exactly.
+2. Read the project context: docs/projects/asset-search/README.md,
+   session-log.md, data-sources.md, roadmap.md, and the repo CLAUDE.md.
+3. Work in a dedicated git worktree on the brief's suggested branch — never the
+   primary checkout. Fetch latest main first.
+4. Execute to the brief's "Definition of done". Build-validate (`next build`)
+   and commit at each checkpoint.
+5. When done: push, open a PR to main, and update session-log.md + the status
+   table in sessions/README.md.
+
+### Locked decisions — carry these
+- Classic dashboard → full parity with Editorial (the live session-outcome funnel).
+- Metabase credentials are in backend/.env (METABASE_EMAIL / METABASE_PASSWORD).
+- Live-data work adapts — does not copy — the Grip Connect spec at
+  docs/specs/2026-05-17-grip-connect-live-data-design.md.
+
+### Scope discipline
+Work only the session named above. If it depends on another (S5 needs S4),
+confirm the dependency is met before starting.
+```
+
 ## Status
 
 All sessions: **not started.** Update this table and `session-log.md` as they
