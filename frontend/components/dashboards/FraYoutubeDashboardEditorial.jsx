@@ -450,6 +450,7 @@ export default function FraYoutubeDashboardEditorial({ project }) {
   const overview = rowsOf(data, "overview")[0] || null;
   const distRow = rowsOf(data, "distribution")[0] || null;
   const catalogRow = rowsOf(data, "catalogHealth")[0] || null;
+  const videoViewsRows = rowsOf(data, "videoViews");
   const channelSnapshotRows = rowsOf(data, "channelSnapshots");
   const monthlyRows = rowsOf(data, "monthlyViews");
   const cumulativeRows = rowsOf(data, "cumulativeViews");
@@ -502,23 +503,30 @@ export default function FraYoutubeDashboardEditorial({ project }) {
   }));
   const hasRealTrend = Object.keys(channelByMonth).length > 0;
 
-  // §3 — view-distribution histogram (log-scaled buckets). Built from the
-  // distribution row's bucket columns when present, else from the threshold
-  // ladder so the figure is never blank.
+  // §3 — view-distribution histogram (log-scaled buckets). Bucketed client-side
+  // from the raw per-video view counts in videoViews.
   const distBuckets = (() => {
-    if (!distRow) return [];
-    const labelled = [
-      { label: "0–99", key: "videos_lt_100" },
-      { label: "100–999", key: "videos_100_999" },
-      { label: "1K–9.9K", key: "videos_1k_10k" },
-      { label: "10K–99K", key: "videos_10k_100k" },
-      { label: "100K+", key: "videos_ge_100k" },
+    if (!videoViewsRows || videoViewsRows.length === 0) return [];
+    const BUCKETS = [
+      { label: "0–99",    min: 0,      max: 100 },
+      { label: "100–499", min: 100,    max: 500 },
+      { label: "500–999", min: 500,    max: 1000 },
+      { label: "1K–4.9K", min: 1000,   max: 5000 },
+      { label: "5K–9.9K", min: 5000,   max: 10000 },
+      { label: "10K–49K", min: 10000,  max: 50000 },
+      { label: "50K+",    min: 50000,  max: Infinity },
     ];
-    const present = labelled.filter((b) => distRow[b.key] != null);
-    if (present.length >= 3) {
-      return present.map((b) => ({ bucket: b.label, count: Number(distRow[b.key]) || 0 }));
+    const counts = BUCKETS.map((b) => ({ bucket: b.label, count: 0 }));
+    for (const row of videoViewsRows) {
+      const v = Number(row.views) || 0;
+      for (let i = 0; i < BUCKETS.length; i++) {
+        if (v >= BUCKETS[i].min && v < BUCKETS[i].max) {
+          counts[i].count++;
+          break;
+        }
+      }
     }
-    return [];
+    return counts;
   })();
 
   // §3 — viral-threshold ladder, a stepped exhibit.
@@ -704,13 +712,13 @@ export default function FraYoutubeDashboardEditorial({ project }) {
                 <Exhibit
                   label="Avg duration"
                   loading={loading}
-                  value={
-                    overview?.avg_duration_seconds != null
-                      ? `${Math.round(Number(overview.avg_duration_seconds) / 60)}m`
-                      : overview?.avg_duration_minutes != null
-                        ? `${Math.round(Number(overview.avg_duration_minutes))}m`
-                        : "—"
-                  }
+                  value={(() => {
+                    const sec = overview?.avg_duration_sec != null ? Number(overview.avg_duration_sec) : null;
+                    if (sec == null || Number.isNaN(sec)) return "—";
+                    const m = Math.floor(sec / 60);
+                    const s = Math.round(sec % 60);
+                    return `${m}m ${s}s`;
+                  })()}
                   sub="per video"
                 />
                 <Exhibit
@@ -733,6 +741,7 @@ export default function FraYoutubeDashboardEditorial({ project }) {
             loading={loading}
             distRow={distRow}
             error={errOf(data, "distribution")}
+            videoViewsError={errOf(data, "videoViews")}
             breakoutRate={breakoutRate}
             ladder={ladder}
             distBuckets={distBuckets}
@@ -1168,7 +1177,7 @@ export default function FraYoutubeDashboardEditorial({ project }) {
 }
 
 /* ── Section III — Discovery (own component for the count-up reveal) ─────────*/
-function DiscoverySection({ reduced, loading, distRow, error, breakoutRate, ladder, distBuckets, animProps }) {
+function DiscoverySection({ reduced, loading, distRow, error, videoViewsError, breakoutRate, ladder, distBuckets, animProps }) {
   const [ref, shown] = useReveal(reduced);
   // Count up the breakout rate once the section has revealed.
   const counted = useCountUp(breakoutRate, shown && !loading, reduced, 950);
@@ -1268,7 +1277,7 @@ function DiscoverySection({ reduced, loading, distRow, error, breakoutRate, ladd
             title="How views concentrate across the library"
             caption="Videos bucketed by lifetime views on a log-scaled ladder. A tall left side and a thin right tail is the classic concentration story — a few videos carry the channel."
             loading={loading}
-            error={null}
+            error={videoViewsError || null}
             height={260}
             footnote={
               distRow?.gini != null
@@ -1278,14 +1287,7 @@ function DiscoverySection({ reduced, loading, distRow, error, breakoutRate, ladd
           >
             {distBuckets.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center gap-2">
-                <p className="ed-prose-italic" style={{ color: ED_INK_FAINT }}>
-                  The snapshot does not carry per-bucket counts.
-                </p>
-                {distRow?.gini != null && (
-                  <p className="ed-caption">
-                    Gini coefficient — {Number(distRow.gini).toFixed(3)}
-                  </p>
-                )}
+                <p className="ed-prose-italic" style={{ color: ED_INK_FAINT }}>No video view data for this snapshot.</p>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">

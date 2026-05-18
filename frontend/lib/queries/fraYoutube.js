@@ -83,6 +83,12 @@ export const SQL = {
     SELECT * FROM fra_youtube__catalog_health
     WHERE snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__catalog_health)
   `,
+  /* Raw per-video view counts — used by the §3 histogram to bucket client-side.
+     Pins to the latest snapshot so it stays consistent with all other queries. */
+  videoViews: `
+    SELECT views FROM fra_youtube__video_snapshots
+    WHERE snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__video_snapshots)
+  `,
 };
 
 /* ── small accessors ──────────────────────────────────────────────────────────
