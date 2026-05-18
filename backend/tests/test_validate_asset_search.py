@@ -10,7 +10,7 @@ import pytest
 
 from services.integrations.validate_asset_search import (
     CONFIRMED, MINOR, DISCREPANT, INFO, PENDING,
-    Check, classify_cell, diff_check, issuer_case_expr,
+    Check, assert_read_only, classify_cell, diff_check, issuer_case_expr,
 )
 
 
@@ -78,6 +78,25 @@ def test_diff_informational_check_downgrades_to_info():
     mb = [{"week": "W1", "rows": 200}]
     verdict, _ = diff_check(_check(informational=True), local, mb)
     assert verdict == INFO
+
+
+# ── read-only safety guard ────────────────────────────────────────────────────
+
+def test_read_only_guard_allows_select_and_with():
+    assert_read_only("SELECT 1")
+    assert_read_only("  WITH x AS (SELECT 1) SELECT * FROM x  ")
+
+
+@pytest.mark.parametrize("bad", [
+    "DELETE FROM client_web.asset_search_query",
+    "UPDATE t SET a = 1",
+    "INSERT INTO t VALUES (1)",
+    "SELECT 1; DROP TABLE t",          # statement chaining
+    "TRUNCATE client_web.asset_search_query",
+])
+def test_read_only_guard_rejects_writes(bad):
+    with pytest.raises(ValueError, match="read-only"):
+        assert_read_only(bad)
 
 
 # ── ported issuer classification ──────────────────────────────────────────────

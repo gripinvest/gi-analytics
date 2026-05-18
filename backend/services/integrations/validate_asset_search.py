@@ -169,6 +169,30 @@ def issuer_case_expr(col: str = "query_text") -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Read-only safety guard
+# ─────────────────────────────────────────────────────────────────────────────
+
+_WRITE_KEYWORDS = re.compile(
+    r"\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|"
+    r"merge|copy|call|vacuum)\b", re.IGNORECASE)
+
+
+def assert_read_only(sql: str) -> None:
+    """Guard — every query this harness sends to Metabase must be a single
+    read-only SELECT/WITH. Raises ValueError otherwise. The harness only ever
+    builds SELECTs; this makes a credentialed run *provably* incapable of
+    writing, on top of scoping METABASE_API_KEY read-only in Metabase itself."""
+    stripped = sql.strip().rstrip(";")
+    if ";" in stripped:
+        raise ValueError("read-only guard: multiple statements are not allowed")
+    if not re.match(r"(?is)\s*(with|select)\b", stripped):
+        raise ValueError("read-only guard: query must begin with SELECT or WITH")
+    hit = _WRITE_KEYWORDS.search(stripped)
+    if hit:
+        raise ValueError(f"read-only guard: forbidden keyword '{hit.group(0)}'")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Data sources — LocalSource (DuckDB over CSVs) and MetabaseSource (REST)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -352,6 +376,7 @@ class MetabaseSource:
     def query(self, body: str) -> list[dict]:
         relations = sorted(set(re.findall(r"\bev_\w+", body)))
         sql = self._preamble(relations) + body
+        assert_read_only(sql)                       # provably no writes to Metabase
         rows, _ = self.client.run_sql(DATABASE_ID, sql)
         return rows
 
@@ -597,6 +622,141 @@ ORDER BY v.week
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Internal-consistency checks — invariants on the LOCAL data alone. No Metabase,
+# no credentials. These catch the most likely failure mode (a SQL/porting bug in
+# the dashboard's own builders) by asserting the numbers are mathematically
+# sound. Each body returns ONLY violating rows — an empty result means the
+# invariant holds.
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ConsistencyCheck:
+    def __init__(self, cid, title, invariant, body, *, informational=False):
+        self.cid = cid
+        self.title = title
+        self.invariant = invariant
+        self.body = body.strip()
+        self.informational = informational
+
+
+_ISSUER = issuer_case_expr("query_text")
+
+CONSISTENCY_CHECKS = [
+    ConsistencyCheck(
+        "funnel_buckets_sum", "Session-outcome buckets are exhaustive",
+        "success + relevance_gap + dead_end = searched, every week",
+        f"""
+SELECT week, searched, success + relevance_gap + dead_end AS bucket_sum
+FROM (
+  SELECT q.week, COUNT(*) AS searched,
+    SUM(CASE WHEN c.sid IS NOT NULL THEN 1 ELSE 0 END) AS success,
+    SUM(CASE WHEN c.sid IS NULL AND q.any_results = 1 THEN 1 ELSE 0 END) AS relevance_gap,
+    SUM(CASE WHEN c.sid IS NULL AND q.any_results = 0 THEN 1 ELSE 0 END) AS dead_end
+  FROM (SELECT week, sid, MAX(CASE WHEN results_count > 0 THEN 1 ELSE 0 END) AS any_results
+        FROM ev_query GROUP BY week, sid) q
+  LEFT JOIN (SELECT DISTINCT week, sid FROM ev_clicked) c
+    ON q.week = c.week AND q.sid = c.sid
+  GROUP BY q.week) t
+WHERE searched <> success + relevance_gap + dead_end
+"""),
+    ConsistencyCheck(
+        "zrr_bounds", "ZRR & refinement numerators are bounded",
+        "0 <= zero_result <= queries and 0 <= refinements <= queries",
+        """
+SELECT week, queries, zero_result, refinements FROM (
+  SELECT week, COUNT(*) AS queries,
+    SUM(CASE WHEN results_count = 0 THEN 1 ELSE 0 END) AS zero_result,
+    SUM(CASE WHEN is_refinement THEN 1 ELSE 0 END) AS refinements
+  FROM ev_query GROUP BY week) t
+WHERE zero_result > queries OR refinements > queries
+   OR zero_result < 0 OR refinements < 0
+"""),
+    ConsistencyCheck(
+        "tab_split_total", "by-tab split reconciles with total queries",
+        "SUM of byTab queries = COUNT(*) of asset_search_query",
+        """
+SELECT tab_sum, total FROM
+  (SELECT SUM(queries) AS tab_sum FROM
+     (SELECT COALESCE(active_tab, '(none)') AS tab, COUNT(*) AS queries
+      FROM ev_query GROUP BY COALESCE(active_tab, '(none)')) x) a,
+  (SELECT COUNT(*) AS total FROM ev_query) b
+WHERE tab_sum <> total
+"""),
+    ConsistencyCheck(
+        "issuer_session_bound", "Per-issuer sessions never exceed the week",
+        "issuer sessions <= all-issuer weekly query sessions",
+        f"""
+SELECT i.week, i.issuer, i.sessions, w.weekly_sessions FROM
+  (SELECT week, issuer, COUNT(DISTINCT sid) AS sessions FROM
+     (SELECT week, sid, {_ISSUER} AS issuer FROM ev_query) c
+   WHERE issuer IS NOT NULL GROUP BY week, issuer) i
+  JOIN (SELECT week, COUNT(DISTINCT sid) AS weekly_sessions
+        FROM ev_query GROUP BY week) w USING (week)
+WHERE i.sessions > w.weekly_sessions
+"""),
+    ConsistencyCheck(
+        "issuer_buckets_sum", "Per-issuer outcome buckets are exhaustive",
+        "success + relevance_gap + dead_end = searched, every (week, issuer)",
+        f"""
+SELECT week, issuer, searched, success + relevance_gap + dead_end AS bucket_sum
+FROM (
+  SELECT q.week, q.issuer, COUNT(*) AS searched,
+    SUM(CASE WHEN c.sid IS NOT NULL THEN 1 ELSE 0 END) AS success,
+    SUM(CASE WHEN c.sid IS NULL AND q.any_results = 1 THEN 1 ELSE 0 END) AS relevance_gap,
+    SUM(CASE WHEN c.sid IS NULL AND q.any_results = 0 THEN 1 ELSE 0 END) AS dead_end
+  FROM (SELECT week, sid, issuer,
+               MAX(CASE WHEN results_count > 0 THEN 1 ELSE 0 END) AS any_results
+        FROM (SELECT week, sid, results_count, {_ISSUER} AS issuer FROM ev_query) cl
+        WHERE issuer IS NOT NULL GROUP BY week, sid, issuer) q
+  LEFT JOIN (SELECT DISTINCT week, sid FROM ev_clicked) c
+    ON q.week = c.week AND q.sid = c.sid
+  GROUP BY q.week, q.issuer) t
+WHERE searched <> success + relevance_gap + dead_end
+"""),
+    ConsistencyCheck(
+        "position_bound", "Position-bias clicks never exceed result clicks",
+        "SUM of clicksByPosition <= COUNT(*) of asset_search_result_clicked",
+        """
+SELECT pos_clicks, total_clicks FROM
+  (SELECT COALESCE(SUM(clicks), 0) AS pos_clicks FROM
+     (SELECT result_position + 1 AS rank, COUNT(*) AS clicks FROM ev_clicked
+      WHERE result_position BETWEEN 0 AND 9 GROUP BY result_position + 1) z) a,
+  (SELECT COUNT(*) AS total_clicks FROM ev_clicked) b
+WHERE pos_clicks > total_clicks
+"""),
+    ConsistencyCheck(
+        "funnel_monotonic", "Funnel is monotonic (initiated >= queried >= clicked)",
+        "distinct sessions: initiated >= queried >= clicked, every week",
+        """
+SELECT i.week, i.initiated, q.queried, c.clicked FROM
+  (SELECT week, COUNT(DISTINCT sid) AS initiated FROM ev_initiated GROUP BY week) i
+  JOIN (SELECT week, COUNT(DISTINCT sid) AS queried FROM ev_query GROUP BY week) q USING (week)
+  JOIN (SELECT week, COUNT(DISTINCT sid) AS clicked FROM ev_clicked GROUP BY week) c USING (week)
+WHERE i.initiated < q.queried OR q.queried < c.clicked
+""", informational=True),
+]
+
+
+def run_consistency(local: "LocalSource") -> list[dict]:
+    """Run every internal-consistency invariant against the local data."""
+    results = []
+    for chk in CONSISTENCY_CHECKS:
+        row = {"check": chk}
+        try:
+            violations = local.query(chk.body)
+            if not violations:
+                row.update(verdict=CONFIRMED, violations=[])
+            else:
+                row.update(verdict=INFO if chk.informational else DISCREPANT,
+                           violations=violations)
+        except Exception as e:                       # noqa: BLE001
+            row.update(verdict=DISCREPANT, violations=[],
+                       error=f"{type(e).__name__}: {e}")
+        results.append(row)
+        print(f"  {_BADGE[row['verdict']]} {chk.cid:24s} {row['verdict']}")
+    return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Diffing & verdicts
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -678,10 +838,11 @@ def _fmt(v):
     return str(v)
 
 
-def build_report(results: list[dict], local: LocalSource, mode: str) -> str:
+def build_report(results: list[dict], consistency: list[dict],
+                 local: LocalSource, mode: str) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     tally: dict[str, int] = {}
-    for r in results:
+    for r in results + consistency:
         tally[r["verdict"]] = tally.get(r["verdict"], 0) + 1
 
     out = ["# Asset Search — Metabase data validation report", ""]
@@ -740,6 +901,37 @@ def build_report(results: list[dict], local: LocalSource, mode: str) -> str:
                    f"{_BADGE[v]} {v} |")
     out.append("")
 
+    # Internal-consistency tier — runs on local data, needs no Metabase.
+    out.append("## Internal consistency (no Metabase needed)")
+    out.append("")
+    out.append("Invariants on the local data alone — the numbers must be "
+               "*mathematically sound* regardless of the upstream source. "
+               "These catch SQL / porting bugs in the dashboard's own builders, "
+               "the most likely failure mode, and need no credentials.")
+    out.append("")
+    out.append("| Check | Invariant | Verdict |")
+    out.append("|---|---|---|")
+    for r in consistency:
+        c: ConsistencyCheck = r["check"]
+        out.append(f"| `{c.cid}` | {c.invariant} | {_BADGE[r['verdict']]} "
+                   f"{r['verdict']} |")
+    out.append("")
+    for r in consistency:
+        c = r["check"]
+        if r.get("error"):
+            out.append(f"- ⚠️ `{c.cid}` errored: {r['error']}")
+        elif r["violations"]:
+            out.append(f"**`{c.cid}` — {len(r['violations'])} violation(s):** "
+                       f"{c.title}")
+            cols = list(r["violations"][0].keys())
+            out.append("")
+            out.append("| " + " | ".join(cols) + " |")
+            out.append("|" + "---|" * len(cols))
+            for v in r["violations"][:20]:
+                out.append("| " + " | ".join(_fmt(v[c2]) for c2 in cols) + " |")
+            out.append("")
+    out.append("")
+
     # Per-check detail.
     out.append("## Checks")
     out.append("")
@@ -784,6 +976,14 @@ def build_report(results: list[dict], local: LocalSource, mode: str) -> str:
     out.append("- **Test users** `3,4,207871,207875,207878,207879` are excluded "
                "on both sides (`user_id` cast to DOUBLE — W1-W3 store it as "
                "`\"622564.0\"`).")
+    out.append("- **Read-only by construction** — the harness prefers a "
+               "`METABASE_API_KEY` (scope it read-only in Metabase) over a "
+               "session login, and every query it sends is asserted to be a "
+               "single bare `SELECT`/`WITH` (`assert_read_only`). It cannot "
+               "write to Metabase even if asked to.")
+    out.append("- **Internal-consistency tier** runs on the local data alone "
+               "(no Metabase, no credentials) — see the section above. It is "
+               "the validation you can trust without ever touching production.")
     out.append("- **`adoption` is INFORMATIONAL** — its local visitor base is the "
                "*derived* `assets_page_views` (a 6-column projection of "
                "`view_assets` by `metabase-connect/derive_page_views.py`); the "
@@ -818,15 +1018,28 @@ def run(data_dir: Path, report_path: Path, local_only: bool) -> int:
         from .metabase import MetabaseClient
         load_dotenv()
         base = os.getenv("METABASE_URL", "https://metabase.gripinvest.in")
-        email, password = os.getenv("METABASE_EMAIL"), os.getenv("METABASE_PASSWORD")
-        if not email or not password:
-            print("ERROR: set METABASE_EMAIL and METABASE_PASSWORD (or use "
-                  "--local-only)", file=sys.stderr)
-            return 1
-        client = MetabaseClient(base)
-        client.login(email, password)
+        api_key = os.getenv("METABASE_API_KEY")
+        if api_key:
+            # Preferred: a read-only API key. Scope it read-only in Metabase
+            # and the run is provably incapable of writing.
+            client = MetabaseClient(base, api_key=api_key)
+            print("  auth: METABASE_API_KEY (scope it read-only in Metabase)")
+        else:
+            email = os.getenv("METABASE_EMAIL")
+            password = os.getenv("METABASE_PASSWORD")
+            if not email or not password:
+                print("ERROR: set METABASE_API_KEY (preferred, read-only), or "
+                      "METABASE_EMAIL + METABASE_PASSWORD — or use --local-only",
+                      file=sys.stderr)
+                return 1
+            client = MetabaseClient(base)
+            client.login(email, password)
+            print("  auth: session login (consider a read-only API key instead)")
         mb = MetabaseSource(client, local.windows)
 
+    print("Internal-consistency checks (local, no Metabase):")
+    consistency = run_consistency(local)
+    print("Data-point checks:")
     results = []
     for chk in CHECKS:
         row = {"check": chk}
@@ -843,12 +1056,18 @@ def run(data_dir: Path, report_path: Path, local_only: bool) -> int:
               + (f"  ({row['error']})" if row.get("error") else ""))
 
     mode = "local-only (baseline)" if local_only else "metabase"
-    report = build_report(results, local, mode)
+    report = build_report(results, consistency, local, mode)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(report)
     print(f"\nReport → {report_path}")
 
+    # Internal-consistency failures are real bugs regardless of mode.
+    consistency_bad = sum(1 for r in consistency if r["verdict"] == DISCREPANT)
     discrepant = sum(1 for r in results if r["verdict"] == DISCREPANT)
+    if consistency_bad:
+        print(f"{consistency_bad} internal-consistency check(s) FAILED — "
+              f"see the report.", file=sys.stderr)
+        return 2
     if discrepant and not local_only:
         print(f"{discrepant} check(s) DISCREPANT — see the report.", file=sys.stderr)
         return 2

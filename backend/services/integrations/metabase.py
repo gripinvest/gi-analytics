@@ -12,10 +12,22 @@ class MetabaseError(RuntimeError):
 
 
 class MetabaseClient:
-    def __init__(self, base_url: str, client: httpx.Client | None = None):
+    def __init__(self, base_url: str, client: httpx.Client | None = None,
+                 api_key: str | None = None):
+        """`api_key` — a Metabase API key (`X-API-Key`). When supplied the
+        client authenticates with it directly and `login()` is unnecessary;
+        scope the key read-only in Metabase for validation/read workloads."""
         self.base_url = base_url.rstrip("/")
         self._client = client or httpx.Client(timeout=90.0)
         self._token: str | None = None
+        self._api_key = api_key
+
+    def _auth_headers(self) -> dict[str, str]:
+        """The auth header for an API call — an API key if one was given,
+        otherwise the session token from login()."""
+        if self._api_key:
+            return {"X-API-Key": self._api_key}
+        return {"X-Metabase-Session": self._require_token()}
 
     def login(self, email: str, password: str) -> str:
         resp = self._client.post(
@@ -33,7 +45,7 @@ class MetabaseClient:
         fetch_card_param_id (metabase_fetch.py:182-192)."""
         resp = self._client.get(
             f"{self.base_url}/api/card/{card_id}",
-            headers={"X-Metabase-Session": self._require_token()},
+            headers=self._auth_headers(),
         )
         resp.raise_for_status()
         for param in resp.json().get("parameters", []):
@@ -49,7 +61,7 @@ class MetabaseClient:
         display_name when present (matches metabase_fetch.py:223-226)."""
         resp = self._client.post(
             f"{self.base_url}/api/card/{card_id}/query",
-            headers={"X-Metabase-Session": self._require_token()},
+            headers=self._auth_headers(),
             json={"parameters": parameters or []},
         )
         if resp.status_code in (401, 403):
@@ -72,7 +84,7 @@ class MetabaseClient:
         explicitly and surfaced as a MetabaseError."""
         resp = self._client.post(
             f"{self.base_url}/api/dataset",
-            headers={"X-Metabase-Session": self._require_token()},
+            headers=self._auth_headers(),
             json={"database": database_id, "type": "native",
                   "native": {"query": sql}},
         )

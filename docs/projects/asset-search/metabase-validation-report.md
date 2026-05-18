@@ -1,6 +1,6 @@
 # Asset Search — Metabase data validation report
 
-_Generated 2026-05-18 21:49 UTC · mode: **local-only (baseline)**_
+_Generated 2026-05-18 22:48 UTC · mode: **local-only (baseline)**_
 
 Produced by `backend/services/integrations/validate_asset_search.py`. Every metric the Asset Search dashboard renders (`frontend/lib/queries/assetSearch.js` + `conversion.js`) is re-computed from the local W1-W6 CSVs and, in `metabase` mode, from the live `client_web` schema, then diffed.
 
@@ -10,6 +10,7 @@ Produced by `backend/services/integrations/validate_asset_search.py`. Every metr
 
 | Verdict | Checks |
 |---|---|
+| ✅ CONFIRMED | 7 |
 | ⏳ PENDING | 23 |
 
 ## Findings & corrections
@@ -34,6 +35,21 @@ Does the local W1-W6 data match the row counts `data-sources.md §0` documents? 
 | `asset_search_cleared` | 2,967 | 2,967 | ✅ CONFIRMED |
 | `asset_search_initiated` | 9,252 | 9,252 | ✅ CONFIRMED |
 | `asset_search_suggestion_clicked` | 804 | 804 | ✅ CONFIRMED |
+
+## Internal consistency (no Metabase needed)
+
+Invariants on the local data alone — the numbers must be *mathematically sound* regardless of the upstream source. These catch SQL / porting bugs in the dashboard's own builders, the most likely failure mode, and need no credentials.
+
+| Check | Invariant | Verdict |
+|---|---|---|
+| `funnel_buckets_sum` | success + relevance_gap + dead_end = searched, every week | ✅ CONFIRMED |
+| `zrr_bounds` | 0 <= zero_result <= queries and 0 <= refinements <= queries | ✅ CONFIRMED |
+| `tab_split_total` | SUM of byTab queries = COUNT(*) of asset_search_query | ✅ CONFIRMED |
+| `issuer_session_bound` | issuer sessions <= all-issuer weekly query sessions | ✅ CONFIRMED |
+| `issuer_buckets_sum` | success + relevance_gap + dead_end = searched, every (week, issuer) | ✅ CONFIRMED |
+| `position_bound` | SUM of clicksByPosition <= COUNT(*) of asset_search_result_clicked | ✅ CONFIRMED |
+| `funnel_monotonic` | distinct sessions: initiated >= queried >= clicked, every week | ✅ CONFIRMED |
+
 
 ## Checks
 
@@ -284,8 +300,8 @@ _Source: `asset_search_result_clicked` · verdict: **PENDING**_
 | RCBNF260202 | 224 | 1.5 | — | — | ⏳ PENDING |
 | RCBPSL260301 | 170 | 1.2 | — | — | ⏳ PENDING |
 | RCBKD260201 | 146 | 1.4 | — | — | ⏳ PENDING |
-| RCBIM260301 | 127 | 1.1 | — | — | ⏳ PENDING |
 | RCBSFL260301 | 127 | 1.4 | — | — | ⏳ PENDING |
+| RCBIM260301 | 127 | 1.1 | — | — | ⏳ PENDING |
 | RCBIIFLS260201 | 105 | 1.2 | — | — | ⏳ PENDING |
 | RCBAA260201 | 96 | 1.2 | — | — | ⏳ PENDING |
 | RCBAP260201 | 91 | 1.3 | — | — | ⏳ PENDING |
@@ -468,6 +484,8 @@ _Source: `view_assets / assets_page_views UNION asset_search_initiated` · verdi
 
 - **Window anchoring** — each Metabase relation is filtered to the exact `[min,max]` UTC `timestamp` of its local CSV slice. CSV timestamps load as naive UTC (`read_csv_auto`), matching the naive-UTC `timestamp` column the export guide assumes.
 - **Test users** `3,4,207871,207875,207878,207879` are excluded on both sides (`user_id` cast to DOUBLE — W1-W3 store it as `"622564.0"`).
+- **Read-only by construction** — the harness prefers a `METABASE_API_KEY` (scope it read-only in Metabase) over a session login, and every query it sends is asserted to be a single bare `SELECT`/`WITH` (`assert_read_only`). It cannot write to Metabase even if asked to.
+- **Internal-consistency tier** runs on the local data alone (no Metabase, no credentials) — see the section above. It is the validation you can trust without ever touching production.
 - **`adoption` is INFORMATIONAL** — its local visitor base is the *derived* `assets_page_views` (a 6-column projection of `view_assets` by `metabase-connect/derive_page_views.py`); the Metabase side is raw `view_assets`. An ~88-95% distinct-user overlap is expected by design, so it is never marked DISCREPANT.
 - **Pre-computed export tables** `10_daily_funnel_summary`, `13_asset_click_aggregated`, `14_conversion_cohort_summary` are analyst rollups with no raw Metabase table; they are validated transitively (the raw events they derive from are checked here). Re-deriving them belongs to the S4/S5 fetch pipeline.
 - **First credentialed run** may need two adjustments, like the Grip Connect pipeline's Phase-1 pin: (1) the `timestamp` column is assumed naive-UTC — if Metabase stores `timestamptz`, the window literals need a tz cast; (2) `user_id` is cast via TEXT→DOUBLE — if the column holds non-numeric values the cast must be guarded. Both surface immediately as a SQL error, not silent.

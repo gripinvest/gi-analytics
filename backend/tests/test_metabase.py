@@ -77,3 +77,20 @@ def test_run_sql_before_login_raises():
     c = _client(lambda r: httpx.Response(200, json={}))
     with pytest.raises(MetabaseError, match="Not logged in"):
         c.run_sql(8, "SELECT 1")
+
+
+def test_api_key_auth_skips_login_and_sends_header():
+    seen = {}
+
+    def handler(request):
+        seen["api_key"] = request.headers.get("X-API-Key")
+        seen["session"] = request.headers.get("X-Metabase-Session")
+        return httpx.Response(200, json={"data": {
+            "cols": [{"name": "n"}], "rows": [[1]]}})
+
+    c = MetabaseClient("https://mb.test", api_key="mb_readonly_key",
+                       client=httpx.Client(transport=httpx.MockTransport(handler)))
+    rows, _ = c.run_sql(8, "SELECT 1")    # note: no login() call
+    assert seen["api_key"] == "mb_readonly_key"
+    assert seen["session"] is None
+    assert rows == [{"n": 1}]
