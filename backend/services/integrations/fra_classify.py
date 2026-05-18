@@ -21,13 +21,16 @@ CATEGORY_RULES = [
 ]
 
 _QUESTION_OPENERS = ("how", "why", "what", "is", "are", "can", "should", "does", "which")
+# Covers Mahjong/Domino/misc (1F000), Emoticons/Transport/Misc Symbols (1F600–1FAFF),
+# Misc Symbols & Arrows / Dingbats (2600–27BF), and Regional Indicator Symbols (flags).
+# Intentionally excludes Misc Technical U+2300–U+25FF (arrows, box-drawing, etc.).
 _EMOJI = re.compile(
     "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF]"
 )
 
 
 def classify_video(title: str, tags: list[str]) -> dict:
-    haystack = (title + " " + " ".join(tags or [])).lower()
+    haystack = (title + " " + " ".join(tags or []) + " ").lower()
     category = "Other"
     for name, keywords in CATEGORY_RULES:
         if any(k in haystack for k in keywords):

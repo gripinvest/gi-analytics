@@ -17,3 +17,13 @@ def test_title_pattern_flags():
     r2 = classify_video("Bond Basics Explained", [])
     assert r2["is_question_title"] is False
     assert r2["has_rupee_or_number"] is False
+
+
+def test_has_emoji():
+    # Title containing an emoji — flag must be True.
+    r_with = classify_video("Earn More 💰 With Bonds", [])
+    assert r_with["has_emoji"] is True
+
+    # Plain text title — flag must be False.
+    r_without = classify_video("How Bonds Work", [])
+    assert r_without["has_emoji"] is False
