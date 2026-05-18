@@ -12,7 +12,7 @@ and [`roadmap.md`](../roadmap.md). Work in a dedicated worktree (standing mandat
 
 | # | Session | Depends on | Parallel-safe | Status |
 |---|---------|-----------|---------------|--------|
-| [S1](./S1-classic-dashboard-parity.md) | Classic dashboard — un-deprecate + session-outcome funnel parity + mobile-first | — | yes | ✅ done — PR `feat/asset-search-classic-parity` |
+| [S1](./S1-classic-dashboard-parity.md) | Classic dashboard — un-deprecate + session-outcome funnel parity + mobile-first | — | yes | ✅ done — [PR #49](https://github.com/purujit-grip/grip-analytics/pull/49) |
 | [S2](./S2-shared-ui-fixes.md) | Shared UI fixes — sign-out / theme-switcher overlap + UI-break audit | — | yes | not started |
 | [S3](./S3-metabase-data-validation.md) | Validate Asset Search data points against Metabase | — | yes | not started |
 | [S4](./S4-live-data-spec.md) | Asset Search live-data — design spec (Metabase fetch + daily cron + new tables) | — | yes | not started |
@@ -72,6 +72,6 @@ confirm the dependency is met before starting.
 ## Status
 
 **S1 done** (2026-05-19) — Classic dashboard un-deprecated and at full
-session-outcome funnel parity with Editorial; PR open on
-`feat/asset-search-classic-parity`. S2–S5 not started. Update this table and
-`session-log.md` as they land.
+session-outcome funnel parity with Editorial;
+[PR #49](https://github.com/purujit-grip/grip-analytics/pull/49) open. S2–S5 not
+started. Update this table and `session-log.md` as they land.

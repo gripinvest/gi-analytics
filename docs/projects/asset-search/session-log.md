@@ -8,8 +8,8 @@ Read the top entry when starting a new session. Supersedes the old loose
 
 ## 2026-05-19 — S1: Classic dashboard parity (PR open)
 
-**Status:** S1 complete — branch `feat/asset-search-classic-parity`, PR open to
-`main`, `next build` clean.
+**Status:** S1 complete — [PR #49](https://github.com/purujit-grip/grip-analytics/pull/49)
+open to `main` (branch `feat/asset-search-classic-parity`), `next build` clean.
 
 The Classic Asset Search dashboard is **un-deprecated** and back to full data
 parity with Editorial. Both renderings now read the same query builders, so they
