@@ -6,6 +6,38 @@ Read the top entry when starting a new session. Supersedes the old loose
 
 ---
 
+## 2026-05-19 — S1: Classic dashboard parity (PR open)
+
+**Status:** S1 complete — branch `feat/asset-search-classic-parity`, PR open to
+`main`, `next build` clean.
+
+The Classic Asset Search dashboard is **un-deprecated** and back to full data
+parity with Editorial. Both renderings now read the same query builders, so they
+always show identical numbers.
+
+- Removed the `@deprecated` JSDoc banner from `AssetSearchDashboard.jsx`.
+- Registered `sessionOutcomeByWeek` / `sessionOutcomeByIssuerWeek` in Classic's
+  query specs.
+- Overview: added a **Search Success Rate** headline stat (51.9%, W1–W6) and a
+  **Search-outcome funnel** chart (Success / Relevance gap / Dead end) mirroring
+  Editorial's Fig 3.
+- Issuers: `buildIssuers` now joins the live per-issuer outcome rows; issuer
+  cards show a Success rate, the detail panel shows the per-issuer outcome
+  funnel — replacing the cleared-event "true abandonment vs relevance gap"
+  reconstruction.
+- `assetSearch.js`: deleted the legacy `ISSUER_MAP.abandoned`/`relgap` arrays
+  (nothing reads them now); `METRIC_DEFS.abandoned`/`relgap` → `successRate` /
+  `relevanceGap` / `deadEnd`; reworded cleared-event copy throughout.
+- **Verified live:** Classic and Editorial both show **51.9%** search success
+  rate; per-issuer funnel buckets sum to 100%. Audited at 375 px and 1280 px —
+  no horizontal scroll, charts + legends render, issuer cards stack cleanly.
+
+`search_analytics/reconstruct_abandonment.py` is now fully unreferenced (the
+funnel superseded it); retiring that file is left to a follow-up — out of S1's
+scope.
+
+---
+
 ## 2026-05-18 — session planning
 
 **Status:** PR #42 **merged & deployed.** Next work is broken into 5 scoped

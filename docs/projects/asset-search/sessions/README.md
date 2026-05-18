@@ -10,13 +10,13 @@ and [`roadmap.md`](../roadmap.md). Work in a dedicated worktree (standing mandat
 
 ## The sessions
 
-| # | Session | Depends on | Parallel-safe |
-|---|---------|-----------|---------------|
-| [S1](./S1-classic-dashboard-parity.md) | Classic dashboard — un-deprecate + session-outcome funnel parity + mobile-first | — | yes |
-| [S2](./S2-shared-ui-fixes.md) | Shared UI fixes — sign-out / theme-switcher overlap + UI-break audit | — | yes |
-| [S3](./S3-metabase-data-validation.md) | Validate Asset Search data points against Metabase | — | yes |
-| [S4](./S4-live-data-spec.md) | Asset Search live-data — design spec (Metabase fetch + daily cron + new tables) | — | yes |
-| [S5](./S5-live-data-implementation.md) | Asset Search live-data — implementation | **S4** (benefits from S3) | no |
+| # | Session | Depends on | Parallel-safe | Status |
+|---|---------|-----------|---------------|--------|
+| [S1](./S1-classic-dashboard-parity.md) | Classic dashboard — un-deprecate + session-outcome funnel parity + mobile-first | — | yes | ✅ done — PR `feat/asset-search-classic-parity` |
+| [S2](./S2-shared-ui-fixes.md) | Shared UI fixes — sign-out / theme-switcher overlap + UI-break audit | — | yes | not started |
+| [S3](./S3-metabase-data-validation.md) | Validate Asset Search data points against Metabase | — | yes | not started |
+| [S4](./S4-live-data-spec.md) | Asset Search live-data — design spec (Metabase fetch + daily cron + new tables) | — | yes | not started |
+| [S5](./S5-live-data-implementation.md) | Asset Search live-data — implementation | **S4** (benefits from S3) | no | not started |
 
 S1–S4 are independent and can run in any order or in parallel (separate
 worktrees). S5 must follow S4.
@@ -71,5 +71,7 @@ confirm the dependency is met before starting.
 
 ## Status
 
-All sessions: **not started.** Update this table and `session-log.md` as they
-land.
+**S1 done** (2026-05-19) — Classic dashboard un-deprecated and at full
+session-outcome funnel parity with Editorial; PR open on
+`feat/asset-search-classic-parity`. S2–S5 not started. Update this table and
+`session-log.md` as they land.
