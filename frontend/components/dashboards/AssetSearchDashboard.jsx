@@ -236,7 +236,7 @@ export default function AssetSearchDashboard({ project }) {
       <Card pad="lg">
         {loading ? (
           <div className="flex flex-wrap gap-x-10 gap-y-4">
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: 7 }).map((_, i) => (
               <div key={i} className="space-y-2">
                 <Skeleton className="h-3 w-20" />
                 <Skeleton className="h-7 w-16" />
@@ -443,7 +443,7 @@ export default function AssetSearchDashboard({ project }) {
         <TabPanel value="issuers" className="mt-5">
           <IssuersView rows={rowsOf(data, "issuers")} outcomeRows={rowsOf(data, "issuerOutcome")}
             weeks={weeks} lastWeek={lastWeek}
-            loading={loading} error={errOf(data, "issuers")} />
+            loading={loading} error={errOf(data, "issuers") || errOf(data, "issuerOutcome")} />
         </TabPanel>
 
         {/* ── TERMS & ASSETS ───────────────────────────────────────────── */}
@@ -657,10 +657,10 @@ function buildIssuers(rows, outcomeRows, weeks) {
         outcomeSearched: Number(o.searched) || 0,
       };
     });
-    const sum = (k) => series.reduce((a, s) => a + (s[k] || 0), 0);
-    const totSessions = sum("sessions"), totQueries = sum("queries");
-    const totSuccess = sum("success"), totRelgap = sum("relgap"),
-          totDeadEnd = sum("deadEnd"), totOutcomeSearched = sum("outcomeSearched");
+    const sumKey = (k) => series.reduce((a, s) => a + (s[k] || 0), 0);
+    const totSessions = sumKey("sessions"), totQueries = sumKey("queries");
+    const totSuccess = sumKey("success"), totRelgap = sumKey("relgap"),
+          totDeadEnd = sumKey("deadEnd"), totOutcomeSearched = sumKey("outcomeSearched");
     const successPct = totOutcomeSearched ? Math.round((1000 * totSuccess) / totOutcomeSearched) / 10 : null;
     const avgZrr = totQueries ? Math.round((10 * series.reduce((a, s) => a + s.zrr * s.queries, 0)) / totQueries) / 10 : null;
     const avgRefine = totQueries ? Math.round((10 * series.reduce((a, s) => a + s.refinement * s.queries, 0)) / totQueries) / 10 : null;
@@ -777,7 +777,7 @@ function IssuersView({ rows, outcomeRows, weeks, lastWeek, loading, error }) {
                 <span className="t-heading-md text-heading">{iss.name}</span>
                 <Badge tone={CAT_BADGE[iss.category].tone} variant={CAT_BADGE[iss.category].variant} className="shrink-0">{ISSUER_CATEGORY[iss.category].label}</Badge>
               </div>
-              <div className="mt-2 flex items-end gap-5">
+              <div className="mt-2 flex items-end gap-3 sm:gap-5">
                 <CardStat label="Sessions" value={nf.format(iss.totSessions)} valueColor={color.neutral[900]} />
                 <CardStat label="Avg ZRR" value={iss.avgZrr == null ? "—" : `${iss.avgZrr}%`} valueColor={iss.avgZrr == null ? color.neutral[400] : zrrColor(iss.avgZrr)} />
                 <CardStat k="successRate" label="Success" value={iss.successPct == null ? "—" : `${iss.successPct}%`}

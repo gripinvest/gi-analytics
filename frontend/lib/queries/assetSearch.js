@@ -95,7 +95,7 @@ export function suggestionsByWeek({ tables, weeks }) {
     FROM i LEFT JOIN s USING (week) ORDER BY i.week`;
 }
 
-/** Clear events per week (abandonment proxy). */
+/** Clear events per week — a secondary friction signal (not the primary metric). */
 export function clearsByWeek({ tables, weeks }) {
   return `SELECT week, COUNT(*) AS clears
     FROM (${unionAllWeeks(tables.cleared, weeks, "1 AS one")}) t GROUP BY week ORDER BY week`;
@@ -287,7 +287,7 @@ export const METRIC_DEFS = {
 const esc = (s) => String(s).replace(/'/g, "''").replace(/([%_\\])/g, "\\$1");
 
 /**
- * SQL CASE that maps a query string to an issuer the way reconstruct_abandonment.py does:
+ * SQL CASE that maps a query string to an issuer by prefix / alias rules:
  * a query matches an issuer if, for any of that issuer's keywords, the query is a
  * prefix of the keyword (early typing: "uni" -> "unifinz") OR the keyword is a
  * prefix of the query (typed past it: "muthoot finance ltd" -> "muthoot"). That
