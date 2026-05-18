@@ -46,7 +46,7 @@ containers in `app/page.jsx` and `app/projects/[id]/page.jsx`.
 ### Verified
 
 Headless-Chromium check at 375 px and desktop, both designs, both pages —
-**8/8 page × design combinations pass**: Sign out and the pill never overlap,
+**8/8 page × design × breakpoint checks pass**: Sign out and the pill never overlap,
 8 px gap between them, all interactive elements ≥44 px, cluster fits the 375 px
 viewport, and the chrome clears every breadcrumb / heading / masthead caption.
 `next build` clean.

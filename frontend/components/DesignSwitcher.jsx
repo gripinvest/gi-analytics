@@ -50,7 +50,7 @@ function PillButton({ active, onClick, editorial, label }) {
       aria-checked={active}
       onClick={onClick}
       className={cn(
-        // min-h-11 (44px) is the touch-target floor; the visible pill stays
+        // min-h-[44px] is the touch-target floor; the visible pill stays
         // compact because the label is small. inline-flex centres the text
         // within that taller hit area.
         "inline-flex items-center justify-center min-h-[44px] px-3 rounded-full",
