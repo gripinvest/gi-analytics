@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from services.duck import db
-from routers import projects, upload, chat, refresh
+from routers import projects, upload, chat, refresh, fra_insights
 from middleware.basic_auth import BasicAuthMiddleware
 
 
@@ -56,6 +56,7 @@ app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(upload.router,   prefix="/api/upload",   tags=["upload"])
 app.include_router(chat.router,     prefix="/api/chat",     tags=["chat"])
 app.include_router(refresh.router,  prefix="/api/projects", tags=["refresh"])
+app.include_router(fra_insights.router, prefix="/api/projects", tags=["fra-insights"])
 
 
 @app.get("/health")
