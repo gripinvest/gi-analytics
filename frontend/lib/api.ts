@@ -192,3 +192,19 @@ export async function pollRefresh(
   if (!res.ok) throw new Error(`poll failed: ${res.status}`);
   return res.json();
 }
+
+// ── FRA YouTube insights ──────────────────────────────────────────────────────
+
+export interface FraInsights {
+  verdict: string;
+  strengths: string[];
+  weaknesses: string[];
+  recommendations: string[];
+}
+
+/** GET /api/projects/fra_youtube/insights — returns the cached AI narrative brief. */
+export async function fetchFraInsights(): Promise<FraInsights> {
+  const res = await fetch(`${BASE}/api/projects/fra_youtube/insights`);
+  if (!res.ok) throw new Error(`fetchFraInsights failed: ${res.status}`);
+  return res.json();
+}
