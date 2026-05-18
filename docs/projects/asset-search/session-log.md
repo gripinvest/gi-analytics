@@ -6,6 +6,60 @@ Read the top entry when starting a new session. Supersedes the old loose
 
 ---
 
+## 2026-05-19 — S3: Metabase data validation
+
+**Status:** S3 complete — branch `feat/asset-search-data-validation`, PR open.
+Build-irrelevant (backend Python + docs only; `next build` untouched). Backend
+tests: 66 pass.
+
+### Shipped
+
+- **`backend/services/integrations/validate_asset_search.py`** — a deterministic
+  validation harness. 23 checks re-compute every dashboard data point (every
+  `assetSearch.js` + `conversion.js` builder, plus raw event-table volumes)
+  from the local W1–W6 CSVs and, in `metabase` mode, from the live `client_web`
+  schema, then diff under a two-tier verdict policy (exact → CONFIRMED /
+  ≤5 rows·0.5%·0.3pp → MINOR DRIFT / larger → DISCREPANT). One SQL body per
+  check, run as DuckDB tables locally and CTEs on Metabase; each Metabase
+  relation is anchored to its CSV's exact UTC timestamp window.
+- **`metabase.py`** — added `run_sql()` for ad-hoc native queries (`/api/dataset`).
+- **`metabase-validation-report.md`** — the validation report (committed).
+- **`data-sources.md` §0/§6 corrected** — see F1.
+- Tests: `run_sql`, the two-tier classifier, row diffing, the ported issuer SQL.
+
+### Finding F1 — data-sources.md §0 overstated every W1–W6 row count
+
+§0 claimed `query` 29,582 etc. Those totals were summed from `metabase-connect/`,
+which holds **two** W6 exports — a superseded partial (`W6_may07-may11`) and the
+full week (`W6_may07-may13`) — and the partial was added on top of the full
+week. The dashboard's deployed data (`backend/data/asset_search/`, full W6 only)
+was always correct; only the doc was wrong. Verified exactly for all six events
+(e.g. 26,544 + 3,038 = 29,582). §0 corrected; the harness's §0 check is now a
+regression guard.
+
+### Pending — the credentialed Metabase run
+
+Per S3 discipline the live-Metabase diff is **not** run interactively. Every
+local↔Metabase check in the report is `PENDING`. To complete validation, run
+(CI or operator, creds in `backend/.env`):
+
+```
+cd backend && python -m services.integrations.validate_asset_search
+```
+
+That fills the Metabase column and the verdicts. First run may need two
+calibration pins (documented in the report's "Method" section): the `timestamp`
+column is assumed naive-UTC, and `user_id` is cast TEXT→DOUBLE — both fail loud
+as a SQL error if wrong, never silently.
+
+### When resuming
+
+S3 is done. Next per `sessions/README.md`: S1 / S2 / S4 (parallel-safe), then
+S5. The harness's `MetabaseClient.run_sql` + window-anchoring code is reusable
+by the S5 fetch pipeline.
+
+---
+
 ## 2026-05-19 — S2: shared UI fixes (sign-out / theme-switcher overlap)
 
 **Status:** done — branch `feat/shared-ui-fixes`, [PR #50](https://github.com/purujit-grip/grip-analytics/pull/50)
