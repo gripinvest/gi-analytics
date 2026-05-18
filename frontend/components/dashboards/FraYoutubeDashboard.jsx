@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import {
-  ResponsiveContainer, BarChart, LineChart, ComposedChart,
-  Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, BarChart, LineChart,
+  Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 import { runQuery, fetchFraInsights } from "@/lib/api";
 import { color, chartPalette } from "@/lib/tokens";
@@ -18,17 +18,6 @@ import { ChartCard, TooltipBox, axisProps, gridProps } from "@/components/charts
 const nf = new Intl.NumberFormat("en-IN");
 const pct = (v) => (v == null || v === "" ? "—" : `${Number(v).toFixed(1)}%`);
 const fmt = (v) => (v == null || v === "" ? "—" : nf.format(Number(v)));
-
-/* ── legend props ─────────────────────────────────────────────────────────── */
-
-const legendProps = {
-  verticalAlign: "top",
-  align: "left",
-  height: 28,
-  iconType: "circle",
-  iconSize: 8,
-  wrapperStyle: { paddingBottom: 6, fontSize: 12, color: "var(--gi-text-tertiary)" },
-};
 
 /* ── SQL queries ──────────────────────────────────────────────────────────── */
 
@@ -48,6 +37,7 @@ const SQL = {
   `,
   monthlyViews: `
     SELECT * FROM fra_youtube__monthly_views
+    WHERE snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__monthly_views)
     ORDER BY month
   `,
   categoryMix: `
@@ -147,7 +137,7 @@ function discoveryVerdictBadge(row) {
 
 /* ── DeltaChip ────────────────────────────────────────────────────────────── */
 
-function DeltaChip({ current, delta, goodIsUp = true, suffix = "" }) {
+function DeltaChip({ delta, goodIsUp = true, suffix = "" }) {
   if (delta == null || delta === "" || Number.isNaN(Number(delta))) return null;
   const d = Number(delta);
   if (d === 0) return <span className="t-emphasis-sm text-tertiary">±0{suffix}</span>;
@@ -287,6 +277,8 @@ export default function FraYoutubeDashboard({ project }) {
             <CardBody>
               {loading ? (
                 <Skeleton className="h-20 w-full" />
+              ) : errOf(data, "overview") ? (
+                <p className="t-body-sm text-error">Could not load this section.</p>
               ) : overview ? (
                 <StatStrip>
                   <Stat label="Subscribers" value={fmt(overview.subscribers)} />
@@ -312,11 +304,13 @@ export default function FraYoutubeDashboard({ project }) {
                 <CardTitle>Discovery health</CardTitle>
                 <CardSubtitle>Share of recent videos crossing key view thresholds</CardSubtitle>
               </div>
-              {discoveryVerdictBadge(distRow)}
+              {!loading && discoveryVerdictBadge(distRow)}
             </CardHeader>
             <CardBody>
               {loading ? (
                 <Skeleton className="h-24 w-full" />
+              ) : errOf(data, "distribution") ? (
+                <p className="t-body-sm text-error">Could not load this section.</p>
               ) : distRow ? (
                 <div className="flex flex-col gap-4">
                   <div className="text-4xl t-num font-semibold text-heading">
@@ -410,6 +404,8 @@ export default function FraYoutubeDashboard({ project }) {
             <CardBody>
               {loading ? (
                 <Skeleton className="h-32 w-full" />
+              ) : errOf(data, "categoryMix") ? (
+                <p className="t-body-sm text-error">Could not load this section.</p>
               ) : categoryMixRows.length === 0 ? (
                 <p className="t-body-sm text-tertiary">No category mix data.</p>
               ) : (
@@ -427,7 +423,7 @@ export default function FraYoutubeDashboard({ project }) {
                       {categoryMixRows.map((r, i) => (
                         <tr
                           key={i}
-                          className="border-b border-border-muted last:border-0"
+                          className="border-b border-border-default last:border-0"
                         >
                           <td className="py-2 pr-4 text-body">{r.category}</td>
                           <td className="py-2 pr-4 text-right t-num text-secondary">{fmt(r.video_count)}</td>
@@ -523,6 +519,8 @@ export default function FraYoutubeDashboard({ project }) {
             <CardBody>
               {loading ? (
                 <Skeleton className="h-32 w-full" />
+              ) : errOf(data, "titlePatterns") ? (
+                <p className="t-body-sm text-error">Could not load this section.</p>
               ) : titlePatternsRows.length === 0 ? (
                 <p className="t-body-sm text-tertiary">No title pattern data.</p>
               ) : (
@@ -537,7 +535,7 @@ export default function FraYoutubeDashboard({ project }) {
                     </thead>
                     <tbody>
                       {titlePatternsRows.map((r, i) => (
-                        <tr key={i} className="border-b border-border-muted last:border-0">
+                        <tr key={i} className="border-b border-border-default last:border-0">
                           <td className="py-2 pr-4 text-body">{r.pattern}</td>
                           <td className="py-2 pr-4 text-right t-num text-secondary">{fmt(r.video_count)}</td>
                           <td className="py-2 text-right t-num text-secondary">{fmt(r.avg_views)}</td>
@@ -563,6 +561,8 @@ export default function FraYoutubeDashboard({ project }) {
             <CardBody>
               {loading ? (
                 <Skeleton className="h-24 w-full" />
+              ) : errOf(data, "catalogHealth") ? (
+                <p className="t-body-sm text-error">Could not load this section.</p>
               ) : catalogRow ? (
                 <StatStrip>
                   <Stat

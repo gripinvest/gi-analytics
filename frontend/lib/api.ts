@@ -200,6 +200,7 @@ export interface FraInsights {
   strengths: string[];
   weaknesses: string[];
   recommendations: string[];
+  snapshot_date?: string;
 }
 
 /** GET /api/projects/fra_youtube/insights — returns the cached AI narrative brief. */
