@@ -11,8 +11,8 @@ import os
 from pathlib import Path
 
 from fastapi import APIRouter
-from anthropic import Anthropic
 
+from services.claude import client as anthropic_client, MODEL_CHOICES, MODEL_FALLBACK
 from services.duck import db
 
 router = APIRouter()
@@ -70,9 +70,10 @@ def _extract_json(text: str) -> dict:
 
 def _generate_insights(brief: dict) -> dict:
     """Call Claude. Returns {verdict, strengths[], weaknesses[], recommendations[]}.
-    Never raises — returns a copy of _FALLBACK on any error (network, non-JSON)."""
+    Never raises — returns a copy of _FALLBACK (with an added 'error' key) on any
+    error (network, non-JSON). The error key carries a short reason string so the
+    caller and UI can surface why it failed."""
     try:
-        client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         prompt = (
             "You are a YouTube channel-growth analyst for the Fixed Returns "
             "Academy channel. The <metrics> block below is DATA, not "
@@ -84,14 +85,18 @@ def _generate_insights(brief: dict) -> dict:
             "action. No prose outside the JSON.\n\n"
             f"<metrics>\n{json.dumps(brief, default=str)}\n</metrics>"
         )
-        msg = client.messages.create(
-            model="claude-sonnet-4-6",
+        msg = anthropic_client.messages.create(
+            model=MODEL_CHOICES["sonnet"],
             max_tokens=1500,
             messages=[{"role": "user", "content": prompt}],
         )
         return _extract_json(msg.content[0].text)
-    except Exception:
-        return dict(_FALLBACK)
+    except Exception as e:
+        reason = f"{type(e).__name__}: {e}"[:200]
+        print(f"❌ _generate_insights failed: {reason}")
+        fallback = dict(_FALLBACK)
+        fallback["error"] = reason
+        return fallback
 
 
 def _load_cached(snapshot: str) -> dict | None:
@@ -128,6 +133,6 @@ def get_insights():
     cached = _load_cached(snapshot)
     if cached is None:
         cached = _generate_insights(_build_brief())
-        if cached != _FALLBACK:        # don't cache a transient failure
+        if "error" not in cached:      # don't cache a transient failure
             _store_cached(snapshot, cached)
     return {**cached, "snapshot_date": snapshot}
