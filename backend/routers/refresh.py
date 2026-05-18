@@ -1,5 +1,6 @@
 """Manual refresh endpoint — async + polling, one job per project at a time.
 Runs the same run_refresh() the CLI uses, in a background thread, in-container."""
+import logging
 import os
 import threading
 import uuid
@@ -9,8 +10,10 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from services.duck import db
-from services.integrations.metabase import MetabaseClient
+from services.integrations.metabase import MetabaseClient, MetabaseError
 from services.integrations import refresh as refresh_mod
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -33,8 +36,16 @@ def _run_job(job_id: str, project_id: str):
         db.load_csvs_for_project(project_id, csv_dir)  # reload DuckDB
         job.update(status="done", log=result["log"],
                    finished_at=datetime.now(timezone.utc).isoformat())
-    except Exception as exc:  # surfaced to the UI verbatim
+    except MetabaseError as exc:
+        # Log full details server-side; expose only the Metabase-level message
+        # (no URLs or env-var names) to the browser.
+        logger.exception("Refresh job %s failed (MetabaseError)", job_id)
         job.update(status="error", error=str(exc))
+    except Exception as exc:
+        # Log full details server-side; send a generic message to the browser
+        # to avoid leaking env vars, URLs, or internal paths.
+        logger.exception("Refresh job %s failed", job_id)
+        job.update(status="error", error="Refresh failed — see server logs")
     finally:
         _LOCKS[project_id].release()
 

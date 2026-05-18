@@ -101,6 +101,7 @@ export async function runQuery(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sql, limit }),
   });
+  if (!res.ok) throw new Error(`query failed: ${res.status}`);
   return res.json();
 }
 

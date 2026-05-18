@@ -22,11 +22,19 @@ def upsert_csv(path, new_rows: list[dict], key: list[str]) -> None:
     merged = list(existing.values())
     if not merged:
         return
-    fieldnames = list(merged[0].keys())
+    # Build fieldnames as the insertion-ordered union of keys across ALL rows so
+    # that a column present in any row (including newly-fetched Metabase rows) is
+    # preserved.  extrasaction="ignore" ensures an unexpected extra key never
+    # causes DictWriter to crash mid-write.
+    seen: dict[str, None] = {}
+    for row in merged:
+        for k in row:
+            seen[k] = None
+    fieldnames = list(seen.keys())
     tmp = path.with_suffix(path.suffix + ".tmp")
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(tmp, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(merged)
     os.replace(tmp, path)
