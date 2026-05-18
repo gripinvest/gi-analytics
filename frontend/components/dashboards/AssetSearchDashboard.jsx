@@ -1,12 +1,14 @@
 "use client";
 
 /**
- * @deprecated CLASSIC ASSET SEARCH DASHBOARD — NOT MAINTAINED.
+ * CLASSIC ASSET SEARCH DASHBOARD.
  *
- * The Editorial variant (AssetSearchDashboardEditorial.jsx) is the active,
- * maintained dashboard. This Classic version is kept only for reference and
- * may lag behind on data, copy, and features. Do not invest further work here
- * — make changes in the Editorial dashboard instead.
+ * One of two maintained renderings of the Asset Search project, shown when the
+ * design toggle is set to "classic" (the Editorial variant,
+ * AssetSearchDashboardEditorial.jsx, is the other). Both are first-class and
+ * kept at data parity — every metric here reads the same builders in
+ * lib/queries/assetSearch.js, so the two dashboards always show identical
+ * numbers. Keep them in sync when a metric changes.
  */
 
 import * as React from "react";
@@ -51,17 +53,19 @@ import { ChartCard, TooltipBox, axisProps, gridProps } from "@/components/charts
 /* ── data loading ─────────────────────────────────────────────────────────── */
 
 const QUERY_SPECS = {
-  health:      (ctx) => Q.queryHealthByWeek(ctx),
-  funnel:      (ctx) => Q.funnelByWeek(ctx),
-  suggestions: (ctx) => Q.suggestionsByWeek(ctx),
-  clears:      (ctx) => Q.clearsByWeek(ctx),
-  tabs:        (ctx) => Q.byTab(ctx),
-  sessions:    (ctx) => Q.totalQuerySessions(ctx),
-  terms:       (ctx) => Q.topSearchTerms(ctx),
-  assets:      (ctx) => Q.topClickedAssets(ctx),
-  positions:   (ctx) => Q.clicksByPosition(ctx),
-  zeroQueries: (ctx) => Q.topZeroResultQueries(ctx),
-  issuers:     (ctx) => Q.issuerHealthByWeek(ctx),
+  health:        (ctx) => Q.queryHealthByWeek(ctx),
+  funnel:        (ctx) => Q.funnelByWeek(ctx),
+  suggestions:   (ctx) => Q.suggestionsByWeek(ctx),
+  clears:        (ctx) => Q.clearsByWeek(ctx),
+  sessionOutcome:(ctx) => Q.sessionOutcomeByWeek(ctx),
+  tabs:          (ctx) => Q.byTab(ctx),
+  sessions:      (ctx) => Q.totalQuerySessions(ctx),
+  terms:         (ctx) => Q.topSearchTerms(ctx),
+  assets:        (ctx) => Q.topClickedAssets(ctx),
+  positions:     (ctx) => Q.clicksByPosition(ctx),
+  zeroQueries:   (ctx) => Q.topZeroResultQueries(ctx),
+  issuers:       (ctx) => Q.issuerHealthByWeek(ctx),
+  issuerOutcome: (ctx) => Q.sessionOutcomeByIssuerWeek(ctx),
 };
 
 // Conversion ("Business") queries — run when the invest_now / quick_checkout tables
@@ -156,6 +160,7 @@ export default function AssetSearchDashboard({ project }) {
 
   const health = rowsOf(data, "health");
   const funnel = rowsOf(data, "funnel");
+  const sessionOutcome = rowsOf(data, "sessionOutcome");
   const suggestions = rowsOf(data, "suggestions");
   const clears = rowsOf(data, "clears");
   const tabs = rowsOf(data, "tabs");
@@ -174,6 +179,13 @@ export default function AssetSearchDashboard({ project }) {
   const ctrLast = suggestions.length ? suggestions[suggestions.length - 1].ctr_pct : null;
   const zrrFirst = health.length ? health[0].zrr_pct : null;
   const zrrLast = health.length ? health[health.length - 1].zrr_pct : null;
+  // Session-outcome funnel — the primary search-health metric. Search Success
+  // Rate is the headline; the weekly Success / Relevance-gap / Dead-end split
+  // drives the outcome chart on the Overview tab. Same builders the Editorial
+  // dashboard uses, so both renderings show identical numbers.
+  const outcomeSuccessPct = weightedPct(sessionOutcome, "success", "searched");
+  const successFirst = sessionOutcome.length ? Number(sessionOutcome[0].success_pct) : null;
+  const successLast = sessionOutcome.length ? Number(sessionOutcome[sessionOutcome.length - 1].success_pct) : null;
   // Searcher-vs-non-searcher conversion cohort, surfaced as a "Conversion impact" block
   // at the top of the Overview tab. Prefer the full W1–W6 cohort (built from the weekly
   // assets-page-views); fall back to the launch-week deep-export cohort (Apr 2–9, anon-id).
@@ -208,6 +220,13 @@ export default function AssetSearchDashboard({ project }) {
   const funnelSeries = funnel.map((r) => ({
     week: r.week, Focused: Number(r.initiated), Queried: Number(r.queried), Clicked: Number(r.clicked),
   }));
+  // Session-outcome funnel series — each searched session classified once.
+  const outcomeSeries = sessionOutcome.map((r) => ({
+    week: r.week,
+    Success: Number(r.success),
+    "Relevance gap": Number(r.relevance_gap),
+    "Dead end": Number(r.dead_end),
+  }));
   const suggSeries = suggestions.map((r) => ({ week: r.week, clicks: Number(r.suggestion_clicks), ctr: Number(r.ctr_pct) }));
   const posSeries = positions.map((r) => ({ rank: `#${r.rank}`, clicks: Number(r.clicks) }));
 
@@ -233,21 +252,25 @@ export default function AssetSearchDashboard({ project }) {
                 hint={`${nf.format(sum(adoption, "searchers"))} of ${nf.format(sum(adoption, "visitors"))} visitors used search`}
                 delta={<DeltaChip from={adoptionFirst} to={adoptionLast} goodIsDown={false} suffix="pt" />} />
             )}
+            <Stat label={<Metric k="successRate">Search success rate</Metric>} value={pct(outcomeSuccessPct)}
+              valueColor={outcomeSuccessPct != null ? color.teal[600] : undefined}
+              hint="searched sessions ending in a result click"
+              delta={<DeltaChip from={successFirst} to={successLast} goodIsDown={false} suffix="pt" />} />
             <Stat label={<Metric k="zrr">Query-level ZRR</Metric>} value={pct(overallZrr)}
               valueColor={overallZrr != null ? zrrColor(overallZrr) : undefined}
               hint={`${nf.format(totalQueries)} queries`}
               delta={<DeltaChip from={zrrFirst} to={zrrLast} suffix="pt" />} />
             <Stat label={<Metric k="refinement">Refinement rate</Metric>} value={pct(overallRefine)} hint="user iterating mid-search" />
             <Stat label={<Metric k="clicks">Result clicks</Metric>} value={totalClicks ? nf.format(totalClicks) : "—"} hint="from search results" />
-            <Stat label={<Metric k="clears">Clear events</Metric>} value={totalClears ? nf.format(totalClears) : "—"} hint="abandonment proxy *" />
+            <Stat label={<Metric k="clears">Clear events</Metric>} value={totalClears ? nf.format(totalClears) : "—"} hint="search bar cleared · friction signal" />
             <Stat label={<Metric k="suggestionCtr">Suggestion CTR</Metric>} value={pct(ctrLast)} hint={`focus-time picks · ${lastWeek}`} />
           </StatStrip>
         )}
         {!loading && (
           <p className="mt-4 t-body-xs text-tertiary">
-            * The current data export of <code className="font-mono">asset_search_cleared</code> does not carry the
-            had-results / any-click payload, so "clear events" stand in for true abandonment vs relevance-gap until that
-            payload is re-exported. ZRR is query-level (the correct metric); session-level over-counts prefix-typing noise.
+            Search success rate is the headline: every searched session is classified once into success, relevance gap,
+            or dead end (see the Search outcome chart below). ZRR is query-level (the correct metric); session-level
+            over-counts prefix-typing noise. Clear events are a secondary friction signal, not the primary measure.
           </p>
         )}
       </Card>
@@ -308,6 +331,26 @@ export default function AssetSearchDashboard({ project }) {
                 <Line yAxisId="z" dataKey="zrr" name="Zero-result rate" stroke={color.error[500]} strokeWidth={2.5}
                   dot={{ r: 3, fill: color.error[500], strokeWidth: 0 }} activeDot={{ r: 5 }} />
               </ComposedChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          <ChartCard
+            title={<Metric k="successRate">Search outcome — every searched session, one of three ends</Metric>}
+            subtitle="Each searched session counted once. Success: clicked a result. Relevance gap: results shown, nothing clicked. Dead end: every query returned zero results."
+            loading={loading} error={errOf(data, "sessionOutcome")} height={300}
+            footer={`${pct(outcomeSuccessPct)} of searched sessions end in a result click; the rest split between a relevance gap and a dead end.`}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={outcomeSeries} margin={{ top: 28, right: 8, bottom: 0, left: -12 }}>
+                <CartesianGrid {...gridProps} />
+                <XAxis dataKey="week" {...axisProps} />
+                <YAxis {...axisProps} width={48} />
+                <Tooltip cursor={{ fill: color.neutral[100] }} content={<TooltipBox valueFmt={(v) => nf.format(v)} />} />
+                <Legend {...legendProps} />
+                <Bar dataKey="Success" stackId="o" fill={color.teal[500]} maxBarSize={46} />
+                <Bar dataKey="Relevance gap" stackId="o" fill={color.warning[400]} maxBarSize={46} />
+                <Bar dataKey="Dead end" stackId="o" fill={color.error[400]} radius={[3, 3, 0, 0]} maxBarSize={46} />
+              </BarChart>
             </ResponsiveContainer>
           </ChartCard>
 
@@ -398,7 +441,8 @@ export default function AssetSearchDashboard({ project }) {
 
         {/* ── ISSUERS ──────────────────────────────────────────────────── */}
         <TabPanel value="issuers" className="mt-5">
-          <IssuersView rows={rowsOf(data, "issuers")} weeks={weeks} lastWeek={lastWeek}
+          <IssuersView rows={rowsOf(data, "issuers")} outcomeRows={rowsOf(data, "issuerOutcome")}
+            weeks={weeks} lastWeek={lastWeek}
             loading={loading} error={errOf(data, "issuers")} />
         </TabPanel>
 
@@ -528,8 +572,7 @@ export default function AssetSearchDashboard({ project }) {
               <CardBody>
                 <ul className="flex flex-col gap-3 t-body-sm">
                   {[
-                    ["asset_search_cleared payload", "This export only has timestamp/session/user/active_tab. Re-export with had_results & any_result_clicked to split true abandonment from relevance gaps."],
-                    ["Issuer roll-up", "There is no issuer column — term→issuer mapping (incl. alias V2: lon→SDI, icl→InCred, muth→Muthoot, …) lives in the offline analyze_search.py, not in SQL yet."],
+                    ["asset_search_cleared payload (W1–W3)", "The W1–W3 export only has timestamp/session/user/active_tab; W4+ carry had_results & any_result_clicked. Low priority — the primary search-health metric is the session-outcome funnel, which needs no cleared payload; clears are now only a secondary friction signal."],
                     ["Conversion: window + paid orders", "The Conversion tab joins search to invest_now / quick_checkout on same-day user_id. invest_now is an intent event, not a paid order; same-day misses multi-day journeys; and there's no browse-population table, so a true search lift vs non-searchers isn't computable. Add tblorders + a 1–3 day window + a page/asset-view event to close these."],
                   ].map(([ev, note]) => (
                     <li key={ev} className="flex gap-3">
@@ -581,29 +624,44 @@ const ZrrDot = (props) => {
   return <circle cx={cx} cy={cy} r={4.5} fill={zrrColor(Number(payload.zrr))} stroke={color.neutral[0]} strokeWidth={1.5} />;
 };
 
-function buildIssuers(rows, weeks) {
+// Joins the per-week issuer DB rows (issuerHealthByWeek) with the per-week
+// session-outcome rows (sessionOutcomeByIssuerWeek) and ISSUER_MAP's curated
+// metadata. Success / relevance gap / dead end are live from DuckDB — the same
+// builders the Editorial dashboard uses, so both renderings agree.
+function buildIssuers(rows, outcomeRows, weeks) {
   const byIssuer = new Map();
   for (const r of rows) {
     if (!byIssuer.has(r.issuer)) byIssuer.set(r.issuer, {});
     byIssuer.get(r.issuer)[r.week] = r;
   }
+  const byOutcome = new Map();
+  for (const r of outcomeRows || []) {
+    if (!byOutcome.has(r.issuer)) byOutcome.set(r.issuer, {});
+    byOutcome.get(r.issuer)[r.week] = r;
+  }
   return ISSUER_MAP.map((meta) => {
     const wkMap = byIssuer.get(meta.name) || {};
-    const series = weeks.map((w, i) => {
+    const oMap = byOutcome.get(meta.name) || {};
+    const series = weeks.map((w) => {
       const r = wkMap[w] || {};
+      const o = oMap[w] || {};
       return {
         week: w,
         sessions: Number(r.sessions) || 0,
         queries: Number(r.queries) || 0,
         zrr: r.zrr_pct == null ? 0 : Number(r.zrr_pct),
         refinement: r.refinement_pct == null ? 0 : Number(r.refinement_pct),
-        abandoned: (meta.abandoned || [])[i] ?? 0,
-        relgap: (meta.relgap || [])[i] ?? 0,
+        success: Number(o.success) || 0,
+        relgap: Number(o.relevance_gap) || 0,
+        deadEnd: Number(o.dead_end) || 0,
+        outcomeSearched: Number(o.searched) || 0,
       };
     });
     const sum = (k) => series.reduce((a, s) => a + (s[k] || 0), 0);
     const totSessions = sum("sessions"), totQueries = sum("queries");
-    const totAbandoned = sum("abandoned"), totRelgap = sum("relgap");
+    const totSuccess = sum("success"), totRelgap = sum("relgap"),
+          totDeadEnd = sum("deadEnd"), totOutcomeSearched = sum("outcomeSearched");
+    const successPct = totOutcomeSearched ? Math.round((1000 * totSuccess) / totOutcomeSearched) / 10 : null;
     const avgZrr = totQueries ? Math.round((10 * series.reduce((a, s) => a + s.zrr * s.queries, 0)) / totQueries) / 10 : null;
     const avgRefine = totQueries ? Math.round((10 * series.reduce((a, s) => a + s.refinement * s.queries, 0)) / totQueries) / 10 : null;
     const half = Math.ceil(weeks.length / 2);
@@ -611,7 +669,8 @@ function buildIssuers(rows, weeks) {
     const late = avgOf(series.slice(half).map((s) => s.zrr));
     const zrrDelta = early == null || late == null ? null : Math.round((late - early) * 10) / 10;
     const peak = series.reduce((m, s) => (s.zrr > (m?.zrr ?? -1) ? s : m), null);
-    return { ...meta, series, totSessions, totQueries, totAbandoned, totRelgap, avgZrr, avgRefine, zrrDelta, peak, early, late };
+    return { ...meta, series, totSessions, totQueries, totSuccess, totRelgap, totDeadEnd,
+      totOutcomeSearched, successPct, avgZrr, avgRefine, zrrDelta, peak, early, late };
   }).filter((i) => i.totSessions > 0)
     .sort((a, b) => (b.avgZrr ?? 0) - (a.avgZrr ?? 0));
 }
@@ -634,8 +693,8 @@ function InlineStat({ k, label, value, valueColor, align }) {
   );
 }
 
-function IssuersView({ rows, weeks, lastWeek, loading, error }) {
-  const issuers = React.useMemo(() => buildIssuers(rows, weeks), [rows, weeks]);
+function IssuersView({ rows, outcomeRows, weeks, lastWeek, loading, error }) {
+  const issuers = React.useMemo(() => buildIssuers(rows, outcomeRows, weeks), [rows, outcomeRows, weeks]);
   const [filter, setFilter] = React.useState("all");
   const [selected, setSelected] = React.useState(null);
   // Scroll the detail panel into view when the user picks an issuer. Mobile
@@ -672,8 +731,13 @@ function IssuersView({ rows, weeks, lastWeek, loading, error }) {
 
   const counts = CAT_ORDER.reduce((m, c) => ({ ...m, [c]: issuers.filter((i) => i.category === c).length }), {});
   const totalSessions = issuers.reduce((a, i) => a + i.totSessions, 0);
-  const half = Math.ceil(weeks.length / 2);
-  const abandSeries = current ? current.series.map((s) => ({ week: s.week, "True abandonment": s.abandoned, "Relevance gap": s.relgap })) : [];
+  // Per-issuer session-outcome funnel for the selected issuer's detail panel.
+  const outcomeSeries = current
+    ? current.series.map((s) => ({ week: s.week, Success: s.success, "Relevance gap": s.relgap, "Dead end": s.deadEnd }))
+    : [];
+  const outcomePct = (n) => (current && current.totOutcomeSearched
+    ? Math.round((1000 * (n || 0)) / current.totOutcomeSearched) / 10
+    : null);
 
   return (
     <div className="flex flex-col gap-6">
@@ -683,8 +747,8 @@ function IssuersView({ rows, weeks, lastWeek, loading, error }) {
             <CardTitle>Search health by issuer</CardTitle>
             <CardSubtitle>
               <code className="font-mono">query_text</code> mapped to an issuer by leading-prefix / alias rules; prefix variants (aka, akar, akara) collapse into one issuer.
-              Sessions, query-level ZRR and refinement are computed live from the DuckDB views. Category, the read on each issuer, and the abandonment / relevance-gap
-              counts come from the offline analyze_search.py (the richer <code className="font-mono">asset_search_cleared</code> payload isn't in this export). Hover any{" "}
+              Sessions, query-level ZRR, refinement and the search-outcome split (success / relevance gap / dead end) are all computed live from the DuckDB views.
+              Only the category and the read on each issuer are human-written. Hover any{" "}
               <span className="inline-flex size-3.5 items-center justify-center rounded-full bg-muted text-[9px] font-bold text-tertiary align-middle">?</span> for the exact definition and source.
             </CardSubtitle>
           </div>
@@ -716,7 +780,8 @@ function IssuersView({ rows, weeks, lastWeek, loading, error }) {
               <div className="mt-2 flex items-end gap-5">
                 <CardStat label="Sessions" value={nf.format(iss.totSessions)} valueColor={color.neutral[900]} />
                 <CardStat label="Avg ZRR" value={iss.avgZrr == null ? "—" : `${iss.avgZrr}%`} valueColor={iss.avgZrr == null ? color.neutral[400] : zrrColor(iss.avgZrr)} />
-                <CardStat label="Abandon" value={nf.format(iss.totAbandoned)} valueColor={color.neutral[700]} />
+                <CardStat k="successRate" label="Success" value={iss.successPct == null ? "—" : `${iss.successPct}%`}
+                  valueColor={iss.successPct == null ? color.neutral[400] : color.teal[700]} />
                 <div className="ml-auto self-center"><DeltaChip from={iss.early} to={iss.late} suffix="pt" /></div>
               </div>
               <div className="mt-3 h-11" aria-hidden>
@@ -764,30 +829,38 @@ function IssuersView({ rows, weeks, lastWeek, loading, error }) {
               </div>
               <div>
                 <div className="t-label-md text-tertiary mb-1 flex items-center gap-1.5">
-                  <Metric k="abandoned">True abandonment</Metric> vs <Metric k="relgap">relevance gap</Metric>, sessions by week
+                  <Metric k="successRate">Search outcome</Metric> by feature week — each searched session classified once
                 </div>
                 <div className="h-44">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={abandSeries} margin={{ top: 28, right: 8, bottom: 0, left: -16 }} barGap={2}>
+                    <BarChart data={outcomeSeries} margin={{ top: 28, right: 8, bottom: 0, left: -16 }} barGap={2}>
                       <CartesianGrid {...gridProps} />
                       <XAxis dataKey="week" {...axisProps} />
                       <YAxis {...axisProps} width={36} allowDecimals={false} />
                       <Tooltip cursor={{ fill: color.neutral[100] }} content={<TooltipBox valueFmt={(v) => nf.format(v)} />} />
                       <Legend {...legendProps} />
-                      <Bar dataKey="True abandonment" stackId="a" fill={color.error[400]} radius={[0, 0, 0, 0]} maxBarSize={26} />
-                      <Bar dataKey="Relevance gap" stackId="a" fill={color.warning[400]} radius={[3, 3, 0, 0]} maxBarSize={26} />
+                      <Bar dataKey="Success" stackId="a" fill={color.teal[500]} maxBarSize={26} />
+                      <Bar dataKey="Relevance gap" stackId="a" fill={color.warning[400]} maxBarSize={26} />
+                      <Bar dataKey="Dead end" stackId="a" fill={color.error[400]} radius={[3, 3, 0, 0]} maxBarSize={26} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-                <p className="mt-1 t-body-xs text-tertiary">From analyze_search.py. Re-export <code className="font-mono">asset_search_cleared</code> with <code className="font-mono">had_results</code> and <code className="font-mono">any_result_clicked</code> to make these live.</p>
+                <p className="mt-1 t-body-xs text-tertiary">Live from <code className="font-mono">asset_search_query</code> + <code className="font-mono">asset_search_result_clicked</code> — success, relevance gap and dead end are exact for every week.</p>
               </div>
               <div className="flex flex-wrap gap-x-7 gap-y-2">
                 <InlineStat k="sessions" label="Sessions" value={nf.format(current.totSessions)} />
                 <InlineStat k="queries" label="Queries" value={nf.format(current.totQueries)} />
                 <InlineStat k="zrr" label="Avg ZRR" value={current.avgZrr == null ? "—" : `${current.avgZrr}%`} valueColor={current.avgZrr == null ? color.neutral[400] : zrrColor(current.avgZrr)} />
                 <InlineStat k="refinement" label="Refinement" value={current.avgRefine == null ? "—" : `${current.avgRefine}%`} />
-                <InlineStat k="abandoned" label="True abandon" value={nf.format(current.totAbandoned)} valueColor={color.error[600]} align="right" />
-                <InlineStat k="relgap" label="Rel. gap" value={nf.format(current.totRelgap)} valueColor={color.warning[700]} align="right" />
+                <InlineStat k="successRate" label="Success" align="right"
+                  value={outcomePct(current.totSuccess) == null ? nf.format(current.totSuccess) : `${nf.format(current.totSuccess)} · ${outcomePct(current.totSuccess)}%`}
+                  valueColor={color.teal[700]} />
+                <InlineStat k="relevanceGap" label="Rel. gap" align="right"
+                  value={outcomePct(current.totRelgap) == null ? nf.format(current.totRelgap) : `${nf.format(current.totRelgap)} · ${outcomePct(current.totRelgap)}%`}
+                  valueColor={color.warning[700]} />
+                <InlineStat k="deadEnd" label="Dead end" align="right"
+                  value={outcomePct(current.totDeadEnd) == null ? nf.format(current.totDeadEnd) : `${nf.format(current.totDeadEnd)} · ${outcomePct(current.totDeadEnd)}%`}
+                  valueColor={color.error[600]} />
                 <span className="inline-flex items-baseline gap-1.5"><span className="t-overline text-tertiary">Early → late ZRR</span><DeltaChip from={current.early} to={current.late} suffix="pt" /></span>
               </div>
             </div>
