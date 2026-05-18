@@ -1,12 +1,12 @@
 "use client";
-// Sign-out button — fixed top-right, sits adjacent to the DesignSwitcher.
-// Adapts to editorial (italic mono, paper-on-ink hover) and classic
-// (neutral text-button) without a design prop: reads useDesign() and
-// styles inline.
+// Sign-out button — sits beside the DesignSwitcher inside <PageChrome />,
+// which owns the fixed top-right placement. Adapts to editorial (italic
+// mono, paper-on-ink hover) and classic (neutral text-button) without a
+// design prop: reads useDesign() and styles inline.
 //
-// Responsive: on mobile (<sm) renders as an icon-only ↗ to avoid colliding
-// with the page header overline. On desktop renders the full "Sign out"
-// label. The aria-label keeps screen readers consistent.
+// Responsive: on mobile (<sm) renders as an icon-only ↗ so the chrome
+// cluster stays narrow at 375px; on desktop renders the full "Sign out"
+// label. The aria-label keeps screen readers consistent either way.
 //
 // Behaviour: POST /api/logout (clears the grip-auth cookie), then
 // router.replace("/login"). Using replace so the back-button doesn't
@@ -43,7 +43,7 @@ export function SignOut({ className = "" }) {
       disabled={pending}
       aria-label="Sign out"
       title="Sign out"
-      className={`fixed top-3 right-[182px] sm:right-[185px] z-50 select-none transition-colors duration-150 ${className}`}
+      className={`inline-flex items-center justify-center min-h-[44px] min-w-[44px] select-none transition-[color,transform] duration-150 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 ${className}`}
       style={
         isEditorial
           ? {
