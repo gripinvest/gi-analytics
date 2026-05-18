@@ -87,7 +87,7 @@ def _generate_insights(brief: dict) -> dict:
         )
         msg = anthropic_client.messages.create(
             model=MODEL_CHOICES["sonnet"],
-            max_tokens=1500,
+            max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
         return _extract_json(msg.content[0].text)

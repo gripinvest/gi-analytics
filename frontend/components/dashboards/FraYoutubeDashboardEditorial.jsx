@@ -99,53 +99,28 @@ function usePrefersReducedMotion() {
   return reduced;
 }
 
-/* ── scroll reveal ──────────────────────────────────────────────────────────
-   One IntersectionObserver shared by every section. A section starts hidden
-   (translated 14px, transparent) and "sets" — fades and lifts into place —
-   the first time it enters the viewport. Under reduced motion it renders in
-   place immediately with no transform. */
-function useReveal(reduced) {
-  const ref = React.useRef(null);
-  const [shown, setShown] = React.useState(false);
+/* ── section reveal ─────────────────────────────────────────────────────────
+   Sections use the editorial CSS `ed-set` animation for their entrance — a
+   one-shot fade-up (opacity 0→1, translateY 8px→0) that ends at opacity:1
+   (animation-fill-mode: both, final keyframe is fully visible). This means:
+   - The section is ALWAYS visible after the animation completes.
+   - If JS is slow or disabled, the CSS animation still runs and ends visible.
+   - Under `prefers-reduced-motion` the CSS already disables the animation so
+     the section is visible immediately — no JS needed.
+   - No IntersectionObserver is required: the content is never dependent on
+     the observer firing to be seen.
+   The stagger classes (ed-set-delay-1 … ed-set-delay-5) add a subtle offset
+   between the first few sections so they don't all animate simultaneously. */
 
-  React.useEffect(() => {
-    if (reduced) { setShown(true); return; }
-    const el = ref.current;
-    if (!el || typeof IntersectionObserver === "undefined") { setShown(true); return; }
-    const obs = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) { setShown(true); obs.disconnect(); break; }
-        }
-      },
-      { threshold: 0.12, rootMargin: "0px 0px -8% 0px" }
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [reduced]);
-
-  return [ref, shown];
-}
-
-/* A revealing <section> — used for every numbered section. The transition is
-   transform + opacity only (GPU-composited, never layout). ease-out-quint for
-   an editorial settle: fast in, gentle stop, no bounce. */
-function RevealSection({ reduced, children, id, className = "", style }) {
-  const [ref, shown] = useReveal(reduced);
+/* A <section> that fades in via the CSS ed-set animation. Content is always
+   visible — the animation is a progressive enhancement only. */
+function RevealSection({ reduced, children, id, className = "", style, stagger }) {
+  const delayClass = stagger ? ` ed-set-delay-${Math.min(stagger, 5)}` : "";
   return (
     <section
-      ref={ref}
       id={id}
-      className={className}
-      style={{
-        opacity: shown ? 1 : 0,
-        transform: shown ? "none" : "translateY(14px)",
-        transition: reduced
-          ? "none"
-          : "opacity 560ms cubic-bezier(0.22,1,0.36,1), transform 560ms cubic-bezier(0.22,1,0.36,1)",
-        willChange: shown ? "auto" : "opacity, transform",
-        ...style,
-      }}
+      className={`${reduced ? "" : `ed-set${delayClass}`} ${className}`.trim()}
+      style={style}
     >
       {children}
     </section>
@@ -1178,9 +1153,11 @@ export default function FraYoutubeDashboardEditorial({ project }) {
 
 /* ── Section III — Discovery (own component for the count-up reveal) ─────────*/
 function DiscoverySection({ reduced, loading, distRow, error, videoViewsError, breakoutRate, ladder, distBuckets, animProps }) {
-  const [ref, shown] = useReveal(reduced);
-  // Count up the breakout rate once the section has revealed.
-  const counted = useCountUp(breakoutRate, shown && !loading, reduced, 950);
+  // The section is visible immediately via CSS ed-set animation.
+  // Count up the breakout rate once the component has mounted.
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => { setMounted(true); }, []);
+  const counted = useCountUp(breakoutRate, mounted && !loading, reduced, 950);
 
   const verdict = (() => {
     if (!distRow) return null;
@@ -1194,16 +1171,8 @@ function DiscoverySection({ reduced, loading, distRow, error, videoViewsError, b
 
   return (
     <section
-      ref={ref}
       id="sec-discovery"
-      style={{
-        opacity: shown ? 1 : 0,
-        transform: shown ? "none" : "translateY(14px)",
-        transition: reduced
-          ? "none"
-          : "opacity 560ms cubic-bezier(0.22,1,0.36,1), transform 560ms cubic-bezier(0.22,1,0.36,1)",
-        willChange: shown ? "auto" : "opacity, transform",
-      }}
+      className={reduced ? "" : "ed-set ed-set-delay-2"}
     >
       <SectionHead
         number="III"
