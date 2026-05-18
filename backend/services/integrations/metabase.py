@@ -61,6 +61,33 @@ class MetabaseClient:
         rows = [dict(zip(cols, r)) for r in data.get("rows", [])]
         return rows, cols
 
+    def run_sql(self, database_id: int, sql: str) -> tuple[list[dict], list[str]]:
+        """Run an ad-hoc native SQL query against `database_id` via /api/dataset;
+        return (rows-as-dicts, column-names).
+
+        Used by validation/diagnostic scripts that need arbitrary SQL rather than
+        a saved card — the refresh pipeline still goes through fetch_card. A bad
+        query comes back HTTP 202 with a JSON `error`/`status: failed` body
+        (Metabase does not use a 4xx for SQL errors), so that case is checked
+        explicitly and surfaced as a MetabaseError."""
+        resp = self._client.post(
+            f"{self.base_url}/api/dataset",
+            headers={"X-Metabase-Session": self._require_token()},
+            json={"database": database_id, "type": "native",
+                  "native": {"query": sql}},
+        )
+        if resp.status_code in (401, 403):
+            raise MetabaseError("Metabase auth failed — check credentials")
+        resp.raise_for_status()
+        body = resp.json()
+        if body.get("status") == "failed" or body.get("error"):
+            raise MetabaseError(f"Metabase SQL error: {body.get('error', 'unknown')}")
+        data = body.get("data", {})
+        cols = [c.get("display_name") or c.get("name", f"col_{i}")
+                for i, c in enumerate(data.get("cols", []))]
+        rows = [dict(zip(cols, r)) for r in data.get("rows", [])]
+        return rows, cols
+
     @staticmethod
     def gc_name_param(param_tag: str, value: str, param_id: str | None) -> dict:
         """Build the `gc_name` filter payload (metabase_fetch.py:204-210)."""
