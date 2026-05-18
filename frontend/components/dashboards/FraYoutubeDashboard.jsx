@@ -15,7 +15,7 @@ import {
   Area, Bar, Line, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
 } from "recharts";
 import { fetchFraInsights } from "@/lib/api";
-import { useFraYoutube, rowsOf, errOf } from "@/lib/queries/fraYoutube";
+import { useFraYoutube, rowsOf, errOf, computeTrend, trendLabel } from "@/lib/queries/fraYoutube";
 import { color, chartPalette } from "@/lib/tokens";
 import {
   Card, CardHeader, CardTitle, CardSubtitle, CardBody,
@@ -126,6 +126,17 @@ function DeltaChip({ delta, goodIsUp = true, suffix = "" }) {
   );
 }
 
+/* Stat props for a snapshot-history trend field — the delta chip plus a
+   caption naming the comparison window ("vs last week" / "vs yesterday"), so a
+   zero reads as "flat over that window" rather than a bare, puzzling ±0. */
+function trendProps(trend, field) {
+  if (!trend || trend[field] == null) return {};
+  return {
+    delta: <DeltaChip delta={trend[field]} goodIsUp />,
+    hint: trendLabel(trend),
+  };
+}
+
 /* The discovery verdict — a one-glance read of the breakout rate. */
 function discoveryVerdictBadge(row) {
   if (!row) return <Badge tone="neutral">no data</Badge>;
@@ -228,6 +239,9 @@ export default function FraYoutubeDashboard({ project }) {
   const titleRows = rowsOf(data, "titlePatterns");
   const videoViewsRows = rowsOf(data, "videoViews");
 
+  // Week-over-week trend from the snapshot history — see computeTrend.
+  const trend = computeTrend(channelSnapshotRows);
+
   /* ── chart-ready series ─────────────────────────────────────────────────*/
 
   // Growth — cumulative library views (running sum) + monthly views, plus the
@@ -316,20 +330,12 @@ export default function FraYoutubeDashboard({ project }) {
               <Stat
                 label="Subscribers"
                 value={overview ? fmt(overview.subscribers) : "—"}
-                delta={
-                  overview?.subscribers_delta != null ? (
-                    <DeltaChip delta={overview.subscribers_delta} goodIsUp />
-                  ) : undefined
-                }
+                {...trendProps(trend, "subscribers")}
               />
               <Stat
                 label="Total views"
                 value={overview ? fmt(overview.total_views) : "—"}
-                delta={
-                  overview?.total_views_delta != null ? (
-                    <DeltaChip delta={overview.total_views_delta} goodIsUp />
-                  ) : undefined
-                }
+                {...trendProps(trend, "totalViews")}
               />
               <Stat label="Videos" value={overview ? fmt(overview.video_count) : "—"} />
               <Stat
@@ -354,8 +360,16 @@ export default function FraYoutubeDashboard({ project }) {
             <p className="t-body-sm text-error-600">Could not load this section.</p>
           ) : (
             <StatStrip>
-              <Stat label="Subscribers" value={overview ? fmt(overview.subscribers) : "—"} />
-              <Stat label="Total views" value={overview ? fmt(overview.total_views) : "—"} />
+              <Stat
+                label="Subscribers"
+                value={overview ? fmt(overview.subscribers) : "—"}
+                {...trendProps(trend, "subscribers")}
+              />
+              <Stat
+                label="Total views"
+                value={overview ? fmt(overview.total_views) : "—"}
+                {...trendProps(trend, "totalViews")}
+              />
               <Stat label="Videos" value={overview ? fmt(overview.video_count) : "—"} />
               <Stat label="Avg views / video" value={overview ? fmt(overview.avg_views) : "—"} />
               <Stat

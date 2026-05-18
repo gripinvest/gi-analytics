@@ -28,7 +28,7 @@ export const SQL = {
     WHERE snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__distribution)
   `,
   channelSnapshots: `
-    SELECT snapshot_date, total_views
+    SELECT snapshot_date, subscribers, total_views
     FROM fra_youtube__channel_snapshots
     ORDER BY snapshot_date
   `,
@@ -96,6 +96,58 @@ export const SQL = {
 
 export const rowsOf = (data, key) => (data && data[key] && data[key].rows) || [];
 export const errOf = (data, key) => (data && data[key] && data[key].error) || null;
+
+/* ── snapshot-history trend ───────────────────────────────────────────────────
+   The "At a glance" delta both dashboards show. The backend's
+   overview.*_delta columns only diff against the single prior snapshot — with
+   daily refreshes that is a same-day-ish read and reports ±0 whenever the
+   channel was flat for a day. A week-over-week window is the more honest tick.
+
+   computeTrend picks the comparison baseline from the channel_snapshots
+   history: the most recent snapshot at least 7 days before the latest (a true
+   week-over-week), or the earliest available row when the history is younger
+   than a week. Returns null when there is only one snapshot — nothing to
+   compare against yet. */
+export function computeTrend(channelSnapshotRows) {
+  if (!channelSnapshotRows || channelSnapshotRows.length < 2) return null;
+
+  const rows = [...channelSnapshotRows].sort((a, b) =>
+    String(a.snapshot_date).localeCompare(String(b.snapshot_date)));
+  const latest = rows[rows.length - 1];
+  const dayMs = 86400000;
+  const latestDay = new Date(String(latest.snapshot_date).slice(0, 10)).getTime();
+  if (Number.isNaN(latestDay)) return null;
+
+  // Baseline: the most recent snapshot ≥7 days older than the latest; when the
+  // history is younger than a week, fall back to the earliest row.
+  let baseline = rows[0];
+  for (let i = rows.length - 2; i >= 0; i--) {
+    const d = new Date(String(rows[i].snapshot_date).slice(0, 10)).getTime();
+    if (!Number.isNaN(d) && (latestDay - d) / dayMs >= 7) { baseline = rows[i]; break; }
+  }
+  const baselineDay = new Date(String(baseline.snapshot_date).slice(0, 10)).getTime();
+  const spanDays = Math.max(1, Math.round((latestDay - baselineDay) / dayMs));
+  const diff = (a, b) => {
+    const x = a == null || a === "" ? null : Number(a);
+    const y = b == null || b === "" ? null : Number(b);
+    return x != null && y != null && !Number.isNaN(x) && !Number.isNaN(y) ? x - y : null;
+  };
+
+  return {
+    baselineDate: String(baseline.snapshot_date).slice(0, 10),
+    spanDays,
+    subscribers: diff(latest.subscribers, baseline.subscribers),
+    totalViews: diff(latest.total_views, baseline.total_views),
+  };
+}
+
+/** Human label for a trend's comparison window — used as the delta's caption. */
+export function trendLabel(trend) {
+  if (!trend) return "";
+  if (trend.spanDays === 1) return "vs yesterday";
+  if (trend.spanDays >= 6 && trend.spanDays <= 8) return "vs last week";
+  return `vs ${trend.spanDays} days ago`;
+}
 
 /* ── data hook ────────────────────────────────────────────────────────────────
    Theme-agnostic: runs every SQL spec in parallel against the project and

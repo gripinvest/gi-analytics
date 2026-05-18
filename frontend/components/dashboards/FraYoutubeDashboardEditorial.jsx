@@ -25,7 +25,7 @@ import {
   Cell, ReferenceLine, LabelList,
 } from "recharts";
 import { fetchFraInsights } from "@/lib/api";
-import { useFraYoutube, rowsOf, errOf } from "@/lib/queries/fraYoutube";
+import { useFraYoutube, rowsOf, errOf, computeTrend, trendLabel } from "@/lib/queries/fraYoutube";
 
 /* ── editorial palette (ink marks on paper, sparing accents) ─────────────────
    Mirrors the --ed-* CSS vars; charts need literal hex, not var() lookups. */
@@ -248,18 +248,26 @@ function Figure({ figNum, title, caption, footnote, children, height = 280, erro
   );
 }
 
-/* A small delta tick — rust ▼ for negative, forest ▲ for positive. Editorial
-   weight, hover-emphasised via a CSS-grouped scale on the parent figure row. */
-function DeltaTick({ value, goodIsUp = true, suffix = "" }) {
+/* A small delta tick — rust ▼ for negative, forest ▲ for positive. An optional
+   `note` names the comparison window so a ±0 reads as "flat over that window"
+   rather than a bare, puzzling zero. */
+function DeltaTick({ value, goodIsUp = true, suffix = "", note }) {
   if (value == null || value === "" || Number.isNaN(Number(value))) return null;
   const d = Number(value);
+  const noteEl = note ? (
+    <span className="ed-caption" style={{ color: ED_INK_FAINT, fontWeight: 400, marginLeft: 6 }}>
+      {note}
+    </span>
+  ) : null;
   if (d === 0) {
-    return <span className="ed-caption" style={{ color: ED_INK_MUTED }}>±0{suffix}</span>;
+    return (
+      <span className="ed-caption" style={{ color: ED_INK_MUTED }}>±0{suffix}{noteEl}</span>
+    );
   }
   const good = goodIsUp ? d > 0 : d < 0;
   return (
     <span className="ed-caption" style={{ color: good ? ED_FOREST : ED_RUST, fontWeight: 600 }}>
-      {d > 0 ? "▲" : "▼"} {fmt(Math.abs(d))}{suffix}
+      {d > 0 ? "▲" : "▼"} {fmt(Math.abs(d))}{suffix}{noteEl}
     </span>
   );
 }
@@ -478,6 +486,9 @@ export default function FraYoutubeDashboardEditorial({ project }) {
   }));
   const hasRealTrend = Object.keys(channelByMonth).length > 0;
 
+  // §2 — week-over-week trend from the snapshot history (see computeTrend).
+  const trend = computeTrend(channelSnapshotRows);
+
   // §3 — view-distribution histogram (log-scaled buckets). Bucketed client-side
   // from the raw per-video view counts in videoViews.
   const distBuckets = (() => {
@@ -649,8 +660,8 @@ export default function FraYoutubeDashboardEditorial({ project }) {
                   loading={loading}
                   value={overview ? fmt(overview.subscribers) : "—"}
                   delta={
-                    overview?.subscribers_delta != null
-                      ? <DeltaTick value={overview.subscribers_delta} goodIsUp />
+                    trend?.subscribers != null
+                      ? <DeltaTick value={trend.subscribers} goodIsUp note={trendLabel(trend)} />
                       : null
                   }
                   sub="channel followers"
@@ -660,8 +671,8 @@ export default function FraYoutubeDashboardEditorial({ project }) {
                   loading={loading}
                   value={overview ? compact(overview.total_views) : "—"}
                   delta={
-                    overview?.total_views_delta != null
-                      ? <DeltaTick value={overview.total_views_delta} goodIsUp />
+                    trend?.totalViews != null
+                      ? <DeltaTick value={trend.totalViews} goodIsUp note={trendLabel(trend)} />
                       : null
                   }
                   sub="lifetime, all videos"
