@@ -1190,7 +1190,7 @@ function IssuersSection({ rows, keywordRows, weeks, lastWeek, loading, error }) 
               <Figure
                 figNum={`III·b`}
                 title="True abandonment vs relevance gap"
-                caption="From analyze_search.py. True abandonment = cleared with had_results=false; relevance gap = cleared with had_results=true and no click."
+                caption="From reconstruct_abandonment.py — W4–W6 use the native cleared payload, W1–W3 are reconstructed. True abandonment = cleared with had_results=false; relevance gap = cleared with had_results=true and no click."
                 height={200}
               >
                 <ResponsiveContainer width="100%" height="100%">
@@ -1487,10 +1487,11 @@ function InstrumentationSection({ clears, totalClears, weeks, lastWeek, loading,
       </p>
       <p className="ed-prose mt-6" style={{ maxWidth: "62ch", fontSize: 15 }}>
         Total <Term n={6}>clear events</Term> over the window: <strong style={{ fontFamily: "var(--ed-mono)" }}>{nf.format(totalClears)}</strong>.
-        Today these stand in for true abandonment, but the current export of <span style={{ fontFamily: "var(--ed-mono)" }}>asset_search_cleared</span> does
-        not carry the had-results / any-click payload — so we can't yet split a clear into
+        From W4 onward the <span style={{ fontFamily: "var(--ed-mono)" }}>asset_search_cleared</span> export carries the
+        had-results / any-click payload, so a clear splits cleanly into
         <em> "found what I wanted and left clean"</em> versus <em>"nothing matched, gave up"</em>.
-        Re-exporting that payload is the highest-value single change to make the abandonment metric honest.
+        W1–W3 predate that payload and are reconstructed offline — each clear matched to the
+        session's last query and to its in-episode result clicks.
       </p>
     </section>
   );

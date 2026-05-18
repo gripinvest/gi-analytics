@@ -9,9 +9,10 @@
  *  - Exclude test users 3, 4, 207871, 207875, 207878, 207879 everywhere.
  *  - ZRR is QUERY-LEVEL: rows in *_query with results_count = 0, over all *_query rows.
  *  - Refinement = *_query.is_refinement = true.
- *  - "Clear" events (*_cleared) are a PROXY for abandonment in this export — the richer
- *    had_results / any_result_clicked payload is not present in the sanitized CSVs yet.
- *  - Feature weeks W1..W6 from the Apr 2 2026 launch (W6 = May 7..11, partial).
+ *  - "Clear" events (*_cleared): W4-W6 carry the had_results / any_result_clicked
+ *    payload natively; W1-W3 predate it (abandonment reconstructed offline by
+ *    search_analytics/reconstruct_abandonment.py).
+ *  - Feature weeks W1..W6 from the Apr 2 2026 launch (W6 = May 7..13).
  *
  * Each builder takes a `tables` map: { event -> [tableName, ...in W1..Wn order] }
  * (built by groupTables below) and returns a SQL string. Run with lib/api.runQuery.
@@ -164,55 +165,57 @@ export function totalQuerySessions({ tables }) {
 // SQL-friendly version here: each issuer is matched by a small set of leading
 // prefixes (the curated keyword lists collapse to these). `category` and `note`
 // are Puru's analysis conclusions, not derivable from data, so they ride along
-// as static metadata. abandoned / relevance-gap per issuer need the richer
-// asset_search_cleared payload, which this export doesn't carry — see the
-// Instrumentation tab.
+// as static metadata. abandoned / relevance-gap per issuer are produced offline
+// by search_analytics/reconstruct_abandonment.py (native asset_search_cleared
+// payload for W4-W6, joined reconstruction for W1-W3).
 
-// `abandoned` / `relgap` are per-week session counts from analyze_search.py
-// (true abandonment = cleared with had_results=false; relevance gap = cleared
-// with had_results=true & no click). The current sanitized export of
-// asset_search_cleared doesn't carry those fields, so these ride along as the
-// offline-analysis figures; the dashboard labels them as such.
+// `abandoned` / `relgap` are per-week session counts produced offline by
+// search_analytics/reconstruct_abandonment.py (true abandonment = cleared with
+// had_results=false; relevance gap = cleared with had_results=true & no click).
+// W4-W6 use the native asset_search_cleared payload; W1-W3, whose cleared
+// export predates those fields, are reconstructed by joining each clear to the
+// session's last query and to in-episode result clicks. They ride along as
+// static metadata; the dashboard labels them as offline-derived.
 export const ISSUER_MAP = [
   { name: "Govt / RBI Bonds", category: "catalog_gap", prefixes: ["rbi", "gov"],
     keywords: ["rbi", "rbi floating rate bond", "rbi savings bond", "govt", "government bond", "gov bond", "govt sec"],
-    abandoned: [18, 14, 9, 12, 18, 10], relgap: [8, 7, 12, 9, 8, 6],
+    abandoned: [18, 11, 6, 12, 15, 15], relgap: [14, 13, 12, 12, 2, 5],
     note: "Category-level search intent: 'rbi' or 'govt' can't resolve to one asset. Needs category-level search routing in V2, not an alias fix." },
   { name: "Akara Capital", category: "alias", prefixes: ["aka"],
     keywords: ["aka", "akar", "akara", "akara capital", "akara capital advisors pvt ltd", "akara ncd"],
-    abandoned: [3, 2, 10, 2, 4, 2], relgap: [12, 8, 14, 10, 13, 8],
+    abandoned: [0, 0, 17, 7, 9, 11], relgap: [19, 10, 9, 12, 17, 17],
     note: "Alias works well at >= 4 chars. The high relevance gap suggests results appear but rank order isn't ideal. A brief W3 ZRR spike was likely an asset that momentarily expired." },
   { name: "Muthoot Finance", category: "availability", prefixes: ["mut"],
     keywords: ["mut", "muth", "muthoot", "muthoot finance", "muthoot fincorp", "muthoot microfin", "muthoot capital"],
-    abandoned: [22, 5, 9, 28, 31, 8], relgap: [4, 6, 8, 4, 3, 5],
+    abandoned: [18, 4, 14, 21, 24, 7], relgap: [3, 5, 10, 0, 1, 3],
     note: "ZRR swings 17% to 90%, too extreme for an alias issue. The asset cycles in and out of the catalog; abandonment spikes in the high-ZRR weeks confirm it. Needs an 'asset temporarily unavailable' state." },
   { name: "Navi", category: "healthy", prefixes: ["nav"],
     keywords: ["nav", "navi", "navi finserv", "navi finserve", "navi ncd"],
-    abandoned: [1, 0, 0, 1, 4, 1], relgap: [4, 3, 2, 4, 6, 4],
+    abandoned: [1, 0, 0, 1, 8, 3], relgap: [12, 5, 5, 3, 13, 2],
     note: "Search works well. Low refinement means users find results in one or two variants. The residual ZRR is prefix-typing noise, not a real gap." },
   { name: "Keertana", category: "availability", prefixes: ["kee"],
     keywords: ["kee", "keer", "keert", "keertana", "keertana finserv", "keerthana"],
-    abandoned: [1, 0, 14, 20, 13, 5], relgap: [1, 1, 3, 3, 3, 3],
+    abandoned: [0, 0, 7, 9, 10, 4], relgap: [2, 5, 5, 6, 4, 3],
     note: "The asset went offline around W3. Demand is growing while supply isn't keeping pace; nearly all abandonments are true zero-result ones. Add a 'notify me when available' action on the empty state." },
   { name: "Unifinz", category: "alias", prefixes: ["unif"],
     keywords: ["unif", "unifi", "unifin", "unifinz", "unifinz capital", "unifinj capital india"],
-    abandoned: [3, 7, 2, 0, 2, 0], relgap: [6, 5, 1, 3, 2, 2],
+    abandoned: [4, 3, 0, 6, 3, 0], relgap: [21, 12, 3, 6, 3, 3],
     note: "0% ZRR in the weeks the asset is live: search works perfectly then. The volatility is asset availability, not the alias. Low true abandonment confirms the engine is fine." },
   { name: "Vedika Credit", category: "catalog_gap", prefixes: ["ved"],
     keywords: ["ved", "vedi", "vedik", "vedika", "vedika credit", "vedikacradit capital ltd"],
-    abandoned: [12, 22, 9, 22, 12, 9], relgap: [0, 1, 0, 1, 0, 0],
+    abandoned: [7, 12, 5, 18, 7, 9], relgap: [0, 1, 3, 1, 0, 1],
     note: "Roughly 100% ZRR from day one. Near-zero relevance gap: results are never shown, so nothing can be irrelevant. The strongest BD signal, persistent demand for an asset not on the platform." },
   { name: "Mufin Finance", category: "alias", prefixes: ["muf"],
     keywords: ["muf", "mufi", "mufin", "mufin green", "mufin green finance", "mufin ncd"],
-    abandoned: [6, 8, 4, 1, 11, 3], relgap: [3, 2, 3, 2, 3, 1],
+    abandoned: [2, 5, 1, 2, 11, 4], relgap: [10, 5, 2, 1, 6, 1],
     note: "Both alias and availability issues. ZRR drops near 3% when the asset is live, spikes again when it isn't. The engine finds partial matches when live but ranking isn't ideal." },
   { name: "Adani", category: "healthy", prefixes: ["ada"],
     keywords: ["ada", "adani", "adani green", "adani power", "adani energy solutions", "adani enterprise"],
-    abandoned: [0, 1, 0, 1, 1, 1], relgap: [2, 3, 1, 3, 3, 1],
+    abandoned: [0, 1, 0, 1, 1, 0], relgap: [5, 2, 1, 1, 3, 0],
     note: "Some Adani assets are on the platform. Consistently low ZRR, growing demand. Low refinement means users find results fast." },
   { name: "Indel Money", category: "healthy", prefixes: ["inde"],
     keywords: ["inde", "indel", "indel money", "indel oct 27", "indel money ncd"],
-    abandoned: [0, 0, 0, 0, 1, 0], relgap: [2, 3, 4, 2, 2, 2],
+    abandoned: [0, 0, 0, 0, 0, 0], relgap: [1, 3, 3, 0, 2, 1],
     note: "Near-perfect ZRR. The old session-level 34.7% figure was entirely prefix-typing noise. Lowest refinement: users find what they want on the first real query." },
 ];
 
@@ -240,10 +243,10 @@ export const METRIC_DEFS = {
     source: "asset_search_query -> SUM(is_refinement) / COUNT(*)" },
   abandoned: { title: "True abandonment", live: false,
     body: "Sessions where the user cleared the search bar after getting zero results (had_results = false in the cleared event). Exact session counts, not an estimate. The user saw nothing and gave up. Distinct from the relevance gap.",
-    source: "asset_search_cleared -> had_results = 'false'  (offline analysis; this column isn't in the current sanitized export)" },
+    source: "asset_search_cleared -> had_results = 'false'  (W4-W6 native payload; W1-W3 reconstructed offline by reconstruct_abandonment.py)" },
   relgap: { title: "Relevance gap", live: false,
     body: "Sessions where results WERE shown (had_results = true) but the user cleared without clicking anything (any_result_clicked = false). The engine found something, it just wasn't relevant enough: a ranking problem, not a catalog gap.",
-    source: "asset_search_cleared -> had_results = 'true' AND any_result_clicked = 'false'  (offline analysis; not in the current export)" },
+    source: "asset_search_cleared -> had_results = 'true' AND any_result_clicked = 'false'  (W4-W6 native payload; W1-W3 reconstructed offline)" },
   clears: { title: "Clear events", live: true,
     body: "Count of asset_search_cleared events (the user wiped the search bar after a query of >= 3 chars). A blunt proxy for abandonment until the richer had_results / any_result_clicked payload is re-exported, which would let us split true abandonment from the relevance gap.",
     source: "asset_search_cleared -> COUNT(*)" },
