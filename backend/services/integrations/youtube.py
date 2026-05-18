@@ -5,6 +5,7 @@ string numbers coerced to ints. The HTTP client is injected so tests can pass
 a fake; production passes an httpx.Client.
 """
 import re
+import httpx
 
 BASE_URL = "https://www.googleapis.com"
 MAX_VIDEOS = 500
@@ -18,12 +19,15 @@ def _to_int(value, default=0):
 
 
 def parse_duration(iso: str) -> int:
-    """ISO 8601 duration (e.g. PT3M20S) -> seconds."""
-    m = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", iso or "")
-    if not m:
+    """ISO 8601 duration (e.g. PT3M20S, P4D, P1DT2H) -> seconds."""
+    m = re.fullmatch(
+        r"P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?",
+        iso or "",
+    )
+    if not m or not any(m.groups()):
         return 0
-    h, mi, s = (int(x) if x else 0 for x in m.groups())
-    return h * 3600 + mi * 60 + s
+    d, h, mi, s = (int(x) if x else 0 for x in m.groups())
+    return d * 86400 + h * 3600 + mi * 60 + s
 
 
 def _normalize_handle(handle: str) -> str:
@@ -31,7 +35,12 @@ def _normalize_handle(handle: str) -> str:
 
 
 def _get(client, path, params):
-    resp = client.get(f"{BASE_URL}{path}", params=params)
+    try:
+        resp = client.get(f"{BASE_URL}{path}", params=params)
+    except httpx.RequestError:
+        # Re-raise without chaining so the original exception (which may
+        # include the full request URL carrying ?key=<API_KEY>) is suppressed.
+        raise RuntimeError(f"YouTube API network error for {path}") from None
     # Do NOT use resp.raise_for_status(): its message includes the request URL,
     # which carries `?key=<API_KEY>`. Render and local stdout logs are not
     # secret-masked, so raise an error that names only the endpoint path.
@@ -97,10 +106,13 @@ def fetch_all_videos(client, uploads_playlist_id: str, api_key: str) -> list[dic
             sn = it.get("snippet", {})
             st = it.get("statistics", {})
             cd = it.get("contentDetails", {})
+            published_at = sn.get("publishedAt", "")
+            if not published_at:
+                continue   # defensive: skip videos with no publish date
             videos.append({
                 "id": it["id"],
                 "title": sn.get("title", ""),
-                "published_at": sn.get("publishedAt", ""),
+                "published_at": published_at,
                 "views": _to_int(st.get("viewCount")),
                 "likes": _to_int(st.get("likeCount")),
                 "comments": _to_int(st.get("commentCount")),

@@ -36,3 +36,26 @@ def test_extract_json_survives_prose_wrapped_output():
     assert mod._extract_json('```json\n{"verdict": "ok"}\n```') == {"verdict": "ok"}
     with pytest.raises(ValueError):
         mod._extract_json("no json object here")
+
+
+def test_insights_returns_no_data_payload_when_no_snapshot(monkeypatch):
+    """When _latest_snapshot_date returns None, the endpoint returns the
+    'No data yet' payload without calling _generate_insights."""
+    generate_calls = []
+
+    def fake_generate(brief):
+        generate_calls.append(brief)
+        return {"verdict": "should not be called", "strengths": [], "weaknesses": [], "recommendations": []}
+
+    monkeypatch.setattr(mod, "_generate_insights", fake_generate)
+    monkeypatch.setattr(mod, "_latest_snapshot_date", lambda: None)
+    mod._CACHE.clear()
+
+    r = client.get("/api/projects/fra_youtube/insights")
+    assert r.status_code == 200
+    body = r.json()
+    assert "No data yet" in body["verdict"]
+    assert body["strengths"] == []
+    assert body["weaknesses"] == []
+    assert body["recommendations"] == []
+    assert len(generate_calls) == 0   # _generate_insights must not have been called

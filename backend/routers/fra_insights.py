@@ -53,23 +53,19 @@ def _build_brief() -> dict:
 
 
 def _extract_json(text: str) -> dict:
-    """Pull the first balanced {...} object out of an LLM response.
+    """Pull the first JSON object out of an LLM response.
 
     Tolerates prose before/after and ```json fences. Raises ValueError if no
-    balanced object is found."""
+    JSON object is found or the JSON is malformed."""
     text = text.strip()
     start = text.find("{")
     if start == -1:
         raise ValueError("no JSON object in response")
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[start:i + 1])
-    raise ValueError("unbalanced JSON in response")
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text, start)
+        return obj
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"malformed JSON in response: {exc}") from exc
 
 
 def _generate_insights(brief: dict) -> dict:

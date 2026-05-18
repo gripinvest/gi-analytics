@@ -157,3 +157,29 @@ def test_resolve_channel_accepts_bare_handle():
     # Pass without '@'; _normalize_handle should prepend it transparently
     ch = youtube.resolve_channel(client, "FixedReturnsAcademy", "KEY")
     assert ch["id"] == "UCPHv636tYhtARLzoINsGQVw"
+
+
+def test_parse_duration_standard_cases():
+    """parse_duration handles hour/minute/second, day, combined, and empty input."""
+    assert youtube.parse_duration("PT1H") == 3600
+    assert youtube.parse_duration("PT1H2M3S") == 3723
+    assert youtube.parse_duration("P4D") == 345600
+    assert youtube.parse_duration("") == 0
+
+
+def test_get_raises_network_error_without_url():
+    """_get wraps httpx.RequestError so the full URL (with API key) is suppressed."""
+    import httpx
+
+    class NetworkErrorClient:
+        def get(self, url, params=None):
+            raise httpx.ConnectError("Connection refused [including full url with key=SECRET]")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        youtube._get(NetworkErrorClient(), "/youtube/v3/videos", {"key": "SECRET"})
+
+    msg = str(exc_info.value)
+    assert "network error" in msg.lower()
+    assert "SECRET" not in msg
+    # The chained exception must be suppressed (from None)
+    assert exc_info.value.__cause__ is None

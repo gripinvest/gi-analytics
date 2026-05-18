@@ -36,3 +36,6 @@ coverage/
 # upload sanitized CSVs via the app UI after deploying (note: on Render's free
 # tier those uploads live on ephemeral disk and are lost on each redeploy).
 # backend/data/*/*.csv
+
+# AI-generated insights cache — regenerated on demand, must not be committed.
+backend/data/fra_youtube/_insights_*.json
