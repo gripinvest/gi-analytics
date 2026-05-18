@@ -6,8 +6,9 @@ build_layer2: derived metric tables (added in later tasks).
 Every row carries snapshot_date and channel_handle. Lists (tags) are joined
 to comma strings so they survive CSV round-trips.
 """
+from datetime import datetime, timedelta
 from services.integrations.fra_classify import classify_video
-from services.integrations.fra_metrics import median, safe_div
+from services.integrations.fra_metrics import gini, median, percentile, safe_div
 
 # v1: FRA only. Add competitor handles here for the deferred comparison tab.
 CHANNELS = ["@FixedReturnsAcademy"]
@@ -90,5 +91,36 @@ def build_overview(channel_rows, video_rows, history) -> list[dict]:
             "avg_duration_sec": round(safe_div(sum(durations), len(durations)), 1),
             "subscribers_delta": ch["subscribers"] - prior_subs,
             "total_views_delta": ch["total_views"] - prior_views,
+        })
+    return out
+
+
+def _parse_dt(iso: str) -> datetime:
+    return datetime.fromisoformat(iso.replace("Z", "+00:00"))
+
+
+def build_distribution(video_rows) -> list[dict]:
+    """One row per channel: view-distribution shape + the 1K-breakout north-star."""
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        views = [v["views"] for v in vids]
+        snap = _parse_dt(vids[0]["snapshot_date"] + "T00:00:00Z")
+        cutoff = snap - timedelta(days=30)
+        recent = [v for v in vids if _parse_dt(v["published_at"]) >= cutoff]
+        recent_breakouts = [v for v in recent if v["views"] >= 1000]
+        out.append({
+            "channel_handle": handle,
+            "snapshot_date": vids[0]["snapshot_date"],
+            "videos_ge_1k": sum(1 for x in views if x >= 1000),
+            "videos_ge_10k": sum(1 for x in views if x >= 10000),
+            "videos_ge_100k": sum(1 for x in views if x >= 100000),
+            "p10_views": round(percentile(views, 10), 1),
+            "p50_views": round(percentile(views, 50), 1),
+            "p90_views": round(percentile(views, 90), 1),
+            "gini": round(gini(views), 4),
+            "recent_video_count": len(recent),
+            "breakout_1k_rate": round(safe_div(len(recent_breakouts), len(recent)), 4),
         })
     return out
