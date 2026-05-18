@@ -299,3 +299,23 @@ def build_catalog_health(channel_rows, video_rows) -> list[dict]:
             "subscriber_efficiency": round(safe_div(ch["total_views"], ch["subscribers"]), 1),
         })
     return out
+
+
+def build_layer2(layer1: dict, history: dict) -> dict:
+    """Derive all metric tables from a layer1 snapshot.
+
+    history: {"channel_snapshots": [prior channel rows]} — used for deltas.
+    """
+    channel_rows = layer1["channel_snapshots"]
+    video_rows = layer1["video_snapshots"]
+    chan_history = history.get("channel_snapshots", [])
+    return {
+        "overview": build_overview(channel_rows, video_rows, chan_history),
+        "distribution": build_distribution(video_rows),
+        "category_mix": build_category_mix(video_rows),
+        "monthly_views": build_monthly_views(video_rows),
+        "engagement_breakdown": build_engagement_breakdown(video_rows),
+        "posting_patterns": build_posting_patterns(video_rows),
+        "title_patterns": build_title_patterns(video_rows),
+        "catalog_health": build_catalog_health(channel_rows, video_rows),
+    }
