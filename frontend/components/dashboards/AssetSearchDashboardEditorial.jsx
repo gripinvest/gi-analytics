@@ -31,6 +31,7 @@ const QUERY_SPECS = {
   funnel:           (ctx) => Q.funnelByWeek(ctx),
   suggestions:      (ctx) => Q.suggestionsByWeek(ctx),
   clears:           (ctx) => Q.clearsByWeek(ctx),
+  sessionOutcome:   (ctx) => Q.sessionOutcomeByWeek(ctx),
   tabs:             (ctx) => Q.byTab(ctx),
   sessions:         (ctx) => Q.totalQuerySessions(ctx),
   terms:            (ctx) => Q.topSearchTerms(ctx),

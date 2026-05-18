@@ -100,6 +100,44 @@ export function clearsByWeek({ tables, weeks }) {
     FROM (${unionAllWeeks(tables.cleared, weeks, "1 AS one")}) t GROUP BY week ORDER BY week`;
 }
 
+/**
+ * Per-week SESSION OUTCOME funnel — the primary search-health metric.
+ *
+ * Every searched session (a distinct context_session_id that ran >=1 query that
+ * week) is classified ONCE into exactly one of three mutually-exclusive buckets:
+ *
+ *   success       — the session clicked >=1 search result
+ *   relevance_gap — never clicked, but >=1 query returned results (results shown,
+ *                   nothing compelling enough to click — a ranking/relevance miss)
+ *   dead_end      — never clicked, and every query returned zero results
+ *                   (a catalog / alias gap — the user hit a wall)
+ *
+ * Unlike the asset_search_cleared-based abandonment split, this needs no event
+ * payload reconstruction: it is computed from asset_search_query (results_count)
+ * and asset_search_result_clicked, both fully populated across W1..W6. It is
+ * exact for every week and disjoint by construction, so success + relevance_gap
+ * + dead_end = searched.
+ */
+export function sessionOutcomeByWeek({ tables, weeks }) {
+  const q = unionAllWeeks(tables.query, weeks, "context_session_id, results_count");
+  const c = unionAllWeeks(tables.result_clicked, weeks, "context_session_id");
+  return `WITH
+      q AS (
+        SELECT week, context_session_id AS sid,
+               MAX(CASE WHEN results_count > 0 THEN 1 ELSE 0 END) AS any_results
+        FROM (${q}) t GROUP BY week, context_session_id
+      ),
+      c AS (SELECT DISTINCT week, context_session_id AS sid FROM (${c}) t)
+    SELECT q.week,
+        COUNT(*) AS searched,
+        SUM(CASE WHEN c.sid IS NOT NULL THEN 1 ELSE 0 END) AS success,
+        SUM(CASE WHEN c.sid IS NULL AND q.any_results = 1 THEN 1 ELSE 0 END) AS relevance_gap,
+        SUM(CASE WHEN c.sid IS NULL AND q.any_results = 0 THEN 1 ELSE 0 END) AS dead_end,
+        ROUND(100.0 * SUM(CASE WHEN c.sid IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*), 1) AS success_pct
+      FROM q LEFT JOIN c ON q.week = c.week AND q.sid = c.sid
+      GROUP BY q.week ORDER BY q.week`;
+}
+
 // ── leaderboards / distributions (all weeks) ────────────────────────────────
 
 /** Top search terms by volume, with their query-level ZRR. */
