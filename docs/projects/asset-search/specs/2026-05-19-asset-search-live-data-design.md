@@ -476,6 +476,20 @@ flag); a non-empty error list blocks cut-over / pages an alert:
   few small files; the heavy files change once per week. Estimated growth is
   modest, but if `.git` bloat becomes material the heavy tables should move to
   object storage and out of git. Tracked.
+- **Daily full-window re-query cost.** Each run re-pulls the *entire* current +
+  prior week per event — the simplest correct design (D5), and it absorbs late
+  events for free. The cost is repeatedly re-querying unchanged data. **If it
+  degrades, the optimization is an incremental fetch:** pull only rows newer
+  than a stored watermark and merge into the week-file by the Rudder event
+  `id`. This is why D5 dropping `id`-keyed upsert is a *mechanism* decision,
+  not a permanent one — `id` remains the natural merge key if incremental
+  fetch is later wanted. The catch: incremental fetch is only *correct* if the
+  source carries an **ingestion-time** column (`received_at` / `loaded_at`) to
+  watermark on — watermarking on the event `timestamp` would silently miss
+  late-arriving events (an old `timestamp`, a recent ingestion). So the future
+  optimization needs both `id` and an ingestion-time column; Phase 1 records
+  whether they exist (§18) while it is inspecting the schema anyway. For v1,
+  the full re-query is deliberately chosen for correctness and simplicity.
 - **Raw user-level data in git.** Committed CSVs carry `user_id` / `anonymous_id`
   permanently in git history. Accepted for an internal-only analytics tool;
   flagged so a future retention/GDPR decision is explicit, not discovered.
@@ -518,6 +532,10 @@ flag); a non-empty error list blocks cut-over / pages an alert:
 - `POST /api/dataset` row cap — confirm a full week of `view_assets` is not truncated.
 - `view_payment_status_page` schema — does it carry a success/fail column?
   (Needed for `roadmap.md` #2, not for this fetch.)
+- Presence of a stable Rudder event `id` **and** an ingestion-time column
+  (`received_at` / `loaded_at`). Not used by v1's full re-query, but their
+  presence is what makes the §17 incremental-fetch optimization available
+  later — record it now while inspecting the schema.
 
 **Post-launch tuning (project owner):**
 
