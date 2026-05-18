@@ -285,6 +285,19 @@ answers natural-language questions, guided by `project.json`'s `chat_context`.
   integration adds owner-only metrics (retention, impressions CTR, traffic
   sources, subs gained/lost). These populate the locked Retention panel and
   enrich Discovery and Audience-growth. No change to the v1 data path.
+- **v1.1 metric refinements (deferred during implementation planning).** The
+  following §7.2 sub-fields are not built in v1; the eight v1 tables cover the
+  core of every lever and the AI-insights narrative compensates in the interim:
+  a title-length-bucket grouping and a top-tags aggregation in `title_patterns`;
+  upload-frequency / inter-upload-gap-regularity rows in `posting_patterns`
+  (v1 ships posting day/hour only); and an explicit lifecycle-phase label.
+  The Growth tab's real total-views trend line is served in v1 directly from
+  the `channel_snapshots` history table, so `monthly_views` carries only the
+  publish-month reconstruction.
+- **North-star definition (v1).** `breakout_1k_rate` is computed as the share of
+  videos *published in the trailing 30 days* with ≥1,000 views — a single-pull
+  proxy. Once snapshot history matures it can be tightened to a true
+  N-days-after-publish window (see §14).
 
 ## 12. Testing
 
