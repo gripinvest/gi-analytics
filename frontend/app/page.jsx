@@ -52,7 +52,10 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-page">
       <PageChrome />
-      <div className="mx-auto max-w-[1180px] px-6 py-7 md:px-8">
+      {/* pt-20 on mobile reserves space for the fixed PageChrome cluster
+          (~62px tall) so it doesn't overlap the PageHeader; sm:pt-7 reverts
+          it once there's room beside the header. */}
+      <div className="mx-auto max-w-[1180px] px-6 py-7 pt-20 sm:pt-7 md:px-8">
         <PageHeader
           overline="Grip Invest · Internal"
           title="Analytics Platform"
@@ -183,7 +186,10 @@ function EditorialHome({ projects, loadError, showUpload, setShowUpload, chatPro
   return (
     <main className="min-h-screen">
       <PageChrome />
-      <div className="mx-auto max-w-[920px] px-5 py-12 sm:px-8 sm:py-16">
+      {/* pt-20 on mobile reserves space for the fixed PageChrome cluster
+          (~62px tall) so it clears the masthead; sm:py-16 reverts it once
+          there's room beside the chrome. */}
+      <div className="mx-auto max-w-[920px] px-5 py-12 pt-20 sm:px-8 sm:py-16">
         {/* ── masthead ────────────────────────────────────────────────── */}
         <header className="ed-set">
           <p className="ed-caption mb-2">A FINANCIAL WEEKLY · INTERNAL EDITION</p>

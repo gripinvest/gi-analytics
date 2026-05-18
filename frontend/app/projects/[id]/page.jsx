@@ -39,7 +39,10 @@ export default function ProjectPage({ params }) {
     return (
       <main className="min-h-screen">
         <PageChrome />
-        <div className="mx-auto max-w-[920px] px-5 py-12 sm:px-8 sm:py-16">
+        {/* pt-20 on mobile reserves space for the fixed PageChrome cluster
+            (~62px tall) so it clears the dashboard's top content; sm:py-16
+            reverts it once there's room beside the chrome. */}
+        <div className="mx-auto max-w-[920px] px-5 py-12 pt-20 sm:px-8 sm:py-16">
           {error ? (
             <section>
               <h2 className="ed-headline mb-3">We can't render <em>{niceId}</em>.</h2>
@@ -72,7 +75,10 @@ export default function ProjectPage({ params }) {
   return (
     <main className="min-h-screen bg-page">
       <PageChrome />
-      <div className="mx-auto max-w-[1180px] px-4 py-5 sm:px-6 sm:py-7 md:px-8">
+      {/* pt-20 on mobile reserves space for the fixed PageChrome cluster
+          (~62px tall) so it doesn't overlap the PageHeader breadcrumb/title;
+          sm:py-7 reverts it once there's room beside the header. */}
+      <div className="mx-auto max-w-[1180px] px-4 py-5 pt-20 sm:px-6 sm:py-7 md:px-8">
         <PageHeader
           breadcrumb={<Link href="/" className="text-link hover:underline">← Grip Analytics</Link>}
           overline="Project"
