@@ -851,6 +851,9 @@ export default function FraYoutubeDashboardEditorial({ project }) {
                       {...edAxisProps}
                       width={52}
                       tickFormatter={compact}
+                      /* headroom so the top category's "position=top" label
+                         clears the plot frame instead of being clipped */
+                      domain={[0, (max) => Math.ceil((max * 1.18) / 100) * 100]}
                     />
                     <ZAxis type="number" dataKey="videos" range={[60, 360]} />
                     <Tooltip
