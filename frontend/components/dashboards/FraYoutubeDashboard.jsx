@@ -568,7 +568,7 @@ export default function FraYoutubeDashboard({ project }) {
                   <Stat
                     label="Recent avg views"
                     value={fmt(catalogRow.recent_avg_views)}
-                    hint="last 90 days"
+                    hint="last 30 days"
                   />
                   <Stat
                     label="All-time avg views"
@@ -586,7 +586,7 @@ export default function FraYoutubeDashboard({ project }) {
                     value={catalogRow.subscriber_efficiency != null
                       ? Number(catalogRow.subscriber_efficiency).toFixed(3)
                       : "—"}
-                    hint="avg views ÷ subscribers"
+                    hint="total views ÷ subscribers"
                   />
                 </StatStrip>
               ) : (
