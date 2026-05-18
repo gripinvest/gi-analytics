@@ -287,6 +287,7 @@ export default function AssetSearchDashboardEditorial({ project }) {
   // ── headline numbers ─────────────────────────────────────────────────────
   const health = rowsOf(data, "health");
   const funnel = rowsOf(data, "funnel");
+  const sessionOutcome = rowsOf(data, "sessionOutcome");
   const suggestions = rowsOf(data, "suggestions");
   const clears = rowsOf(data, "clears");
   const tabs = rowsOf(data, "tabs");
@@ -339,6 +340,17 @@ export default function AssetSearchDashboardEditorial({ project }) {
   const funnelSeries = funnel.map((r) => ({
     week: r.week, Focused: Number(r.initiated), Queried: Number(r.queried), Clicked: Number(r.clicked),
   }));
+  // Session-outcome funnel — the headline search-health series. Each searched
+  // session classified once: Success / Relevance gap / Dead end.
+  const outcomeSeries = sessionOutcome.map((r) => ({
+    week: r.week,
+    Success: Number(r.success),
+    "Relevance gap": Number(r.relevance_gap),
+    "Dead end": Number(r.dead_end),
+    searched: Number(r.searched),
+    successPct: Number(r.success_pct),
+  }));
+  const outcomeSuccessPct = weightedPct(sessionOutcome, "success", "searched");
   const adoptionSeries = adoption.map((r) => ({
     week: r.week, visitors: Number(r.visitors), searchers: Number(r.searchers), adoption: Number(r.adoption_pct),
   }));
@@ -519,6 +531,8 @@ export default function AssetSearchDashboardEditorial({ project }) {
           adoptionSeries={adoptionSeries}
           healthSeries={healthSeries}
           funnelSeries={funnelSeries}
+          outcomeSeries={outcomeSeries}
+          outcomeSuccessPct={outcomeSuccessPct}
           refineSeries={refineSeries}
           suggSeries={suggSeries}
           tabs={tabs}
@@ -569,7 +583,7 @@ export default function AssetSearchDashboardEditorial({ project }) {
 
 /* ── SECTION I — OVERVIEW ─────────────────────────────────────────────────── */
 
-function OverviewSection({ loading, data, adoptionSeries, healthSeries, funnelSeries, refineSeries, suggSeries, tabs, weeks, lastWeek, zrrFirst, zrrLast, adoptionFirst, adoptionLast }) {
+function OverviewSection({ loading, data, adoptionSeries, healthSeries, funnelSeries, outcomeSeries, outcomeSuccessPct, refineSeries, suggSeries, tabs, weeks, lastWeek, zrrFirst, zrrLast, adoptionFirst, adoptionLast }) {
   const showAdoption = adoptionSeries.length > 0;
   return (
     <section className="ed-set">
@@ -627,9 +641,31 @@ function OverviewSection({ loading, data, adoptionSeries, healthSeries, funnelSe
         </ResponsiveContainer>
       </Figure>
 
+      <Figure
+        figNum="3"
+        title="Search outcome — every searched session, one of three ends"
+        caption="Success = the session clicked a result. Relevance gap = results were shown but nothing was clicked. Dead end = every query returned zero results."
+        loading={loading} error={errOf(data, "sessionOutcome")}
+        height={300}
+        ledeAfter={`${pct(outcomeSuccessPct)} of searches end in a result click. The rest split between a relevance gap — results shown, none compelling enough — and a dead end, where nothing matched at all. Each searched session is counted once.`}
+      >
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={outcomeSeries} margin={{ top: 30, right: 8, bottom: 0, left: -10 }}>
+            <CartesianGrid {...edGridProps} />
+            <XAxis dataKey="week" {...edAxisProps} />
+            <YAxis {...edAxisProps} width={48} />
+            <Tooltip cursor={{ fill: "rgba(27,24,24,0.04)" }} content={<EdTooltip valueFmt={(v) => nf.format(v)} />} />
+            <Legend {...edLegendProps} />
+            <Bar dataKey="Success" stackId="o" fill={ED_FOREST} maxBarSize={46} />
+            <Bar dataKey="Relevance gap" stackId="o" fill={ED_GOLD} maxBarSize={46} />
+            <Bar dataKey="Dead end" stackId="o" fill={ED_RUST} maxBarSize={46} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Figure>
+
       <div className="grid gap-10 md:grid-cols-2 mt-10">
         <Figure
-          figNum="3"
+          figNum="4"
           title="The funnel, distinct sessions"
           caption="Focused = opened the search box. Queried = typed and ran. Clicked = clicked a result."
           loading={loading} error={errOf(data, "funnel")}
@@ -650,7 +686,7 @@ function OverviewSection({ loading, data, adoptionSeries, healthSeries, funnelSe
         </Figure>
 
         <Figure
-          figNum="4"
+          figNum="5"
           title="Refinement rate, by week"
           caption="Share of queries flagged as refinements — the user iterating mid-search."
           loading={loading} error={errOf(data, "health")}
@@ -670,7 +706,7 @@ function OverviewSection({ loading, data, adoptionSeries, healthSeries, funnelSe
 
       {/* Tab usage — as a print-style table, not as bars in a card. */}
       <div className="mt-12">
-        <p className="ed-caption mb-2">FIG. 5</p>
+        <p className="ed-caption mb-2">FIG. 6</p>
         <h3 className="ed-prose mb-3" style={{ fontSize: 16, fontWeight: 500, color: ED_INK }}>
           Where searches originated. <em style={{ color: ED_INK_MUTED }}>Search is global — these are the surfaces the searcher was on.</em>
         </h3>
