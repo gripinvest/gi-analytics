@@ -1,0 +1,35 @@
+{
+  "refreshed_at": "2026-05-18T16:09:57.921560+00:00",
+  "tables": {
+    "channel_snapshots": {
+      "last_refreshed_at": "2026-05-18T16:09:57.921560+00:00"
+    },
+    "video_snapshots": {
+      "last_refreshed_at": "2026-05-18T16:09:57.921560+00:00"
+    },
+    "overview": {
+      "last_refreshed_at": "2026-05-18T16:09:57.921560+00:00"
+    },
+    "distribution": {
+      "last_refreshed_at": "2026-05-18T16:09:57.921560+00:00"
+    },
+    "category_mix": {
+      "last_refreshed_at": "2026-05-18T16:09:57.921560+00:00"
+    },
+    "monthly_views": {
+      "last_refreshed_at": "2026-05-18T16:09:57.921560+00:00"
+    },
+    "engagement_breakdown": {
+      "last_refreshed_at": "2026-05-18T16:09:57.921560+00:00"
+    },
+    "posting_patterns": {
+      "last_refreshed_at": "2026-05-18T16:09:57.921560+00:00"
+    },
+    "title_patterns": {
+      "last_refreshed_at": "2026-05-18T16:09:57.921560+00:00"
+    },
+    "catalog_health": {
+      "last_refreshed_at": "2026-05-18T16:09:57.921560+00:00"
+    }
+  }
+}
