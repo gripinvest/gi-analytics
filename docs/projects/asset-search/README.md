@@ -44,6 +44,8 @@ gap" split, which understated search failure ~10× — see `roadmap.md` for the 
 
 ## In this folder
 
+- [`session-log.md`](./session-log.md) — **start here** — where the project
+  stood at the end of the last session, and what to pick up.
 - [`data-sources.md`](./data-sources.md) — every event/table the project uses,
   with validation status against the local exports.
 - [`roadmap.md`](./roadmap.md) — what's done, what's next, open decisions.
