@@ -250,3 +250,52 @@ def build_posting_patterns(video_rows) -> list[dict]:
                     "avg_views": round(safe_div(sum(views), len(views)), 1),
                 })
     return out
+
+
+def build_title_patterns(video_rows) -> list[dict]:
+    """Avg views by title pattern: question opener, rupee/number, emoji."""
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    flags = {
+        "question_title": lambda v: v["is_question_title"],
+        "rupee_or_number": lambda v: v["has_rupee_or_number"],
+        "emoji": lambda v: v["has_emoji"],
+    }
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        snap = vids[0]["snapshot_date"]
+        for pattern, predicate in flags.items():
+            group = [v for v in vids if predicate(v)]
+            if group:
+                views = [v["views"] for v in group]
+                out.append({
+                    "channel_handle": handle,
+                    "snapshot_date": snap,
+                    "pattern": pattern,
+                    "video_count": len(group),
+                    "avg_views": round(safe_div(sum(views), len(views)), 1),
+                })
+    return out
+
+
+def build_catalog_health(channel_rows, video_rows) -> list[dict]:
+    """Recent (trailing 30d) vs all-time averages, freshness, subscriber efficiency."""
+    out = []
+    for ch in channel_rows:
+        handle = ch["channel_handle"]
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        snap = _parse_dt(ch["snapshot_date"] + "T00:00:00Z")
+        cutoff = snap - timedelta(days=30)
+        recent = [v for v in vids if _parse_dt(v["published_at"]) >= cutoff]
+        alltime_avg = safe_div(sum(v["views"] for v in vids), len(vids))
+        recent_avg = safe_div(sum(v["views"] for v in recent), len(recent))
+        out.append({
+            "channel_handle": handle,
+            "snapshot_date": ch["snapshot_date"],
+            "videos_last_30d": len(recent),
+            "recent_avg_views": round(recent_avg, 1),
+            "alltime_avg_views": round(alltime_avg, 1),
+            "freshness_delta_pct": round((safe_div(recent_avg, alltime_avg) - 1) * 100, 1),
+            "subscriber_efficiency": round(safe_div(ch["total_views"], ch["subscribers"]), 1),
+        })
+    return out
