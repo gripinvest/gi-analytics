@@ -6,6 +6,7 @@ build_layer2: derived metric tables (added in later tasks).
 Every row carries snapshot_date and channel_handle. Lists (tags) are joined
 to comma strings so they survive CSV round-trips.
 """
+from collections import defaultdict
 from datetime import datetime, timedelta
 from services.integrations.fra_classify import classify_video
 from services.integrations.fra_metrics import gini, median, percentile, safe_div
@@ -123,4 +124,51 @@ def build_distribution(video_rows) -> list[dict]:
             "recent_video_count": len(recent),
             "breakout_1k_rate": round(safe_div(len(recent_breakouts), len(recent)), 4),
         })
+    return out
+
+
+def build_category_mix(video_rows) -> list[dict]:
+    """Per content category: count, % of library, avg views, performance vs mean."""
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        total = len(vids)
+        channel_avg = safe_div(sum(v["views"] for v in vids), total)
+        groups = defaultdict(list)
+        for v in vids:
+            groups[v["category"]].append(v["views"])
+        for category, views in sorted(groups.items()):
+            avg = safe_div(sum(views), len(views))
+            out.append({
+                "channel_handle": handle,
+                "snapshot_date": vids[0]["snapshot_date"],
+                "category": category,
+                "video_count": len(views),
+                "pct_of_library": round(100 * len(views) / total, 1),
+                "avg_views": round(avg, 1),
+                "perf_vs_mean_pct": round((safe_div(avg, channel_avg) - 1) * 100, 1),
+            })
+    return out
+
+
+def build_monthly_views(video_rows) -> list[dict]:
+    """Views by publish month (each video's lifetime views, grouped by publish month)."""
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        groups = defaultdict(list)
+        for v in vids:
+            month = v["published_at"][:7]          # YYYY-MM
+            groups[month].append(v["views"])
+        for month, views in sorted(groups.items()):
+            out.append({
+                "channel_handle": handle,
+                "snapshot_date": vids[0]["snapshot_date"],
+                "month": month,
+                "video_count": len(views),
+                "total_views": sum(views),
+                "avg_views": round(safe_div(sum(views), len(views)), 1),
+            })
     return out
