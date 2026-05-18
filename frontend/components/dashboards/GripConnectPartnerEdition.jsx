@@ -3,18 +3,20 @@
 // ─────────────────────────────────────────────────────────────────────────
 // The per-partner "dossier" — a single partner's dedicated edition of the
 // Grip Connect report. Where the combined report compares the four partners
-// side by side, this digs into one: the headline figures, the week-by-week
-// AUM trajectory split into first-time vs repeat money, the weekly counts,
-// and that partner's registration→KYC funnel.
+// side by side, this digs into one: the MTD headline, the AUM story month by
+// month and week by week (split into first-time vs repeat money), the weekly
+// counts, and that partner's registration→KYC funnel.
 //
 // Data: the headline + funnel are passed down from the combined report
-// (already loaded as layer-2 tables). The weekly history is queried here
-// from the layer-1 card_3841 table, filtered to this partner.
+// (already-loaded layer-2 tables). The weekly history is queried here from
+// card_3841; the monthly AUM series is rolled up from the daily card_3843
+// (SUM of daily AUM per calendar month — the same flow the MTD figure sums,
+// just over whole months, so it is fully verifiable, not an estimate).
 
 import * as React from "react";
 import { runQuery } from "@/lib/api";
 import {
-  fmtAum, fmtCount, fmtPct, SkeletonBlock, LedgerTable, NorthStarFigure,
+  fmtAum, fmtCount, fmtPct, Delta, SkeletonBlock, LedgerTable, NorthStarFigure,
   resolveTable, DISPLAY_TO_RAW,
 } from "./GripConnectDashboardEditorial";
 
@@ -28,27 +30,65 @@ function fmtWeek(s) {
     : d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
-/* Fetch this partner's weekly history (card_3841), newest first, ~12 weeks. */
-function usePartnerWeekly(project, partner) {
-  const [state, setState] = React.useState({ loading: true, error: null, weekly: [] });
+/* "2026-04" -> "Apr 26" (short, for chart labels) */
+function fmtMonth(s) {
+  const d = new Date(`${String(s ?? "").slice(0, 7)}-01T00:00:00`);
+  return Number.isNaN(d.getTime())
+    ? String(s ?? "")
+    : d.toLocaleDateString("en-IN", { month: "short", year: "2-digit" });
+}
+
+/* "2026-04" -> "April 2026" (long, for the headline callout) */
+function fmtMonthLong(s) {
+  const d = new Date(`${String(s ?? "").slice(0, 7)}-01T00:00:00`);
+  return Number.isNaN(d.getTime())
+    ? String(s ?? "")
+    : d.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+
+/* Fetch this partner's weekly history (card_3841) and its monthly AUM series,
+   rolled up from the daily card (card_3843) by SUM over each calendar month. */
+function usePartnerData(project, partner) {
+  const [state, setState] = React.useState({
+    loading: true, error: null, weekly: [], monthly: [],
+  });
 
   React.useEffect(() => {
     let cancelled = false;
-    setState({ loading: true, error: null, weekly: [] });
+    setState({ loading: true, error: null, weekly: [], monthly: [] });
 
     const raw = DISPLAY_TO_RAW[partner] || partner;
-    const table = resolveTable(project.tables, "card_3841_summary_wow", project.id);
+    const wow = resolveTable(project.tables, "card_3841_summary_wow", project.id);
+    const dod = resolveTable(project.tables, "card_3843_summary_dod", project.id);
     // raw is one of four fixed, code-controlled partner strings — safe to inline.
-    const sql = `SELECT * FROM "${table}" WHERE partner = '${raw}' ORDER BY week DESC LIMIT 12`;
+    const weeklySql =
+      `SELECT * FROM "${wow}" WHERE partner = '${raw}' ORDER BY week DESC LIMIT 12`;
+    const monthlySql =
+      `SELECT strftime(TRY_CAST(day AS DATE), '%Y-%m') AS month, ` +
+      `SUM(aum) AS aum, SUM(fti_amount) AS fti_amount ` +
+      `FROM "${dod}" WHERE partner = '${raw}' AND TRY_CAST(day AS DATE) IS NOT NULL ` +
+      `GROUP BY 1 ORDER BY 1`;
 
-    runQuery(project.id, sql, 50)
-      .then((r) => {
+    Promise.all([
+      runQuery(project.id, weeklySql, 50),
+      runQuery(project.id, monthlySql, 500),
+    ])
+      .then(([w, m]) => {
         if (cancelled) return;
-        setState({ loading: false, error: r.error || null, weekly: r.rows || [] });
+        setState({
+          loading: false,
+          error: w.error || m.error || null,
+          weekly: w.rows || [],
+          monthly: m.rows || [],
+        });
       })
       .catch((e) => {
         if (cancelled) return;
-        setState({ loading: false, error: String((e && e.message) || e), weekly: [] });
+        setState({
+          loading: false,
+          error: String((e && e.message) || e),
+          weekly: [], monthly: [],
+        });
       });
 
     return () => { cancelled = true; };
@@ -57,23 +97,23 @@ function usePartnerWeekly(project, partner) {
   return state;
 }
 
-/* The signature exhibit — a bar per week, height = total AUM, split into
-   first-time money (inked) and repeat money (faint). Labels in ₹ crore. */
-function AumBars({ weeks }) {
-  if (!weeks.length) {
-    return <p className="ed-prose-italic">No weekly history for this partner yet.</p>;
+/* A bar per period — height = total AUM, split into first-time money (inked)
+   and repeat money (faint). Drives both the monthly and weekly trends. */
+function AumBarChart({ data, labelOf, emptyText }) {
+  if (!data.length) {
+    return <p className="ed-prose-italic">{emptyText}</p>;
   }
-  const max = Math.max(...weeks.map((w) => Number(w.aum) || 0), 1);
+  const max = Math.max(...data.map((d) => Number(d.aum) || 0), 1);
 
   return (
     <div>
       <div className="flex items-end gap-1" style={{ height: 178 }}>
-        {weeks.map((w, i) => {
-          const total = Number(w.aum) || 0;
-          const fti = Number(w.fti_amount) || 0;
+        {data.map((d, i) => {
+          const total = Number(d.aum) || 0;
+          const fti = Number(d.fti_amount) || 0;
           const barH = total > 0 ? Math.max((total / max) * 150, 3) : 0;
           const ftiH = total > 0 ? (Math.min(fti, total) / total) * barH : 0;
-          const latest = i === weeks.length - 1;
+          const latest = i === data.length - 1;
           return (
             <div
               key={i}
@@ -96,7 +136,7 @@ function AumBars({ weeks }) {
                 <div style={{ height: ftiH, background: "var(--ed-ink)" }} />
               </div>
               <span className="ed-caption" style={{ fontSize: 9, whiteSpace: "nowrap" }}>
-                {fmtWeek(w.week)}
+                {labelOf(d)}
               </span>
             </div>
           );
@@ -173,12 +213,37 @@ function PartnerSectionHead({ title, deck }) {
 }
 
 export default function GripConnectPartnerEdition({ project, partner, northStar, funnel, onBack }) {
-  const { loading, error, weekly } = usePartnerWeekly(project, partner);
+  const { loading, error, weekly, monthly } = usePartnerData(project, partner);
 
   // weekly comes newest-first; the bar chart and ledger read chronologically.
   const weeksChrono = React.useMemo(() => [...weekly].reverse(), [weekly]);
   const ns = {};
   for (const r of northStar || []) ns[r.metric] = r;
+
+  // Monthly AUM — completed calendar months only. The current month is partial
+  // and already covered by the MTD headline, so it is excluded here.
+  const monthView = React.useMemo(() => {
+    const now = new Date();
+    const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevKey = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
+    const complete = (monthly || []).filter((m) => m.month && m.month < curKey);
+    const idx = complete.findIndex((m) => m.month === prevKey);
+    return {
+      chart: complete.slice(-14),
+      lastFull: idx >= 0 ? complete[idx] : null,
+      lastFullPrev: idx > 0 ? complete[idx - 1] : null,
+      prevKey,
+    };
+  }, [monthly]);
+
+  const lastFullCr = monthView.lastFull != null ? Number(monthView.lastFull.aum) / 1e7 : null;
+  const lastFullPrevCr =
+    monthView.lastFullPrev != null ? Number(monthView.lastFullPrev.aum) / 1e7 : null;
+  const lastFullDelta =
+    lastFullCr != null && lastFullPrevCr != null && lastFullPrevCr !== 0
+      ? Number(((100 * (lastFullCr - lastFullPrevCr)) / lastFullPrevCr).toFixed(1))
+      : null;
 
   const metricCols = [
     { key: "week", label: "Week", render: (r) => fmtWeek(r.week) },
@@ -209,7 +274,7 @@ export default function GripConnectPartnerEdition({ project, partner, northStar,
         </h1>
         <hr className="ed-rule-double mt-4" />
         <p className="ed-dateline mt-3">
-          A DEEPER READ · MONTH-TO-DATE HEADLINE &amp; WEEKLY HISTORY
+          A DEEPER READ · MONTH-TO-DATE HEADLINE &amp; MONTHLY HISTORY
         </p>
       </header>
 
@@ -223,13 +288,52 @@ export default function GripConnectPartnerEdition({ project, partner, northStar,
         </div>
       </section>
 
+      {/* ── AUM month by month ───────────────────────────────────────────*/}
+      <section className="mt-14">
+        <PartnerSectionHead
+          title="Assets, month by month"
+          deck="Every completed calendar month of AUM — the long view behind this month's headline."
+        />
+        <div className="mb-6 pb-5" style={{ borderBottom: "1px solid var(--ed-rule-faint)" }}>
+          <p className="ed-caption mb-1">LAST COMPLETE MONTH · {fmtMonthLong(monthView.prevKey)}</p>
+          <div className="flex items-baseline gap-x-3 gap-y-1 flex-wrap">
+            <span className="ed-stat-num" style={{ fontSize: 30 }}>
+              {lastFullCr == null ? "—" : fmtAum(lastFullCr)}
+            </span>
+            {lastFullDelta != null && <Delta pct={lastFullDelta} />}
+            {lastFullPrevCr != null && (
+              <span className="ed-caption" style={{ color: "var(--ed-ink-faint)" }}>
+                vs {fmtAum(lastFullPrevCr)} the month before
+              </span>
+            )}
+          </div>
+        </div>
+        {loading ? (
+          <SkeletonBlock h={200} />
+        ) : (
+          <AumBarChart
+            data={monthView.chart}
+            labelOf={(m) => fmtMonth(m.month)}
+            emptyText="No monthly history for this partner yet."
+          />
+        )}
+      </section>
+
       {/* ── AUM week by week ─────────────────────────────────────────────*/}
       <section className="mt-14">
         <PartnerSectionHead
           title="Assets, week by week"
-          deck="Total AUM each week, split into money from first-time investors and money from those coming back."
+          deck="The recent weeks up close — total AUM each week, split into first-time and repeat money."
         />
-        {loading ? <SkeletonBlock h={200} /> : <AumBars weeks={weeksChrono} />}
+        {loading ? (
+          <SkeletonBlock h={200} />
+        ) : (
+          <AumBarChart
+            data={weeksChrono}
+            labelOf={(w) => fmtWeek(w.week)}
+            emptyText="No weekly history for this partner yet."
+          />
+        )}
       </section>
 
       {/* ── Weekly counts ────────────────────────────────────────────────*/}
@@ -252,7 +356,7 @@ export default function GripConnectPartnerEdition({ project, partner, northStar,
 
       {error && (
         <p className="ed-caption mt-8" style={{ color: "var(--ed-rust)" }}>
-          Some weekly data could not be loaded: {error}
+          Some data could not be loaded: {error}
         </p>
       )}
     </article>
