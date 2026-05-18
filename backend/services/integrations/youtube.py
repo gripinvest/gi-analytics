@@ -78,12 +78,13 @@ def fetch_all_videos(client, uploads_playlist_id: str, api_key: str) -> list[dic
         if page_token:
             params["pageToken"] = page_token
         data = _get(client, "/youtube/v3/playlistItems", params)
-        for item in data.get("items", []):
+        for item in data.get("items") or []:
             video_ids.append(item["contentDetails"]["videoId"])
         page_token = data.get("nextPageToken")
         if not page_token or len(video_ids) >= MAX_VIDEOS:
             break
 
+    video_ids = video_ids[:MAX_VIDEOS]
     videos: list[dict] = []
     for i in range(0, len(video_ids), 50):
         batch = video_ids[i:i + 50]
@@ -92,7 +93,7 @@ def fetch_all_videos(client, uploads_playlist_id: str, api_key: str) -> list[dic
             "id": ",".join(batch),
             "key": api_key,
         })
-        for it in data.get("items", []):
+        for it in data.get("items") or []:
             sn = it.get("snippet", {})
             st = it.get("statistics", {})
             cd = it.get("contentDetails", {})
