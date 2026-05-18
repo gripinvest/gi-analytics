@@ -22,6 +22,17 @@ import {
 
 const nf = new Intl.NumberFormat("en-IN");
 
+// Module-level cache keyed by `${projectId}::${partner}`. Avoids re-fetching
+// both queries on every partner tab switch. Cleared by the combined report's
+// refresh handler (see clearPartnerCache) so a refresh shows fresh numbers.
+const _partnerCache = new Map();
+
+// Drop all cached partner data. Called after a manual refresh so the dossier
+// re-queries instead of serving pre-refresh numbers.
+export function clearPartnerCache() {
+  _partnerCache.clear();
+}
+
 /* "2026-05-11" -> "11 May" */
 function fmtWeek(s) {
   const d = new Date(String(s ?? "").slice(0, 10));
@@ -55,6 +66,15 @@ function usePartnerData(project, partner) {
 
   React.useEffect(() => {
     let cancelled = false;
+    const cacheKey = `${project.id}::${partner}`;
+
+    // Serve from cache synchronously when available.
+    if (_partnerCache.has(cacheKey)) {
+      const cached = _partnerCache.get(cacheKey);
+      setState({ loading: false, error: null, weekly: cached.weekly, monthly: cached.monthly });
+      return () => { cancelled = true; };
+    }
+
     setState({ loading: true, error: null, weekly: [], monthly: [] });
 
     const raw = DISPLAY_TO_RAW[partner] || partner;
@@ -67,6 +87,7 @@ function usePartnerData(project, partner) {
       `SELECT strftime(TRY_CAST(day AS DATE), '%Y-%m') AS month, ` +
       `SUM(aum) AS aum, SUM(fti_amount) AS fti_amount ` +
       `FROM "${dod}" WHERE partner = '${raw}' AND TRY_CAST(day AS DATE) IS NOT NULL ` +
+      `AND TRY_CAST(day AS DATE) >= CURRENT_DATE - INTERVAL 24 MONTH ` +
       `GROUP BY 1 ORDER BY 1`;
 
     Promise.all([
@@ -75,11 +96,14 @@ function usePartnerData(project, partner) {
     ])
       .then(([w, m]) => {
         if (cancelled) return;
+        const weekly = w.rows || [];
+        const monthly = m.rows || [];
+        _partnerCache.set(cacheKey, { weekly, monthly });
         setState({
           loading: false,
           error: w.error || m.error || null,
-          weekly: w.rows || [],
-          monthly: m.rows || [],
+          weekly,
+          monthly,
         });
       })
       .catch((e) => {
@@ -107,12 +131,17 @@ function AumBarChart({ data, labelOf, emptyText }) {
 
   return (
     <div>
-      <div className="flex items-end gap-1" style={{ height: 178 }}>
+      <div
+        className="flex items-end gap-1"
+        style={{ height: 178 }}
+        role="img"
+        aria-label={`${data.length}-bar AUM chart`}
+      >
         {data.map((d, i) => {
           const total = Number(d.aum) || 0;
           const fti = Number(d.fti_amount) || 0;
           const barH = total > 0 ? Math.max((total / max) * 150, 3) : 0;
-          const ftiH = total > 0 ? (Math.min(fti, total) / total) * barH : 0;
+          const ftiH = total > 0 ? (Math.max(0, Math.min(fti, total)) / total) * barH : 0;
           const latest = i === data.length - 1;
           return (
             <div
@@ -124,7 +153,7 @@ function AumBarChart({ data, labelOf, emptyText }) {
                 className="ed-num"
                 style={{ fontSize: 9, color: latest ? "var(--ed-ink)" : "var(--ed-ink-faint)" }}
               >
-                {(total / 1e7).toFixed(1)}
+                {total === 0 ? "" : (total / 1e7).toFixed(1)}
               </span>
               <div
                 style={{
@@ -228,9 +257,11 @@ export default function GripConnectPartnerEdition({ project, partner, northStar,
     const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const prevKey = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
     const complete = (monthly || []).filter((m) => m.month && m.month < curKey);
+    const firstNonZero = complete.findIndex((m) => Number(m.aum) > 0);
+    const trimmed = firstNonZero > 0 ? complete.slice(firstNonZero) : complete;
     const idx = complete.findIndex((m) => m.month === prevKey);
     return {
-      chart: complete.slice(-14),
+      chart: trimmed.slice(-14),
       lastFull: idx >= 0 ? complete[idx] : null,
       lastFullPrev: idx > 0 ? complete[idx - 1] : null,
       prevKey,

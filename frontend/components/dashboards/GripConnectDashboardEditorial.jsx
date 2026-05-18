@@ -14,7 +14,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { runQuery, refreshProject, pollRefresh } from "@/lib/api";
-import GripConnectPartnerEdition from "./GripConnectPartnerEdition";
+import GripConnectPartnerEdition, { clearPartnerCache } from "./GripConnectPartnerEdition";
 
 /* ── partner colour-coding ────────────────────────────────────────────────
    Each partner gets a stable accent so it's recognisable across sections.
@@ -39,6 +39,21 @@ export const DISPLAY_TO_RAW = {
   "Mobikwik": "Mobikwik",
   "Tata Digital": "Tata Digital Private Ltd",
 };
+
+/* ── date formatting ──────────────────────────────────────────────────────*/
+/* "2026-05-04" -> "4 May 2026" (long form, for section deck datelines) */
+function fmtWeek(s) {
+  const d = new Date(String(s ?? "").slice(0, 10));
+  return Number.isNaN(d.getTime())
+    ? String(s ?? "")
+    : d.toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" });
+}
+
+/* Extract the week value from the first non-empty row, or return null. */
+function weekFromRows(rows) {
+  const row = (rows || []).find((r) => r && r.week);
+  return row ? row.week : null;
+}
 
 /* ── number formatting ────────────────────────────────────────────────────*/
 const nf = new Intl.NumberFormat("en-IN");
@@ -160,36 +175,38 @@ function SectionHead({ no, title, deck }) {
 function LedgerTable({ cols, rows, loading }) {
   if (loading) return <SkeletonBlock h={180} />;
   return (
-    <table className="w-full ed-prose" style={{ fontSize: 13, borderCollapse: "collapse" }}>
-      <thead>
-        <tr style={{ borderBottom: "1px solid var(--ed-ink)" }}>
-          {cols.map((c) => (
-            <th
-              key={c.key}
-              className="ed-caption py-2"
-              style={{ textAlign: c.align || "left", whiteSpace: "nowrap" }}
-            >
-              {c.label}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, i) => (
-          <tr key={i} style={{ borderBottom: "1px solid var(--ed-rule-faint)" }}>
+    <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+      <table className="w-full ed-prose" style={{ fontSize: 13, borderCollapse: "collapse" }}>
+        <thead>
+          <tr style={{ borderBottom: "1px solid var(--ed-ink)" }}>
             {cols.map((c) => (
-              <td
+              <th
                 key={c.key}
-                className={c.mono ? "ed-num py-2" : "py-2"}
+                className="ed-caption py-2"
                 style={{ textAlign: c.align || "left", whiteSpace: "nowrap" }}
               >
-                {c.render ? c.render(row) : row[c.key]}
-              </td>
+                {c.label}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} style={{ borderBottom: "1px solid var(--ed-rule-faint)" }}>
+              {cols.map((c) => (
+                <td
+                  key={c.key}
+                  className={c.mono ? "ed-num py-2" : "py-2"}
+                  style={{ textAlign: c.align || "left", whiteSpace: "nowrap" }}
+                >
+                  {c.render ? c.render(row) : row[c.key]}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -325,12 +342,14 @@ function RegKycSection({ rows, loading }) {
     { key: "kyc", label: "KYC init", align: "right", mono: true, render: (r) => fmtPct(r.kyc_init_pct) },
     { key: "ucc", label: "UCC/KYC", align: "right", mono: true, render: (r) => fmtPct(r.ucc_kyc_init_pct) },
   ];
+  const weekLabel = weekFromRows(rows);
+  const weekPhrase = weekLabel ? ` for the week of ${fmtWeek(weekLabel)}` : "";
   return (
     <section className="ed-set">
       <SectionHead
         no="II"
         title="Registration to KYC"
-        deck="The hand-off funnel for the week of 4 May 2026 — every step is a share of the partners' registered users."
+        deck={`The hand-off funnel${weekPhrase} — every step is a share of the partners' registered users.`}
       />
       <LedgerTable cols={cols} rows={byPartnerOrder(rows)} loading={loading} />
     </section>
@@ -354,12 +373,14 @@ function RedirectSection({ rows, loading }) {
     { key: "landed", label: "Landed", align: "right", mono: true, render: (r) => fmtCount(r.landed) },
     { key: "rate", label: "Rate", align: "right", mono: true, render: (r) => fmtPct(r.rate_pct) },
   ];
+  const weekLabel = weekFromRows(rows);
+  const weekPhrase = weekLabel ? ` — week of ${fmtWeek(weekLabel)}` : "";
   return (
     <section className="ed-set">
       <SectionHead
         no="III"
         title="The hand-off"
-        deck="Redirects from partner apps into Grip pages, and the share that successfully landed — week of 4 May 2026."
+        deck={`Redirects from partner apps into Grip pages, and the share that successfully landed${weekPhrase}.`}
       />
       <LedgerTable cols={cols} rows={sorted} loading={loading} />
       {!loading && sorted.length > 0 && (
@@ -394,12 +415,14 @@ function KycUploadSection({ rows, loading }) {
       ),
     },
   ];
+  const weekLabel = weekFromRows(rows);
+  const weekPhrase = weekLabel ? ` for the week of ${fmtWeek(weekLabel)}` : "";
   return (
     <section className="ed-set">
       <SectionHead
         no="IV"
         title="KYC document upload"
-        deck="Document-upload success for the week of 4 May 2026. Instrumented for ET Money only so far."
+        deck={`Document-upload success${weekPhrase}. Instrumented for ET Money only so far.`}
       />
       <LedgerTable cols={cols} rows={rows || []} loading={loading} />
     </section>
@@ -495,6 +518,7 @@ export default function GripConnectDashboardEditorial({ project }) {
         }
       }
       if (!done) { setRefresh({ state: "error", error: "refresh timed out" }); return; }
+      clearPartnerCache();  // drop stale per-partner dossier data
       setNonce((n) => n + 1);
       setAsOf(done.finished_at || new Date().toISOString());
       setRefresh({ state: "done", error: null });
@@ -647,7 +671,14 @@ export default function GripConnectDashboardEditorial({ project }) {
       <footer className="mt-16">
         <hr className="ed-rule" />
         <p className="ed-byline mt-4 flex flex-wrap items-center gap-x-3 gap-y-1" style={{ fontSize: 12 }}>
-          <span>North Star figures are month-to-date; funnel, hand-off and upload are for the week of 4 May 2026.</span>
+          <span>
+            {(() => {
+              const w = weekFromRows(rowsOf("regKyc"));
+              return w
+                ? `North Star figures are month-to-date; funnel, hand-off and upload are for the week of ${fmtWeek(w)}.`
+                : "North Star figures are month-to-date; funnel, hand-off and upload are weekly.";
+            })()}
+          </span>
           <span>·</span>
           <span>© Grip Invest 2026 · Internal use only.</span>
         </p>

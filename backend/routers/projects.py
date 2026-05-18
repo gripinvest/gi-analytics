@@ -2,6 +2,7 @@
 projects.py — project listing + schema endpoint
 """
 import json
+import re
 from pathlib import Path
 from fastapi import APIRouter
 from services.duck import db
@@ -69,11 +70,47 @@ def list_tables(project_id: str):
     return {"tables": db.tables_for_project(project_id)}
 
 
+_DANGEROUS_TOKENS = {
+    "attach", "copy", "install", "load", "pragma", "export", "import",
+    "read_csv", "read_parquet", "read_json", "read_text", "read_blob", "glob",
+}
+
+
+def _validate_sql(sql: str) -> str | None:
+    """Return an error string if *sql* is not a single read-only SELECT/WITH
+    statement, or None when the query looks safe to execute."""
+    # Strip leading whitespace and block comments for inspection purposes only.
+    stripped = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)
+    stripped = re.sub(r"--[^\n]*", " ", stripped)
+    stripped = stripped.strip().lower()
+
+    if not stripped:
+        return "empty query"
+
+    # Must start with SELECT or WITH.
+    if not (stripped.startswith("select") or stripped.startswith("with")):
+        return "query rejected: only single read-only SELECT statements are allowed"
+
+    # Reject dangerous tokens as whole words.
+    for token in _DANGEROUS_TOKENS:
+        if re.search(r"\b" + re.escape(token) + r"\b", stripped):
+            return "query rejected: only single read-only SELECT statements are allowed"
+
+    # Reject multiple statements (semicolon followed by more non-whitespace).
+    if re.search(r";\s*\S", stripped):
+        return "query rejected: only single read-only SELECT statements are allowed"
+
+    return None
+
+
 @router.post("/{project_id}/query")
 def run_query(project_id: str, body: dict):
     """Ad-hoc SQL query endpoint (used by the dashboard components)."""
     sql = body.get("sql", "")
     limit = int(body.get("limit", 500))
+    err = _validate_sql(sql)
+    if err:
+        return {"error": err}
     try:
         return db.execute(sql, limit=limit)
     except Exception as e:
