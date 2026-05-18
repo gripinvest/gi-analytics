@@ -857,7 +857,7 @@ function CohortCallout({ label, n, c, accent, note }) {
 
 // Mirror of classic dashboard's buildIssuers() — joins the per-week DB rows
 // with ISSUER_MAP's curated metadata (category, prefixes, keywords, the
-// abandoned/relgap arrays from analyze_search.py, and the human-written
+// abandoned/relgap arrays from reconstruct_abandonment.py, and the human-written
 // "note"). Identical semantics so the numbers match classic exactly.
 function edBuildIssuers(rows, weeks) {
   const byIssuer = new Map();
@@ -999,7 +999,7 @@ function IssuersSection({ rows, keywordRows, weeks, lastWeek, loading, error }) 
         italic="The Issuers"
         deck={
           <>
-            <code style={{ fontFamily: "var(--ed-mono)" }}>query_text</code> mapped to an issuer by leading-prefix / alias rules. Sessions, ZRR and the per-keyword roll-ups are live from DuckDB. Category, abandonment and relevance-gap counts come from the offline <code style={{ fontFamily: "var(--ed-mono)" }}>analyze_search.py</code> — the richer <code style={{ fontFamily: "var(--ed-mono)" }}>asset_search_cleared</code> payload isn't in this export yet.
+            <code style={{ fontFamily: "var(--ed-mono)" }}>query_text</code> mapped to an issuer by leading-prefix / alias rules. Sessions, ZRR and the per-keyword roll-ups are live from DuckDB. Category is human-written; abandonment and relevance-gap counts come from the offline <code style={{ fontFamily: "var(--ed-mono)" }}>reconstruct_abandonment.py</code> — native <code style={{ fontFamily: "var(--ed-mono)" }}>asset_search_cleared</code> payload for W4–W6, reconstructed for W1–W3.
           </>
         }
       />

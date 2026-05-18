@@ -160,8 +160,8 @@ export function totalQuerySessions({ tables }) {
 
 // ── issuer roll-up ──────────────────────────────────────────────────────────
 //
-// The raw events have no issuer column — the offline analyze_search.py does the
-// query_text → issuer mapping with fuzzy prefix/alias rules. We reproduce a
+// The raw events have no issuer column — the offline reconstruct_abandonment.py
+// does the query_text → issuer mapping with fuzzy prefix/alias rules. We reproduce a
 // SQL-friendly version here: each issuer is matched by a small set of leading
 // prefixes (the curated keyword lists collapse to these). `category` and `note`
 // are Puru's analysis conclusions, not derivable from data, so they ride along
@@ -248,7 +248,7 @@ export const METRIC_DEFS = {
     body: "Sessions where results WERE shown (had_results = true) but the user cleared without clicking anything (any_result_clicked = false). The engine found something, it just wasn't relevant enough: a ranking problem, not a catalog gap.",
     source: "asset_search_cleared -> had_results = 'true' AND any_result_clicked = 'false'  (W4-W6 native payload; W1-W3 reconstructed offline)" },
   clears: { title: "Clear events", live: true,
-    body: "Count of asset_search_cleared events (the user wiped the search bar after a query of >= 3 chars). A blunt proxy for abandonment until the richer had_results / any_result_clicked payload is re-exported, which would let us split true abandonment from the relevance gap.",
+    body: "Count of asset_search_cleared events (the user wiped the search bar after a query of >= 3 chars). The raw event total; the true-abandonment vs relevance-gap split is shown separately in `abandoned` / `relgap` (native had_results / any_result_clicked payload for W4-W6, reconstructed for W1-W3).",
     source: "asset_search_cleared -> COUNT(*)" },
   clicks: { title: "Result clicks", live: true,
     body: "Clicks on a result inside the search dropdown. Carries the clicked asset, its type, and the 1-based result position, so we can see what search actually drives and whether the top slot dominates.",
@@ -261,7 +261,7 @@ export const METRIC_DEFS = {
 const esc = (s) => String(s).replace(/'/g, "''").replace(/([%_\\])/g, "\\$1");
 
 /**
- * SQL CASE that maps a query string to an issuer the way analyze_search.py does:
+ * SQL CASE that maps a query string to an issuer the way reconstruct_abandonment.py does:
  * a query matches an issuer if, for any of that issuer's keywords, the query is a
  * prefix of the keyword (early typing: "uni" -> "unifinz") OR the keyword is a
  * prefix of the query (typed past it: "muthoot finance ltd" -> "muthoot"). That
