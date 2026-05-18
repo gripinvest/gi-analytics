@@ -3,6 +3,7 @@ import AssetSearchDashboardEditorial from "./AssetSearchDashboardEditorial";
 import GripConnectDashboardEditorial from "./GripConnectDashboardEditorial";
 import GenericDashboard from "./GenericDashboard";
 import FraYoutubeDashboard from "./FraYoutubeDashboard";
+import FraYoutubeDashboardEditorial from "./FraYoutubeDashboardEditorial";
 
 /* Registry: project.json's `dashboard_component` key -> { classic, editorial }.
    Each project can ship one or both renderings. The project page picks the
@@ -22,6 +23,7 @@ export const DASHBOARDS = {
   },
   FraYoutube: {
     classic: FraYoutubeDashboard,
+    editorial: FraYoutubeDashboardEditorial,
   },
 };
 
