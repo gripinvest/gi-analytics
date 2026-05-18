@@ -15,7 +15,7 @@ and [`roadmap.md`](../roadmap.md). Work in a dedicated worktree (standing mandat
 | [S1](./S1-classic-dashboard-parity.md) | Classic dashboard — un-deprecate + session-outcome funnel parity + mobile-first | — | yes | ✅ merged — [PR #49](https://github.com/purujit-grip/grip-analytics/pull/49) |
 | [S2](./S2-shared-ui-fixes.md) | Shared UI fixes — sign-out / theme-switcher overlap + UI-break audit | — | yes | not started |
 | [S3](./S3-metabase-data-validation.md) | Validate Asset Search data points against Metabase | — | yes | not started |
-| [S4](./S4-live-data-spec.md) | Asset Search live-data — design spec (Metabase fetch + daily cron + new tables) | — | yes | ✅ done — PR `feat/asset-search-live-data-spec` |
+| [S4](./S4-live-data-spec.md) | Asset Search live-data — design spec (Metabase fetch + daily cron + new tables) | — | yes | ✅ done — [PR #51](https://github.com/purujit-grip/grip-analytics/pull/51) |
 | [S5](./S5-live-data-implementation.md) | Asset Search live-data — implementation | **S4** (benefits from S3) | no | not started |
 
 S1–S4 are independent and can run in any order or in parallel (separate
@@ -75,5 +75,6 @@ confirm the dependency is met before starting.
 session-outcome funnel parity with Editorial
 ([PR #49](https://github.com/purujit-grip/grip-analytics/pull/49)).
 **S4 done** (2026-05-19) — live-data design spec written
-(`specs/2026-05-19-asset-search-live-data-design.md`), PR open. S2, S3, S5 not
-started. Update this table and `session-log.md` as they land.
+(`specs/2026-05-19-asset-search-live-data-design.md`),
+[PR #51](https://github.com/purujit-grip/grip-analytics/pull/51) open. S2, S3,
+S5 not started. Update this table and `session-log.md` as they land.

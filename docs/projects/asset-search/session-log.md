@@ -8,8 +8,8 @@ Read the top entry when starting a new session. Supersedes the old loose
 
 ## 2026-05-19 — S4: live-data design spec (PR open)
 
-**Status:** S4 complete — spec written, branch `feat/asset-search-live-data-spec`,
-PR open to `main`. Deliverable is a doc only; no code changed.
+**Status:** S4 complete — spec written, [PR #51](https://github.com/purujit-grip/grip-analytics/pull/51)
+open to `main` (branch `feat/asset-search-live-data-spec`). Doc only; no code changed.
 
 Wrote [`specs/2026-05-19-asset-search-live-data-design.md`](./specs/2026-05-19-asset-search-live-data-design.md)
 — the design for making the Asset Search dashboard run on live Metabase data.
