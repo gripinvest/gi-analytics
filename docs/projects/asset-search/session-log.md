@@ -6,10 +6,39 @@ Read the top entry when starting a new session. Supersedes the old loose
 
 ---
 
-## 2026-05-19 — S1: Classic dashboard parity (PR open)
+## 2026-05-19 — S4: live-data design spec (PR open)
+
+**Status:** S4 complete — spec written, branch `feat/asset-search-live-data-spec`,
+PR open to `main`. Deliverable is a doc only; no code changed.
+
+Wrote [`specs/2026-05-19-asset-search-live-data-design.md`](./specs/2026-05-19-asset-search-live-data-design.md)
+— the design for making the Asset Search dashboard run on live Metabase data.
+
+- Adapts the approved Grip Connect live-data spec — same architecture, but a
+  different fetch shape (raw event tables, not 5 saved cards).
+- **Key finding:** the `backend/services/integrations/` framework already
+  exists (built for Grip Connect) — `metabase.py`, `accumulate.py`, the refresh
+  router and the cron-workflow pattern are all reusable. S5 mostly *extends*,
+  not builds from scratch.
+- **Decisions locked:** fetch via raw native SQL (`POST /api/dataset`), not
+  saved cards; feature-week windowing; layer-1-only data model (the dashboard's
+  `assetSearch.js` builders are the derivation layer — no layer-2 needed);
+  daily 12 AM IST cron; trailing 2-week re-fetch window for late events.
+- Covers onboarding the 5 not-yet-exported tables (`view_payment_page_loaded`,
+  `view_payment_status_page`, `new_user_order`, `order_summary_clicked`,
+  `asset_card_clicked`) — fetch only; dashboard exhibits are roadmap #2.
+- Open items pinned for S5 Phase 1: timezone, the Rudder `id` upsert key,
+  native-query permission, `view_payment_status_page` schema.
+
+**Next:** S5 (implementation) — now unblocked, still gated on Metabase
+credentials being available to the fetch (`backend/.env`).
+
+---
+
+## 2026-05-19 — S1: Classic dashboard parity (merged)
 
 **Status:** S1 complete — [PR #49](https://github.com/purujit-grip/grip-analytics/pull/49)
-open to `main` (branch `feat/asset-search-classic-parity`), `next build` clean.
+**merged & on `main`** (squash) — branch `feat/asset-search-classic-parity`, `next build` clean.
 
 The Classic Asset Search dashboard is **un-deprecated** and back to full data
 parity with Editorial. Both renderings now read the same query builders, so they
