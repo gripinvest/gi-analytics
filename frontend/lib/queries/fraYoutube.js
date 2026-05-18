@@ -19,11 +19,14 @@ import { runQuery } from "@/lib/api";
    { rows } or { error } entry on the hook's `data` object. */
 
 export const SQL = {
-  /* Full overview history, latest first — rowsOf(...)[0] is the current
-     snapshot; the rest feed computeTrend's day/week deltas. */
+  /* Recent overview history, latest first — rowsOf(...)[0] is the current
+     snapshot; the rest feed computeTrend's day/week deltas. Capped at 60 rows:
+     two months is ample for a week-over-week window and keeps the payload
+     bounded as the table accumulates daily snapshots. */
   overview: `
     SELECT * FROM fra_youtube__overview
     ORDER BY snapshot_date DESC
+    LIMIT 60
   `,
   distribution: `
     SELECT * FROM fra_youtube__distribution
@@ -171,8 +174,14 @@ export function computeTrend(overviewRows) {
   const latestDay = _dayOf(latest.snapshot_date);
   if (Number.isNaN(latestDay)) return null;
 
-  // day window: the immediately preceding snapshot.
-  const prior = rows[rows.length - 2];
+  // day window: the most recent snapshot on an EARLIER calendar day — a
+  // same-day re-crawl must not be diffed against itself and labelled "vs
+  // yesterday".
+  let prior = null;
+  for (let i = rows.length - 2; i >= 0; i--) {
+    const d = _dayOf(rows[i].snapshot_date);
+    if (!Number.isNaN(d) && d < latestDay) { prior = rows[i]; break; }
+  }
   // week window: the most recent snapshot ≥7 days before the latest.
   let weekAgo = null;
   for (let i = rows.length - 2; i >= 0; i--) {

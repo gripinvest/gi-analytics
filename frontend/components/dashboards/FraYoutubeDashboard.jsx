@@ -11,7 +11,7 @@
 
 import * as React from "react";
 import {
-  ResponsiveContainer, ComposedChart, AreaChart, BarChart,
+  ResponsiveContainer, ComposedChart, BarChart,
   Area, Bar, Line, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
 } from "recharts";
 import { fetchFraInsights } from "@/lib/api";
@@ -27,6 +27,11 @@ import { ChartCard, TooltipBox, axisProps, gridProps } from "@/components/charts
 
 const nf = new Intl.NumberFormat("en-IN");
 const fmt = (v) => (v == null || v === "" ? "—" : nf.format(Number(v)));
+
+/** Coerce to a finite number, or null — keeps a missing value out of charts
+    rather than letting it land as a misleading real zero. */
+const toNum = (v) =>
+  v == null || v === "" || Number.isNaN(Number(v)) ? null : Number(v);
 const pct = (v) =>
   v == null || v === "" || Number.isNaN(Number(v)) ? "—" : `${Number(v).toFixed(1)}%`;
 
@@ -68,7 +73,7 @@ function SectionHeading({ index, title, deck }) {
       <span className="t-overline text-tertiary">
         Section {String(index).padStart(2, "0")}
       </span>
-      <h2 className="t-display-sm text-heading">{title}</h2>
+      <h2 className="t-display-md text-heading">{title}</h2>
       {deck && <p className="t-body-sm text-tertiary max-w-2xl">{deck}</p>}
     </div>
   );
@@ -113,7 +118,8 @@ function MiniBar({ value, max }) {
   );
 }
 
-/* A week-over-week delta chip — success ▲ / error ▼ against the snapshot. */
+/* A delta chip — success ▲ / error ▼ against the snapshot. Used for the
+   Catalog-health freshness delta. */
 function DeltaChip({ delta, goodIsUp = true, suffix = "" }) {
   if (delta == null || delta === "" || Number.isNaN(Number(delta))) return null;
   const d = Number(delta);
@@ -121,7 +127,7 @@ function DeltaChip({ delta, goodIsUp = true, suffix = "" }) {
   const good = goodIsUp ? d > 0 : d < 0;
   return (
     <Badge tone={good ? "success" : "error"} variant="soft" className="gap-0.5">
-      {d > 0 ? "▲" : "▼"} {fmt(Math.abs(d))}{suffix}
+      <span aria-hidden>{d > 0 ? "▲" : "▼"}</span> {fmt(Math.abs(d))}{suffix}
     </Badge>
   );
 }
@@ -139,7 +145,7 @@ const deltaFmt = {
    shows an em-dash so the caption still names the window that is coming. */
 function DeltaLine({ delta, label, format = fmt, goodIsUp = true }) {
   if (delta == null) {
-    return <span className="t-body-xs text-tertiary">— {label}</span>;
+    return <span className="t-body-xs text-tertiary whitespace-nowrap">— {label}</span>;
   }
   const d = Number(delta);
   const sign = d > 0 ? "▲" : d < 0 ? "▼" : "±";
@@ -150,8 +156,8 @@ function DeltaLine({ delta, label, format = fmt, goodIsUp = true }) {
         ? "text-success-700"
         : "text-error-600";
   return (
-    <span className={`t-body-xs ${tone}`}>
-      {sign} {d === 0 ? "0" : format(Math.abs(d))}{" "}
+    <span className={`t-body-xs whitespace-nowrap ${tone}`}>
+      <span aria-hidden>{sign}</span> {d === 0 ? "0" : format(Math.abs(d))}{" "}
       <span className="text-tertiary">{label}</span>
     </span>
   );
@@ -177,17 +183,6 @@ function DualDelta({ trend, field, format, goodIsUp = true }) {
       />
     </div>
   );
-}
-
-/* Masthead stat props — the single day-over-day delta chip plus its window
-   caption, so a zero reads as "flat since yesterday" rather than a bare ±0. */
-function trendProps(trend, field) {
-  const d = trend?.day?.deltas?.[field];
-  if (d == null) return {};
-  return {
-    delta: <DeltaChip delta={d} goodIsUp />,
-    hint: trend.day.label,
-  };
 }
 
 /* The discovery verdict — a one-glance read of the breakout rate. */
@@ -260,7 +255,7 @@ function bucketViews(videoViewsRows) {
 /* ── main component ─────────────────────────────────────────────────────── */
 
 export default function FraYoutubeDashboard({ project }) {
-  const { loading, data } = useFraYoutube(project.id);
+  const { loading, error, data } = useFraYoutube(project.id);
   const insightsState = useFraInsights();
 
   /* row extraction — every key is { rows } | { error } */
@@ -274,6 +269,18 @@ export default function FraYoutubeDashboard({ project }) {
         <p className="t-body-sm text-secondary">
           No snapshots yet — the first daily refresh has not run. The report
           fills in once the FRA channel has been crawled.
+        </p>
+      </Card>
+    );
+  }
+
+  /* Fatal — the data hook only sets a top-level error when EVERY query
+     failed; one bad table is handled per-section. */
+  if (error && !overview && !loading) {
+    return (
+      <Card pad="lg">
+        <p className="t-body-sm text-error-600">
+          Could not load the dashboard — {error}
         </p>
       </Card>
     );
@@ -315,44 +322,45 @@ export default function FraYoutubeDashboard({ project }) {
   }));
   const hasRealTrend = Object.keys(channelByMonth).length > 0;
 
-  // Monthly bars — fall back to the monthlyViews query if cumulative is empty.
-  const monthlySeries =
-    growthSeries.length > 0
-      ? growthSeries
-      : monthlyRows.map((r) => ({
-          month: String(r.month).slice(0, 7),
-          monthly: Number(r.total_views) || 0,
-        }));
+  // Monthly bars — driven by the monthlyViews query, so its ChartCard error
+  // state and its data come from one source. A missing total stays null
+  // (no bar) rather than a misleading zero-height bar.
+  const monthlySeries = monthlyRows.map((r) => ({
+    month: String(r.month).slice(0, 7),
+    monthly: toNum(r.total_views),
+  }));
 
   // Discovery — view-distribution histogram.
   const distBuckets = bucketViews(videoViewsRows);
 
   // Content fit — diverging bars: each category's performance vs channel mean.
+  // A category with no vs-mean figure stays null (no bar), not plotted on 0%.
   const contentSeries = categoryRows.map((r) => ({
     category: r.category,
-    perf: r.perf_vs_mean_pct != null ? Number(r.perf_vs_mean_pct) : 0,
+    perf: toNum(r.perf_vs_mean_pct),
   }));
 
   // Engagement — each category's engagement rate as a distance from the
-  // channel mean (diverging bars).
-  const engRaw = engagementRows.map((r) => ({
-    bucket: r.bucket,
-    rate: Number(r.engagement_rate_pct) || 0,
-  }));
+  // channel mean (diverging bars). Categories with no rate are dropped so a
+  // missing value does not get folded into the mean as a zero.
+  const engRaw = engagementRows
+    .map((r) => ({ bucket: r.bucket, rate: toNum(r.engagement_rate_pct) }))
+    .filter((r) => r.rate != null);
   const engMean =
     engRaw.length > 0 ? engRaw.reduce((a, r) => a + r.rate, 0) / engRaw.length : 0;
   const engagementSeries = engRaw
     .map((r) => ({ ...r, diff: Math.round((r.rate - engMean) * 100) / 100 }))
     .sort((a, b) => b.diff - a.diff);
 
-  // Cadence — avg views by IST posting day / hour.
+  // Cadence — avg views by IST posting day / hour. A slot with no data stays
+  // null (no bar) rather than reading as a real zero-views slot.
   const cadenceDaySeries = cadenceDayRows.map((r) => ({
     bucket: r.bucket,
-    avg_views: Number(r.avg_views) || 0,
+    avg_views: toNum(r.avg_views),
   }));
   const cadenceHourSeries = cadenceHourRows.map((r) => ({
     bucket: r.bucket,
-    avg_views: Number(r.avg_views) || 0,
+    avg_views: toNum(r.avg_views),
   }));
 
   // Titles — patterns ranked by avg views.
@@ -383,12 +391,10 @@ export default function FraYoutubeDashboard({ project }) {
               <Stat
                 label="Subscribers"
                 value={overview ? fmt(overview.subscribers) : "—"}
-                {...trendProps(trend, "subscribers")}
               />
               <Stat
                 label="Total views"
                 value={overview ? fmt(overview.total_views) : "—"}
-                {...trendProps(trend, "total_views")}
               />
               <Stat label="Videos" value={overview ? fmt(overview.video_count) : "—"} />
               <Stat
@@ -476,7 +482,7 @@ export default function FraYoutubeDashboard({ project }) {
               <CardTitle>Breakout health</CardTitle>
               <CardSubtitle>Share of recent videos crossing key view thresholds</CardSubtitle>
             </div>
-            {!loading && discoveryVerdictBadge(distRow)}
+            {!loading && !errOf(data, "distribution") && discoveryVerdictBadge(distRow)}
           </CardHeader>
           <CardBody>
             {loading ? (
@@ -485,7 +491,7 @@ export default function FraYoutubeDashboard({ project }) {
               <p className="t-body-sm text-error-600">Could not load this section.</p>
             ) : distRow ? (
               <div className="flex flex-col gap-5">
-                <div className="text-4xl t-num font-semibold text-heading">
+                <div className="t-display-md t-num text-heading">
                   {distRow.breakout_1k_rate != null
                     ? `${(Number(distRow.breakout_1k_rate) * 100).toFixed(1)}%`
                     : "—"}
@@ -709,7 +715,7 @@ export default function FraYoutubeDashboard({ project }) {
               <p className="t-body-sm text-tertiary">No category mix data.</p>
             ) : (
               <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[28rem] text-sm">
                   <thead>
                     <tr className="border-b border-border-default">
                       <th className="py-2 pr-4 text-left t-overline text-tertiary">Category</th>
@@ -971,7 +977,7 @@ export default function FraYoutubeDashboard({ project }) {
       </Section>
 
       {/* ════════ RETENTION — locked panel ══════════════════════════════════ */}
-      <Card pad="md" className="opacity-60">
+      <Card pad="md">
         <CardHeader>
           <CardTitle>Retention &amp; traffic sources</CardTitle>
           <Badge tone="neutral" variant="outline">locked</Badge>
