@@ -38,8 +38,7 @@ export default function ProjectPage({ params }) {
   if (isEditorial) {
     return (
       <main className="min-h-screen">
-        <DesignSwitcher />
-        <SignOut />
+        <PageChrome />
         <div className="mx-auto max-w-[920px] px-5 py-12 sm:px-8 sm:py-16">
           {error ? (
             <section>
