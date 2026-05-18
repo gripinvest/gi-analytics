@@ -1,5 +1,14 @@
 "use client";
 
+/**
+ * @deprecated CLASSIC ASSET SEARCH DASHBOARD — NOT MAINTAINED.
+ *
+ * The Editorial variant (AssetSearchDashboardEditorial.jsx) is the active,
+ * maintained dashboard. This Classic version is kept only for reference and
+ * may lag behind on data, copy, and features. Do not invest further work here
+ * — make changes in the Editorial dashboard instead.
+ */
+
 import * as React from "react";
 import {
   ResponsiveContainer, ComposedChart, BarChart, LineChart, AreaChart,
@@ -172,7 +181,7 @@ export default function AssetSearchDashboard({ project }) {
   const cohort8 = rowsOf(data, "conv_cohort")[0] || null;
   const cohort = cohortW || cohort8;
   const cohortLabel = cohortW
-    ? `${weeks[0]}–${lastWeek} · Apr 2 – May 11 2026 · user-id level`
+    ? `${weeks[0]}–${lastWeek} · Apr 2 – May 13 2026 · user-id level`
     : "launch week · Apr 2–9 2026 · anon-id level";
   const daily = cohortW ? [] : rowsOf(data, "conv_daily");
 
@@ -282,7 +291,7 @@ export default function AssetSearchDashboard({ project }) {
             title={<Metric k="zrr">Zero-result rate &amp; query volume by feature week</Metric>}
             subtitle="Bars: queries run. Line: % of queries returning zero results."
             loading={loading} error={errOf(data, "health")} height={300}
-            footer={`${lastWeek} is a partial week.  Launch baseline ${pct(zrrFirst)} → latest ${pct(zrrLast)}.`}
+            footer={`Launch baseline ${pct(zrrFirst)} → latest ${pct(zrrLast)}.`}
           >
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={healthSeries} margin={{ top: 28, right: 8, bottom: 0, left: -12 }}>
@@ -522,7 +531,6 @@ export default function AssetSearchDashboard({ project }) {
                     ["asset_search_cleared payload", "This export only has timestamp/session/user/active_tab. Re-export with had_results & any_result_clicked to split true abandonment from relevance gaps."],
                     ["Issuer roll-up", "There is no issuer column — term→issuer mapping (incl. alias V2: lon→SDI, icl→InCred, muth→Muthoot, …) lives in the offline analyze_search.py, not in SQL yet."],
                     ["Conversion: window + paid orders", "The Conversion tab joins search to invest_now / quick_checkout on same-day user_id. invest_now is an intent event, not a paid order; same-day misses multi-day journeys; and there's no browse-population table, so a true search lift vs non-searchers isn't computable. Add tblorders + a 1–3 day window + a page/asset-view event to close these."],
-                    [`${lastWeek} is partial`, `${lastWeek} covers a short window; treat its absolute counts as incomplete and weight by week length for trend reads.`],
                   ].map(([ev, note]) => (
                     <li key={ev} className="flex gap-3">
                       <Badge tone="warning" variant="soft" dot className="mt-0.5 shrink-0">todo</Badge>
@@ -1059,7 +1067,7 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
         <ChartCard title={<Metric k="searchersCvr">Same-day CVR by feature week</Metric>}
           subtitle="Bars: invest events that week. Lines: of searchers / result-clickers that week, the % who invested same-day."
           loading={false} error={errOf(data, "conv_byWeek")} height={280}
-          footer={`${lastWeek} is a partial week.  Searcher CVR ${pct1(cvrEarly)} → ${pct1(cvrLate)}.`}>
+          footer={`Searcher CVR ${pct1(cvrEarly)} → ${pct1(cvrLate)}.`}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={weekSeries} margin={{ top: 28, right: 8, bottom: 0, left: -12 }}>
               <CartesianGrid {...gridProps} />

@@ -1,7 +1,37 @@
-# docs/
+# Grip Analytics — documentation
 
-Documentation for Grip Analytics. Four areas, by how settled the thinking is —
-**reference** is fact, **ideation** is still being explored.
+Docs are organised **project-first**. Each analytics project (Asset Search,
+Grip Connect, …) has its own data, metrics, ideation and roadmap — they are
+genuinely different products and do not share a doc namespace. Only concerns
+that span *every* project live at the top level.
+
+## Layout
+
+```
+docs/
+  architecture/   Platform-wide structural concerns ONLY. A change here affects
+                  every project: the multi-project model, the data-integration
+                  framework, the DuckDB/build pipeline, shared UI, auth, routing.
+  reference/      Source-of-truth facts — external documents and the notes built
+                  on them (DB schema, metric catalogs). Cite these; don't restate.
+  projects/
+    asset-search/ Everything specific to one project — data sources, dashboard,
+    grip-connect/ metric definitions, ideation, plans, specs. One folder per
+    <project>/    project.
+```
+
+## The rule — where does a doc go?
+
+Before adding a doc, ask: **"does this change the platform for every project,
+or just one project?"**
+
+- Platform-wide structural decision → `architecture/`
+- A source-of-truth fact (DB schema, an external reference) → `reference/`
+- Specific to one project's data, metrics, dashboard or roadmap → `projects/<project>/`
+
+Most docs are project-level. `architecture/` and `reference/` stay small — they
+are for genuine cross-project material, not for whichever project happened to
+motivate the change.
 
 ## reference/ — source-of-truth facts
 
@@ -9,44 +39,48 @@ External documents and the notes built on them. Cite these; don't restate them.
 
 | File | What it is |
 |---|---|
-| [grip-connect-metrics-catalog.md](reference/grip-connect-metrics-catalog.md) | The canonical reference for Grip Connect's data — which Metabase cards feed the dashboard, every column's meaning, what's verifiable, what could be added. Consolidates the data-team conversations, the design spec, and Kishor's `gc-analyst` repo. |
-| [gripinvest-db-schema.md](reference/gripinvest-db-schema.md) | Companion notes for the production DB schema — 237 tables / 18 domains, with the `GCI_SCHEMA` (Grip Connect) tables mapped to dashboard sections. |
-| [gripinvest-db-schema-overview.html](reference/gripinvest-db-schema-overview.html) | The backend team's interactive schema explorer. Open in a browser. |
+| [reference/grip-connect-metrics-catalog.md](reference/grip-connect-metrics-catalog.md) | Canonical reference for Grip Connect's data — which Metabase cards feed the dashboard, every column's meaning, what's verifiable, what could be added. |
+| [reference/gripinvest-db-schema.md](reference/gripinvest-db-schema.md) | Companion notes for the production DB schema — 237 tables / 18 domains. |
+| [reference/gripinvest-db-schema-overview.html](reference/gripinvest-db-schema-overview.html) | The backend team's interactive schema explorer. Open in a browser. |
 
-## specs/ — approved designs
+(Reference docs are dated snapshots — they note when to re-request the source
+from the owning team. Project-specific reference material may later move into
+that project's folder.)
 
-A design that has been reviewed and signed off, ready to plan against.
+## Per-project folder convention
 
-| File | What it is |
-|---|---|
-| [2026-05-17-grip-connect-live-data-design.md](specs/2026-05-17-grip-connect-live-data-design.md) | How the Grip Connect dashboard moves from hand-loaded CSVs to live Metabase data. Approved 2026-05-17. |
+Each `projects/<project>/` folder holds:
 
-## plans/ — implementation plans
+| File | Purpose |
+|------|---------|
+| `README.md` | Project hub — what it is, owner, status, dashboard, key files |
+| `session-log.md` | Cross-session handoff — where the project last stood |
+| `data-sources.md` | The events/tables the project uses, with validation status |
+| `roadmap.md` | What's done, what's next, open decisions |
+| `plans/`, `specs/` | Implementation plans and design specs, as needed |
 
-A spec broken into task-by-task steps for an implementer (human or agent).
+## Migration (in progress)
 
-| File | What it is |
-|---|---|
-| [2026-05-17-grip-connect-live-data.md](plans/2026-05-17-grip-connect-live-data.md) | Step-by-step build plan for the live-data spec above. |
+The legacy type-first folders — `docs/plans/`, `docs/specs/`, `docs/ideation/`
+— predate this structure and are being migrated. Each ideation doc follows the
+same shape (Why / Pointers / Trade-offs / Open questions / Suggested first
+slice); start at [ideation/README.md](ideation/README.md).
 
-## ideation/ — exploratory thinking
+| Legacy file | Destination |
+|-------------|-------------|
+| `ideation/multi-project-platform.md` | `architecture/` |
+| `ideation/data-integrations.md` | `architecture/` |
+| `ideation/mobile-first.md` | `architecture/` |
+| `ideation/pwa-offline.md`, `ideation/config-dashboard.md` | `architecture/` (platform features) |
+| `ideation/issuer-deepdive.md` | `projects/asset-search/` ✓ done |
+| `plans/2026-05-17-grip-connect-live-data.md` | `projects/grip-connect/plans/` |
+| `specs/2026-05-17-grip-connect-live-data-design.md` | `projects/grip-connect/specs/` |
 
-Not decided yet. Each doc follows the same shape (Why / Pointers / Trade-offs /
-Open questions / Suggested first slice). Answer the open questions before
-writing code. Start at [ideation/README.md](ideation/README.md).
-
-| Thread | One-line |
-|---|---|
-| [multi-project-platform.md](ideation/multi-project-platform.md) | Many projects across feature / journey / domain / external. |
-| [config-dashboard.md](ideation/config-dashboard.md) | One `GenericDashboard` from a JSON/YAML config; AI-authored; interactive `explorer` sections. |
-| [data-integrations.md](ideation/data-integrations.md) | Pluggable source adapters (Metabase, Sentry, App Store, New Relic, YouTube, …). |
-| [issuer-deepdive.md](ideation/issuer-deepdive.md) | Per-keyword breakdown inside each issuer; "leaving on the table" view. |
-| [mobile-first.md](ideation/mobile-first.md) | Standing principle — every UI starts at ≤375px. |
-| [pwa-offline.md](ideation/pwa-offline.md) | Installable home-screen app + offline-resilient reading. |
+The Grip Connect spec/plan are left in place for now to avoid colliding with
+in-flight Grip Connect work — they should move when that branch settles.
 
 ## Conventions
 
-- **Reference** docs are dated snapshots — they note when to re-request the
-  source from the owning team.
+- **Reference** docs are dated snapshots — note when to re-request the source.
 - **Specs and plans** are named `YYYY-MM-DD-<slug>`.
 - **Ideation** docs are living — mark sections shipped as they land in `main`.
