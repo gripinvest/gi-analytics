@@ -172,3 +172,48 @@ def build_monthly_views(video_rows) -> list[dict]:
                 "avg_views": round(safe_div(sum(views), len(views)), 1),
             })
     return out
+
+
+def _duration_bucket(sec: int) -> str:
+    if sec <= 60:
+        return "short"
+    if sec <= 600:
+        return "medium"
+    return "long"
+
+
+def _engagement_row(handle, snapshot_date, dimension, bucket, vids) -> dict:
+    views = sum(v["views"] for v in vids)
+    interactions = sum(v["likes"] + v["comments"] for v in vids)
+    likes = sum(v["likes"] for v in vids)
+    comments = sum(v["comments"] for v in vids)
+    return {
+        "channel_handle": handle,
+        "snapshot_date": snapshot_date,
+        "dimension": dimension,
+        "bucket": bucket,
+        "video_count": len(vids),
+        "engagement_rate_pct": round(100 * safe_div(interactions, views), 3),
+        "like_rate_pct": round(100 * safe_div(likes, views), 3),
+        "comment_rate_pct": round(100 * safe_div(comments, views), 3),
+    }
+
+
+def build_engagement_breakdown(video_rows) -> list[dict]:
+    """Engagement overall, by duration bucket, and by category."""
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        snap = vids[0]["snapshot_date"]
+        out.append(_engagement_row(handle, snap, "overall", "all", vids))
+        for bucket in ("short", "medium", "long"):
+            group = [v for v in vids if _duration_bucket(v["duration_sec"]) == bucket]
+            if group:
+                out.append(_engagement_row(handle, snap, "duration", bucket, group))
+        cats = defaultdict(list)
+        for v in vids:
+            cats[v["category"]].append(v)
+        for category, group in sorted(cats.items()):
+            out.append(_engagement_row(handle, snap, "category", category, group))
+    return out
