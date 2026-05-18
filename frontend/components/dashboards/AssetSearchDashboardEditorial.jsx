@@ -40,6 +40,7 @@ const QUERY_SPECS = {
   zeroQueries:      (ctx) => Q.topZeroResultQueries(ctx),
   issuers:          (ctx) => Q.issuerHealthByWeek(ctx),
   issuerKeywords:   (ctx) => Q.keywordsByIssuer(ctx),
+  issuerOutcome:    (ctx) => Q.sessionOutcomeByIssuerWeek(ctx),
 };
 const CONV_SPECS = {
   conv_headline:  (conv) => C.conversionHeadline(conv),
@@ -547,6 +548,7 @@ export default function AssetSearchDashboardEditorial({ project }) {
       {section === "issuers" && (
         <IssuersSection
           rows={issuers}
+          outcomeRows={rowsOf(data, "issuerOutcome")}
           keywordRows={rowsOf(data, "issuerKeywords")}
           weeks={weeks}
           lastWeek={lastWeek}
@@ -892,34 +894,44 @@ function CohortCallout({ label, n, c, accent, note }) {
 
 /* ── SECTION III — ISSUERS ────────────────────────────────────────────────── */
 
-// Mirror of classic dashboard's buildIssuers() — joins the per-week DB rows
-// with ISSUER_MAP's curated metadata (category, prefixes, keywords, the
-// abandoned/relgap arrays from reconstruct_abandonment.py, and the human-written
-// "note"). Identical semantics so the numbers match classic exactly.
-function edBuildIssuers(rows, weeks) {
+// Joins the per-week issuer DB rows (issuerHealthByWeek) with the per-week
+// session-outcome rows (sessionOutcomeByIssuerWeek) and ISSUER_MAP's curated
+// metadata (category, keywords, the human-written "note"). Success / relevance
+// gap / dead end are live from DuckDB — no asset_search_cleared reconstruction.
+function edBuildIssuers(rows, outcomeRows, weeks) {
   const byIssuer = new Map();
   for (const r of rows) {
     if (!byIssuer.has(r.issuer)) byIssuer.set(r.issuer, {});
     byIssuer.get(r.issuer)[r.week] = r;
   }
+  const byOutcome = new Map();
+  for (const r of outcomeRows || []) {
+    if (!byOutcome.has(r.issuer)) byOutcome.set(r.issuer, {});
+    byOutcome.get(r.issuer)[r.week] = r;
+  }
   const avgOf = (xs) => (xs.length ? Math.round((10 * xs.reduce((a, b) => a + b, 0)) / xs.length) / 10 : null);
   return ISSUER_MAP.map((meta) => {
     const wkMap = byIssuer.get(meta.name) || {};
-    const series = weeks.map((w, i) => {
+    const oMap = byOutcome.get(meta.name) || {};
+    const series = weeks.map((w) => {
       const r = wkMap[w] || {};
+      const o = oMap[w] || {};
       return {
         week: w,
         sessions: Number(r.sessions) || 0,
         queries: Number(r.queries) || 0,
         zrr: r.zrr_pct == null ? 0 : Number(r.zrr_pct),
         refinement: r.refinement_pct == null ? 0 : Number(r.refinement_pct),
-        abandoned: (meta.abandoned || [])[i] ?? 0,
-        relgap: (meta.relgap || [])[i] ?? 0,
+        success: Number(o.success) || 0,
+        relgap: Number(o.relevance_gap) || 0,
+        deadEnd: Number(o.dead_end) || 0,
+        outcomeSearched: Number(o.searched) || 0,
       };
     });
     const sumKey = (k) => series.reduce((a, s) => a + (s[k] || 0), 0);
     const totSessions = sumKey("sessions"), totQueries = sumKey("queries");
-    const totAbandoned = sumKey("abandoned"), totRelgap = sumKey("relgap");
+    const totSuccess = sumKey("success"), totRelgap = sumKey("relgap"),
+          totDeadEnd = sumKey("deadEnd"), totOutcomeSearched = sumKey("outcomeSearched");
     const avgZrr = totQueries
       ? Math.round((10 * series.reduce((a, s) => a + s.zrr * s.queries, 0)) / totQueries) / 10
       : null;
@@ -931,7 +943,7 @@ function edBuildIssuers(rows, weeks) {
     const late = avgOf(series.slice(half).map((s) => s.zrr));
     const zrrDelta = early == null || late == null ? null : Math.round((late - early) * 10) / 10;
     const peak = series.reduce((m, s) => (s.zrr > (m?.zrr ?? -1) ? s : m), null);
-    return { ...meta, series, totSessions, totQueries, totAbandoned, totRelgap, avgZrr, avgRefine, zrrDelta, peak, early, late };
+    return { ...meta, series, totSessions, totQueries, totSuccess, totRelgap, totDeadEnd, totOutcomeSearched, avgZrr, avgRefine, zrrDelta, peak, early, late };
   })
     .filter((i) => i.totSessions > 0)
     .sort((a, b) => (b.avgZrr ?? 0) - (a.avgZrr ?? 0));
@@ -947,8 +959,8 @@ const ED_CAT_COLOR = {
 };
 const ED_CAT_ORDER = ["healthy", "alias", "availability", "catalog_gap"];
 
-function IssuersSection({ rows, keywordRows, weeks, lastWeek, loading, error }) {
-  const issuers = React.useMemo(() => edBuildIssuers(rows, weeks), [rows, weeks]);
+function IssuersSection({ rows, outcomeRows, keywordRows, weeks, lastWeek, loading, error }) {
+  const issuers = React.useMemo(() => edBuildIssuers(rows, outcomeRows, weeks), [rows, outcomeRows, weeks]);
   const [filter, setFilter] = React.useState("all");
   const [selected, setSelected] = React.useState(null);
 
@@ -987,22 +999,22 @@ function IssuersSection({ rows, keywordRows, weeks, lastWeek, loading, error }) 
   const current = issuers.find((i) => i.name === selected) || shown[0] || issuers[0] || null;
   const counts = ED_CAT_ORDER.reduce((m, c) => ({ ...m, [c]: issuers.filter((i) => i.category === c).length }), {});
   const totalSessions = issuers.reduce((a, i) => a + i.totSessions, 0);
-  const abandSeries = current
-    ? current.series.map((s) => ({ week: s.week, "True abandonment": s.abandoned, "Relevance gap": s.relgap }))
+  const issuerOutcomeSeries = current
+    ? current.series.map((s) => ({ week: s.week, Success: s.success, "Relevance gap": s.relgap, "Dead end": s.deadEnd }))
     : [];
 
-  // Per-issuer keyword data + computed % stats. The user asked for the
-  // abandonment to read as % alongside the count — same logic for relgap.
+  // Per-issuer keyword data + computed outcome rates. Each rate reads against
+  // this issuer's searched-session total, so success + relgap + dead end = 100%.
   const currentKeywords = current ? (keywordsByIssuer.get(current.name) || []) : [];
   const topKeywords = currentKeywords.slice(0, 3);
   const allKeywords = currentKeywords;
   const totSearches = currentKeywords.reduce((a, k) => a + k.searches, 0);
-  const abandonPct = current && current.totSessions
-    ? Math.round((1000 * current.totAbandoned) / current.totSessions) / 10
-    : null;
-  const relgapPct = current && current.totSessions
-    ? Math.round((1000 * current.totRelgap) / current.totSessions) / 10
-    : null;
+  const outcomePct = (n) => (current && current.totOutcomeSearched
+    ? Math.round((1000 * (n || 0)) / current.totOutcomeSearched) / 10
+    : null);
+  const successPct = outcomePct(current && current.totSuccess);
+  const relgapPct = outcomePct(current && current.totRelgap);
+  const deadEndPct = outcomePct(current && current.totDeadEnd);
 
   if (loading) {
     return (
@@ -1036,7 +1048,7 @@ function IssuersSection({ rows, keywordRows, weeks, lastWeek, loading, error }) 
         italic="The Issuers"
         deck={
           <>
-            <code style={{ fontFamily: "var(--ed-mono)" }}>query_text</code> mapped to an issuer by leading-prefix / alias rules. Sessions, ZRR and the per-keyword roll-ups are live from DuckDB. Category is human-written; abandonment and relevance-gap counts come from the offline <code style={{ fontFamily: "var(--ed-mono)" }}>reconstruct_abandonment.py</code> — native <code style={{ fontFamily: "var(--ed-mono)" }}>asset_search_cleared</code> payload for W4–W6, reconstructed for W1–W3.
+            <code style={{ fontFamily: "var(--ed-mono)" }}>query_text</code> mapped to an issuer by leading-prefix / alias rules. Sessions, ZRR, the search-outcome split and the per-keyword roll-ups are all live from DuckDB. Category and the editorial note are human-written.
           </>
         }
       />
@@ -1063,11 +1075,10 @@ function IssuersSection({ rows, keywordRows, weeks, lastWeek, loading, error }) 
             )}
           </header>
 
-          {/* Inline stat strip — sessions, queries, avg ZRR, refinement,
-              abandonment (count + %), relevance gap (count + %), early→late
-              ZRR delta. Percentage forms surface the "what fraction of
-              this issuer's sessions ended in abandonment?" question that
-              raw counts hide. */}
+          {/* Inline stat strip — sessions, queries, avg ZRR, refinement, and
+              the session-outcome split (success / relevance gap / dead end,
+              each count + % of this issuer's searched sessions), then the
+              early→late ZRR delta. */}
           <div className="mt-5 flex flex-wrap gap-x-8 gap-y-3 pt-3" style={{ borderTop: `1px solid ${ED_RULE_FAINT}` }}>
             <StatLine label="TOTAL SEARCHES" value={nf.format(current.totQueries)} />
             <StatLine label="SESSIONS" value={nf.format(current.totSessions)} />
@@ -1078,28 +1089,40 @@ function IssuersSection({ rows, keywordRows, weeks, lastWeek, loading, error }) 
             />
             <StatLine label="REFINEMENT" value={current.avgRefine == null ? "—" : `${current.avgRefine}%`} />
             <StatLine
-              label="ABANDONMENT"
+              label="SUCCESS"
               value={
                 <>
-                  <span className="ed-num">{nf.format(current.totAbandoned)}</span>
+                  <span className="ed-num">{nf.format(current.totSuccess)}</span>
                   <span className="ed-caption" style={{ color: ED_INK_MUTED, marginLeft: 6, fontWeight: 500 }}>
-                    {abandonPct == null ? "" : `${abandonPct}% of sessions`}
+                    {successPct == null ? "" : `${successPct}% of searches`}
                   </span>
                 </>
               }
-              valueColor={ED_RUST}
+              valueColor={ED_FOREST}
             />
             <StatLine
-              label="REL. GAP"
+              label="RELEVANCE GAP"
               value={
                 <>
                   <span className="ed-num">{nf.format(current.totRelgap)}</span>
                   <span className="ed-caption" style={{ color: ED_INK_MUTED, marginLeft: 6, fontWeight: 500 }}>
-                    {relgapPct == null ? "" : `${relgapPct}% of sessions`}
+                    {relgapPct == null ? "" : `${relgapPct}% of searches`}
                   </span>
                 </>
               }
               valueColor={ED_GOLD}
+            />
+            <StatLine
+              label="DEAD END"
+              value={
+                <>
+                  <span className="ed-num">{nf.format(current.totDeadEnd)}</span>
+                  <span className="ed-caption" style={{ color: ED_INK_MUTED, marginLeft: 6, fontWeight: 500 }}>
+                    {deadEndPct == null ? "" : `${deadEndPct}% of searches`}
+                  </span>
+                </>
+              }
+              valueColor={ED_RUST}
             />
             <StatLine
               label="EARLY → LATE ZRR"
@@ -1226,19 +1249,20 @@ function IssuersSection({ rows, keywordRows, weeks, lastWeek, loading, error }) 
 
               <Figure
                 figNum={`III·b`}
-                title="True abandonment vs relevance gap"
-                caption="From reconstruct_abandonment.py — W4–W6 use the native cleared payload, W1–W3 are reconstructed. True abandonment = cleared with had_results=false; relevance gap = cleared with had_results=true and no click."
+                title="Search outcome, by week"
+                caption="Each searched session for this issuer, classified once: success (clicked a result), relevance gap (results shown, no click), or dead end (zero results). Live from DuckDB."
                 height={200}
               >
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={abandSeries} margin={{ top: 30, right: 8, bottom: 0, left: -16 }} barGap={2}>
+                  <BarChart data={issuerOutcomeSeries} margin={{ top: 30, right: 8, bottom: 0, left: -16 }} barGap={2}>
                     <CartesianGrid {...edGridProps} />
                     <XAxis dataKey="week" {...edAxisProps} />
                     <YAxis {...edAxisProps} width={36} allowDecimals={false} />
                     <Tooltip cursor={{ fill: "rgba(27,24,24,0.04)" }} content={<EdTooltip valueFmt={(v) => nf.format(v)} />} />
                     <Legend {...edLegendProps} />
-                    <Bar dataKey="True abandonment" stackId="a" fill={ED_RUST} maxBarSize={28} />
+                    <Bar dataKey="Success" stackId="a" fill={ED_FOREST} maxBarSize={28} />
                     <Bar dataKey="Relevance gap" stackId="a" fill={ED_GOLD} maxBarSize={28} />
+                    <Bar dataKey="Dead end" stackId="a" fill={ED_RUST} maxBarSize={28} />
                   </BarChart>
                 </ResponsiveContainer>
               </Figure>
@@ -1340,10 +1364,10 @@ function IssuersSection({ rows, keywordRows, weeks, lastWeek, loading, error }) 
                     </span>
                     <span>·</span>
                     <span>
-                      ABANDON {nf.format(iss.totAbandoned)}
-                      {iss.totSessions ? (
+                      SUCCESS {nf.format(iss.totSuccess)}
+                      {iss.totOutcomeSearched ? (
                         <span style={{ color: ED_INK_MUTED, fontWeight: 400, marginLeft: 4 }}>
-                          ({Math.round((1000 * iss.totAbandoned) / iss.totSessions) / 10}%)
+                          ({Math.round((1000 * iss.totSuccess) / iss.totOutcomeSearched) / 10}%)
                         </span>
                       ) : null}
                     </span>

@@ -203,17 +203,14 @@ export function totalQuerySessions({ tables }) {
 // SQL-friendly version here: each issuer is matched by a small set of leading
 // prefixes (the curated keyword lists collapse to these). `category` and `note`
 // are Puru's analysis conclusions, not derivable from data, so they ride along
-// as static metadata. abandoned / relevance-gap per issuer are produced offline
-// by search_analytics/reconstruct_abandonment.py (native asset_search_cleared
-// payload for W4-W6, joined reconstruction for W1-W3).
-
-// `abandoned` / `relgap` are per-week session counts produced offline by
-// search_analytics/reconstruct_abandonment.py (true abandonment = cleared with
-// had_results=false; relevance gap = cleared with had_results=true & no click).
-// W4-W6 use the native asset_search_cleared payload; W1-W3, whose cleared
-// export predates those fields, are reconstructed by joining each clear to the
-// session's last query and to in-episode result clicks. They ride along as
-// static metadata; the dashboard labels them as offline-derived.
+// as static metadata.
+//
+// LEGACY: the `abandoned` / `relgap` arrays are per-week session counts from
+// the offline search_analytics/reconstruct_abandonment.py (a cleared-event
+// reconstruction). The maintained Editorial dashboard no longer uses them — it
+// computes success / relevance-gap / dead-end live per issuer via
+// sessionOutcomeByIssuerWeek. These arrays now feed ONLY the deprecated Classic
+// dashboard and are kept solely so it still renders; do not extend them.
 export const ISSUER_MAP = [
   { name: "Govt / RBI Bonds", category: "catalog_gap", prefixes: ["rbi", "gov"],
     keywords: ["rbi", "rbi floating rate bond", "rbi savings bond", "govt", "government bond", "gov bond", "govt sec"],
@@ -363,4 +360,39 @@ export function keywordsByIssuer({ tables, weeks }) {
     GROUP BY issuer, term
     HAVING COUNT(*) >= 3
     ORDER BY issuer, searches DESC`;
+}
+
+/**
+ * Per-issuer, per-week SESSION OUTCOME — the issuer-level cut of
+ * sessionOutcomeByWeek. Each (session, issuer) pair is classified once into
+ * success / relevance_gap / dead_end (same definitions as the overall funnel),
+ * where any_results is scoped to that session's queries FOR THAT ISSUER.
+ *
+ * A session that searched two issuers is counted under each — the same
+ * convention issuerHealthByWeek uses for `sessions`, so the outcome columns
+ * line up with the issuer's session count. Within one issuer the three buckets
+ * are disjoint. Exact for every week — no asset_search_cleared reconstruction.
+ */
+export function sessionOutcomeByIssuerWeek({ tables, weeks }) {
+  const rawQ = unionAllWeeks(tables.query, weeks, "context_session_id, query_text, results_count");
+  const rawC = unionAllWeeks(tables.result_clicked, weeks, "context_session_id");
+  return `WITH
+      q AS (
+        SELECT week, context_session_id AS sid, issuer,
+               MAX(CASE WHEN results_count > 0 THEN 1 ELSE 0 END) AS any_results
+        FROM (
+          SELECT week, context_session_id, results_count, ${issuerCaseExpr("query_text")} AS issuer
+          FROM (${rawQ}) raw
+        ) classified
+        WHERE issuer IS NOT NULL
+        GROUP BY week, context_session_id, issuer
+      ),
+      c AS (SELECT DISTINCT week, context_session_id AS sid FROM (${rawC}) t)
+    SELECT q.week, q.issuer,
+        COUNT(*) AS searched,
+        SUM(CASE WHEN c.sid IS NOT NULL THEN 1 ELSE 0 END) AS success,
+        SUM(CASE WHEN c.sid IS NULL AND q.any_results = 1 THEN 1 ELSE 0 END) AS relevance_gap,
+        SUM(CASE WHEN c.sid IS NULL AND q.any_results = 0 THEN 1 ELSE 0 END) AS dead_end
+      FROM q LEFT JOIN c ON q.week = c.week AND q.sid = c.sid
+      GROUP BY q.week, q.issuer ORDER BY q.issuer, q.week`;
 }
