@@ -6,11 +6,26 @@ Read the top entry when starting a new session. Supersedes the old loose
 
 ---
 
-## 2026-05-18
+## 2026-05-18 — session planning
 
-**Status:** PR #42 open — awaiting review/merge to `main` → production.
+**Status:** PR #42 **merged & deployed.** Next work is broken into 5 scoped
+sessions — see [`sessions/README.md`](./sessions/README.md). Each is its own
+worktree / branch / PR; S1–S4 are parallel-safe, S5 follows S4.
 
-### Shipped this session — PR #42 (`feat/asset-search-dashboard-updates`)
+- **S1** — Classic dashboard: un-deprecate + session-outcome funnel parity + mobile-first
+- **S2** — Shared UI fixes: sign-out / theme-switcher overlap
+- **S3** — Validate Asset Search data points against Metabase
+- **S4** — Asset Search live-data design spec (Metabase fetch + daily cron)
+- **S5** — Asset Search live-data implementation
+
+Decisions locked: Classic → full parity with Editorial; Metabase creds are in
+`backend/.env`; live-data work adapts (not copies) the Grip Connect spec.
+
+---
+
+## 2026-05-18 — session-outcome funnel (PR #42, merged)
+
+### Shipped — PR #42 (`feat/asset-search-dashboard-updates`)
 
 https://github.com/purujit-grip/grip-analytics/pull/42 · 9 commits · rebased on
 `main`, build-clean.
