@@ -11,12 +11,12 @@ demand, and search→invest conversion.
 
 ## Dashboard
 
-Two variants behind the design toggle:
+Two variants behind the design toggle — **both maintained, at full data
+parity** (S1, May 2026). They read the same query builders, so they always
+show identical numbers; keep them in sync when a metric changes.
 
 - **Editorial** ("Grip Weekly") — `components/dashboards/AssetSearchDashboardEditorial.jsx`
-  — **the maintained variant.** All new work goes here.
-- **Classic** — `components/dashboards/AssetSearchDashboard.jsx` — **deprecated**
-  (`@deprecated` banner in-file). Kept for reference; do not extend.
+- **Classic** — `components/dashboards/AssetSearchDashboard.jsx`
 
 ## Primary metric — the session-outcome funnel
 

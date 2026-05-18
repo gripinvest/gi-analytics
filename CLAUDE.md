@@ -27,7 +27,7 @@ New project → add `docs/projects/<name>/` (README, data-sources, roadmap) and 
 
 | Project | Route | Docs | Status |
 |---------|-------|------|--------|
-| Asset Search | `/projects/asset_search` | `docs/projects/asset-search/` | Active. Editorial dashboard maintained; Classic deprecated. |
+| Asset Search | `/projects/asset_search` | `docs/projects/asset-search/` | Active. Editorial + Classic dashboards both maintained, at full data parity. |
 | Grip Connect | `/projects/grip_connect` | `docs/projects/grip-connect/` (spec/plan still under `docs/specs`,`docs/plans` — migration pending) | Active. Live-data pipeline spec approved. |
 
 ## Data discipline
