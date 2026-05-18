@@ -6,6 +6,53 @@ Read the top entry when starting a new session. Supersedes the old loose
 
 ---
 
+## 2026-05-19 — S2: shared UI fixes (sign-out / theme-switcher overlap)
+
+**Status:** done — branch `feat/shared-ui-fixes`, [PR #50](https://github.com/purujit-grip/grip-analytics/pull/50)
+open to `main`, `next build` clean, browser-verified.
+
+### Shipped
+
+- **New `<PageChrome />`** (`frontend/components/PageChrome.jsx`) wraps Sign out
+  + the design switcher in one fixed top-right flex container (`gap-2`). The two
+  controls used to be independently `fixed`-positioned, with Sign out pinned at
+  a hard-coded `right-[182px]` guess of the switcher's width — the wider
+  editorial mono font pushed them into each other. A flex row can't overlap at
+  any breakpoint; the magic number is gone.
+- `DesignSwitcher` / `SignOut` are now placement-agnostic (no self-positioning);
+  `PageChrome` is the single source of truth for chrome layout.
+- **Touch targets raised to ≥44 px** — pill buttons and Sign out get
+  `min-h/min-w` 44 px with inline-flex centring (were ~26 px). Press feedback
+  (`active:scale-0.97`), exact transition properties, `motion-reduce` fallbacks.
+- All four call sites (home + project page, Editorial + Classic) render
+  `<PageChrome />`.
+
+### Chrome / page-content clearance (audit finding — fixed here)
+
+At 375 px the fixed chrome cluster (~62 px tall) overlapped page content that
+reserved no top space for it: the Classic `PageHeader` breadcrumb/title, and the
+Editorial dashboard's "BACK TO INDEX" link. The editorial graze was introduced
+by S2 itself — the ≥44 px touch-target pill is taller than the old chrome, which
+used to clear that link.
+
+Fixed by adding `pt-20` (mobile only; `sm:` reverts) to all four page-shell
+containers in `app/page.jsx` and `app/projects/[id]/page.jsx`.
+
+> Scope note: this clearance does **not** belong to S1. S1 (PR #49) only touched
+> the dashboard component (`AssetSearchDashboard.jsx`) and its queries — never
+> the page shells where the fixed chrome and the collision live. Chrome layout
+> is S2's, so the fix is here.
+
+### Verified
+
+Headless-Chromium check at 375 px and desktop, both designs, both pages —
+**8/8 page × design combinations pass**: Sign out and the pill never overlap,
+8 px gap between them, all interactive elements ≥44 px, cluster fits the 375 px
+viewport, and the chrome clears every breadcrumb / heading / masthead caption.
+`next build` clean.
+
+---
+
 ## 2026-05-19 — S1: Classic dashboard parity (PR open)
 
 **Status:** S1 complete — [PR #49](https://github.com/purujit-grip/grip-analytics/pull/49)
