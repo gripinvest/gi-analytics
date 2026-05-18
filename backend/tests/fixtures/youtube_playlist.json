@@ -1,0 +1,6 @@
+{
+  "items": [
+    { "contentDetails": { "videoId": "vid1", "videoPublishedAt": "2026-05-01T12:00:00Z" } },
+    { "contentDetails": { "videoId": "vid2", "videoPublishedAt": "2026-04-15T12:00:00Z" } }
+  ]
+}
