@@ -386,7 +386,7 @@ export default function AssetSearchDashboardEditorial({ project }) {
         <p className="ed-dateline mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
           <span>VOL. I</span><span>·</span>
           <span>NO. 06</span><span>·</span>
-          <span>MAY 11, 2026</span><span>·</span>
+          <span>REPORTING PERIOD · APR 2 – MAY 11, 2026</span><span>·</span>
           <span>{weeks[0]}–{lastWeek}</span><span>·</span>
           <span>{nf.format(totalQueries)} QUERIES INDEXED</span>
           {/* Global page-loading hint. Sits in the masthead so the user always
@@ -402,6 +402,14 @@ export default function AssetSearchDashboardEditorial({ project }) {
               </span>
             </>
           )}
+        </p>
+        {/* Week glossary — feature weeks are counted from the Apr 2 2026 launch,
+            NOT ISO calendar weeks. W6 is a partial week (cut at the export date). */}
+        <p className="ed-caption mt-4" style={{ lineHeight: 1.8 }}>
+          FEATURE WEEKS — COUNTED FROM THE APR 2, 2026 LAUNCH
+        </p>
+        <p className="ed-prose-italic mt-1" style={{ fontSize: "12px", color: "var(--ed-ink-faint)", lineHeight: 1.7 }}>
+          W1 Apr 2–8 · W2 Apr 9–15 · W3 Apr 16–22 · W4 Apr 23–29 · W5 Apr 30–May 6 · W6 May 7–11 (partial)
         </p>
       </header>
 
