@@ -945,8 +945,8 @@ function edBuildIssuers(rows, outcomeRows, weeks) {
     const peak = series.reduce((m, s) => (s.zrr > (m?.zrr ?? -1) ? s : m), null);
     return { ...meta, series, totSessions, totQueries, totSuccess, totRelgap, totDeadEnd, totOutcomeSearched, avgZrr, avgRefine, zrrDelta, peak, early, late };
   })
-    .filter((i) => i.totSessions > 0)
-    .sort((a, b) => (b.avgZrr ?? 0) - (a.avgZrr ?? 0));
+    .filter((i) => i.totSessions > 0);
+  // Note: list order is chosen interactively in IssuersSection (ISSUER_SORTS).
 }
 
 // Editorial category palette — maps classic's tone names to ink/rust/gold/forest
@@ -959,9 +959,21 @@ const ED_CAT_COLOR = {
 };
 const ED_CAT_ORDER = ["healthy", "alias", "availability", "catalog_gap"];
 
+// Issuer-list sort options. `volume` (most-searched first) is the default;
+// the others let the reader re-rank the list by search health.
+const issuerSuccessRate = (i) => (i.totOutcomeSearched ? i.totSuccess / i.totOutcomeSearched : 1);
+const ISSUER_SORTS = {
+  volume:   { label: "Searches",         cmp: (a, b) => b.totQueries - a.totQueries },
+  success:  { label: "Worst success",    cmp: (a, b) => issuerSuccessRate(a) - issuerSuccessRate(b) },
+  failures: { label: "Failed searches",  cmp: (a, b) => (b.totRelgap + b.totDeadEnd) - (a.totRelgap + a.totDeadEnd) },
+  zrr:      { label: "Zero-result rate", cmp: (a, b) => (b.avgZrr ?? 0) - (a.avgZrr ?? 0) },
+};
+const ISSUER_SORT_ORDER = ["volume", "success", "failures", "zrr"];
+
 function IssuersSection({ rows, outcomeRows, keywordRows, weeks, lastWeek, loading, error }) {
   const issuers = React.useMemo(() => edBuildIssuers(rows, outcomeRows, weeks), [rows, outcomeRows, weeks]);
   const [filter, setFilter] = React.useState("all");
+  const [sortBy, setSortBy] = React.useState("volume");
   const [selected, setSelected] = React.useState(null);
 
   // Group the per-(issuer, keyword) rows by issuer once, then look up by name.
@@ -995,7 +1007,9 @@ function IssuersSection({ rows, outcomeRows, keywordRows, weeks, lastWeek, loadi
     });
   }, []);
 
-  const shown = filter === "all" ? issuers : issuers.filter((i) => i.category === filter);
+  const shown = (filter === "all" ? issuers : issuers.filter((i) => i.category === filter))
+    .slice()
+    .sort(ISSUER_SORTS[sortBy].cmp);
   const current = issuers.find((i) => i.name === selected) || shown[0] || issuers[0] || null;
   const counts = ED_CAT_ORDER.reduce((m, c) => ({ ...m, [c]: issuers.filter((i) => i.category === c).length }), {});
   const totalSessions = issuers.reduce((a, i) => a + i.totSessions, 0);
@@ -1327,6 +1341,12 @@ function IssuersSection({ rows, outcomeRows, keywordRows, weeks, lastWeek, loadi
           />
         ))}
       </div>
+      <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+        <span className="ed-caption" style={{ color: ED_INK_MUTED, letterSpacing: "0.10em" }}>SORT BY</span>
+        {ISSUER_SORT_ORDER.map((k) => (
+          <SortCue key={k} active={sortBy === k} onClick={() => setSortBy(k)} label={ISSUER_SORTS[k].label} />
+        ))}
+      </div>
 
       <ol className="mt-5" style={{ listStyle: "none", padding: 0, borderTop: `1px solid ${ED_INK}` }}>
         {shown.map((iss, idx) => {
@@ -1396,6 +1416,31 @@ function IssuersSection({ rows, outcomeRows, keywordRows, weeks, lastWeek, loadi
 // but inlined so the editorial section doesn't need to grep through CSS vars
 // for a one-off colour swap).
 const ED_INK_SOFT_INLINE = "#2C2926";
+
+function SortCue({ active, onClick, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="inline-flex items-baseline px-1 py-1 transition-colors duration-150"
+      style={{
+        fontFamily: "var(--ed-mono)",
+        fontSize: 11,
+        letterSpacing: "0.10em",
+        textTransform: "uppercase",
+        background: "transparent",
+        border: 0,
+        cursor: "pointer",
+        color: active ? ED_INK : ED_INK_MUTED,
+        borderBottom: active ? `2px solid ${ED_INK}` : "2px solid transparent",
+        fontWeight: active ? 600 : 500,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
 
 function FilterCue({ active, onClick, label, count, ink }) {
   return (
