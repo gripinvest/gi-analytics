@@ -6,6 +6,10 @@
 - **Relation to prior docs:** Concretises the [`docs/ideation/data-integrations.md`](../ideation/data-integrations.md)
   thread for one project. The generic, declarative `integrations` schema in that doc
   is explicitly *deferred* (see §13).
+- **Canonical data reference:** [`docs/reference/grip-connect-metrics-catalog.md`](../reference/grip-connect-metrics-catalog.md)
+  is the source-of-truth for which Metabase cards feed the dashboard and what every
+  column means. Where this spec and the catalog disagree on a card or column, the
+  catalog wins — it is kept current; this spec is dated.
 
 ---
 

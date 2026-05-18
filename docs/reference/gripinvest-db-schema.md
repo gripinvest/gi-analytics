@@ -2,7 +2,7 @@
 
 Companion notes for the database schema overview shared by the backend team.
 
-- **Interactive file:** [`docs/reference/gripinvest-db-schema-overview.html`](reference/gripinvest-db-schema-overview.html)
+- **Interactive file:** [`gripinvest-db-schema-overview.html`](gripinvest-db-schema-overview.html)
   — open it in a browser to explore every table, domain, and relationship.
   It is the backend team's artifact, wrapped in a standalone HTML shell so it
   renders without a host page.
