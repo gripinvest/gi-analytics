@@ -33,6 +33,15 @@ Most docs are project-level. `architecture/` and `reference/` stay small — the
 are for genuine cross-project material, not for whichever project happened to
 motivate the change.
 
+## architecture/ — platform-wide structural docs
+
+Decisions and reviews that affect every project. Start at
+[architecture/README.md](architecture/README.md).
+
+| File | What it is |
+|---|---|
+| [architecture/architecture-options.md](architecture/architecture-options.md) | Review of the platform's hosting, query-layer, build-vs-buy and pipeline options — alternatives, trade-offs, and the triggers that force each move. |
+
 ## reference/ — source-of-truth facts
 
 External documents and the notes built on them. Cite these; don't restate them.
