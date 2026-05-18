@@ -22,6 +22,10 @@ data and backend teams.
   (`sync: false` in `render.yaml`). The `.env` file is not committed.
 - **Client:** `backend/services/integrations/metabase.py` (`MetabaseClient`,
   plain `httpx` — no browser, no LLM).
+- **Underlying database:** the Metabase cards are analytical aggregations of
+  Grip's production data. The operational schema beneath them — in particular
+  the `GCI_SCHEMA` tables that power Grip Connect — is documented in
+  [`gripinvest-db-schema.md`](gripinvest-db-schema.md).
 
 ### Partners and codes
 

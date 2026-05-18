@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Grip Invest — Database Schema Overview</title>
+<!--
+  Interactive DB schema explorer shared by the backend team.
+  The original artifact was an embeddable fragment that relied on a host
+  page's CSS custom properties; this standalone wrapper defines those
+  variables so the file opens directly in a browser. The fragment content
+  below is unchanged. See docs/gripinvest-db-schema.md for the companion notes.
+-->
+<style>
+  :root {
+    --color-background-primary: #ffffff;
+    --color-background-secondary: #f5f4f1;
+    --color-background-tertiary: #ebe9e4;
+    --color-background-info: #eaf0f6;
+    --color-border-tertiary: #e4e1da;
+    --color-border-secondary: #c8c4ba;
+    --color-text-primary: #1a1a18;
+    --color-text-secondary: #57544d;
+    --color-text-tertiary: #8a8780;
+    --color-text-info: #185fa5;
+    --border-radius-md: 6px;
+    --border-radius-lg: 10px;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    margin: 2rem auto; max-width: 1120px; padding: 0 1.5rem 4rem;
+    color: var(--color-text-primary); background: #fbfaf8;
+  }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 1.25rem; }
+</style>
+</head>
+<body>
+<h1>Grip Invest — Database Schema Overview</h1>
+<h2 class="sr-only">Grip Invest database schema overview: 237 tables organized into 18 functional domains with 161 cross-table relationships.</h2>
+
+<style>
+  .gi-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 0 0 1.5rem; }
+  .gi-stat { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 1rem; }
+  .gi-stat-label { font-size: 13px; color: var(--color-text-secondary); margin: 0 0 4px; }
+  .gi-stat-value { font-size: 24px; font-weight: 500; margin: 0; color: var(--color-text-primary); }
+  .gi-search { width: 100%; margin: 0 0 1rem; }
+  .gi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 0 0 1.5rem; }
+  .gi-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 14px 16px; cursor: pointer; transition: border-color .15s, background .15s; border-left: 3px solid var(--color-border-tertiary); }
+  .gi-card:hover { border-color: var(--color-border-secondary); background: var(--color-background-secondary); }
+  .gi-card.active { background: var(--color-background-info); }
+  .gi-card-title { font-size: 14px; font-weight: 500; margin: 0 0 6px; color: var(--color-text-primary); }
+  .gi-card-meta { font-size: 12px; color: var(--color-text-secondary); margin: 0; display: flex; gap: 10px; }
+  .gi-detail { background: var(--color-background-secondary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; margin: 0 0 1rem; min-height: 140px; }
+  .gi-detail-empty { color: var(--color-text-tertiary); font-size: 13px; text-align: center; padding: 2rem 0; }
+  .gi-detail-header { margin: 0 0 12px; }
+  .gi-detail-title { font-size: 16px; font-weight: 500; margin: 0; color: var(--color-text-primary); display: flex; align-items: center; gap: 8px; }
+  .gi-detail-sub { font-size: 13px; color: var(--color-text-secondary); margin: 4px 0 0; }
+  .gi-tlist { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 12px; }
+  .gi-trow { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-radius: var(--border-radius-md); font-size: 13px; cursor: pointer; transition: background .12s; }
+  .gi-trow:hover { background: var(--color-background-primary); }
+  .gi-trow.active { background: var(--color-background-primary); outline: 0.5px solid var(--color-border-secondary); }
+  .gi-tname { font-family: var(--font-mono); color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; font-size: 12px; }
+  .gi-tbadges { display: flex; gap: 4px; flex-shrink: 0; }
+  .gi-badge { font-size: 11px; padding: 1px 6px; border-radius: var(--border-radius-md); background: var(--color-background-tertiary); color: var(--color-text-secondary); font-family: var(--font-mono); }
+  .gi-badge-conn { background: var(--color-background-info); color: var(--color-text-info); }
+  .gi-rel-list { display: flex; flex-direction: column; gap: 6px; }
+  .gi-rel { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: var(--color-background-primary); border-radius: var(--border-radius-md); font-size: 13px; border: 0.5px solid var(--color-border-tertiary); }
+  .gi-rel-pair { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+  .gi-rel-arrow { color: var(--color-text-tertiary); }
+  .gi-rel-count { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); flex-shrink: 0; }
+  .gi-table-detail { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 12px 14px; margin: 12px 0 0; }
+  .gi-table-detail-name { font-family: var(--font-mono); font-size: 13px; font-weight: 500; margin: 0 0 6px; color: var(--color-text-primary); }
+  .gi-table-detail-rels { font-size: 12px; color: var(--color-text-secondary); margin: 0; line-height: 1.8; }
+  .gi-table-detail-rels code { font-family: var(--font-mono); background: var(--color-background-tertiary); padding: 1px 5px; border-radius: 3px; font-size: 11px; color: var(--color-text-primary); margin-right: 2px; display: inline-block; }
+  .gi-section-label { font-size: 12px; color: var(--color-text-tertiary); margin: 0 0 8px; font-weight: 500; }
+  .gi-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+</style>
+
+<div class="gi-summary">
+  <div class="gi-stat"><p class="gi-stat-label">Tables</p><p class="gi-stat-value">237</p></div>
+  <div class="gi-stat"><p class="gi-stat-label">Domains</p><p class="gi-stat-value">18</p></div>
+  <div class="gi-stat"><p class="gi-stat-label">Relationships</p><p class="gi-stat-value">161</p></div>
+  <div class="gi-stat"><p class="gi-stat-label">Schemas</p><p class="gi-stat-value">6</p></div>
+</div>
+
+<input type="search" id="gi-search" class="gi-search" placeholder="Search 237 tables by name…" />
+
+<p class="gi-section-label">Functional domains — click to explore tables</p>
+<div class="gi-grid" id="gi-grid"></div>
+
+<div class="gi-detail" id="gi-detail"></div>
+
+<p class="gi-section-label">Top cross-domain relationships</p>
+<div class="gi-rel-list" id="gi-rels"></div>
+
+<script>
+const DATA = {"cat_tables":{"GCI Partner Platform":[{"name":"GCI_SCHEMA.gci_config","cols":16,"conns":6},{"name":"GCI_SCHEMA.gci_external_users","cols":15,"conns":2},{"name":"GCI_SCHEMA.gci_kyc_logs","cols":15,"conns":2},{"name":"GCI_SCHEMA.gci_orders","cols":20,"conns":2},{"name":"GCI_SCHEMA.gci_preferences_logs","cols":5,"conns":2},{"name":"GCI_SCHEMA.gci_asset_visibility","cols":6,"conns":1},{"name":"GCI_SCHEMA.gci_client_credentials","cols":7,"conns":1},{"name":"GCI_SCHEMA.gci_orders_commissions","cols":8,"conns":1},{"name":"GCI_SCHEMA.gci_subscription","cols":7,"conns":1},{"name":"GCI_SCHEMA.user_redirect_logs","cols":7,"conns":1},{"name":"GCI_SCHEMA.gci_esign_logs","cols":9,"conns":0},{"name":"GCI_SCHEMA.gci_order_logs","cols":7,"conns":0},{"name":"GCI_SCHEMA.gci_redirection","cols":7,"conns":0}],"System & Migrations":[{"name":"SequelizeMeta","cols":1,"conns":0}],"KYC & Compliance":[{"name":"depository_kyc","cols":15,"conns":2},{"name":"fixerra_user_aadhaar_details","cols":25,"conns":2},{"name":"fixerra_user_nominee_details","cols":22,"conns":2},{"name":"kyc_category","cols":5,"conns":2},{"name":"kyc_config","cols":6,"conns":2},{"name":"kyc_types","cols":6,"conns":2},{"name":"spv_category_kyc_mapping","cols":5,"conns":2},{"name":"spv_kyc","cols":7,"conns":2},{"name":"user_kyc","cols":7,"conns":2},{"name":"kyc_table_field_mapping","cols":10,"conns":1},{"name":"order_kyc_details","cols":9,"conns":1},{"name":"user_ckyc","cols":9,"conns":1},{"name":"user_kyc_source","cols":7,"conns":1},{"name":"user_nominee_details","cols":21,"conns":1},{"name":"aadhaar_otp_log","cols":11,"conns":0},{"name":"aadhaar_verification_log","cols":10,"conns":0},{"name":"depository_holiday_calendar","cols":7,"conns":0},{"name":"nominee_dp_requests","cols":12,"conns":0},{"name":"tbluserkycdetails","cols":21,"conns":0},{"name":"ucc_kyc_details","cols":10,"conns":0}],"Documents & E-sign":[{"name":"agreement_pdfs","cols":9,"conns":2},{"name":"documents_metadata","cols":6,"conns":0},{"name":"tblesignlogs","cols":16,"conns":0},{"name":"tbltempdocument","cols":15,"conns":0}],"Other / Misc":[{"name":"auto_investment","cols":7,"conns":2},{"name":"chatbot_relation","cols":6,"conns":2},{"name":"details","cols":10,"conns":2},{"name":"group_permissions","cols":6,"conns":2},{"name":"ledger","cols":10,"conns":2},{"name":"trades","cols":8,"conns":2},{"name":"aif_details","cols":23,"conns":1},{"name":"autoinvest_consent","cols":12,"conns":1},{"name":"buyer_code","cols":11,"conns":1},{"name":"chatbot","cols":7,"conns":1},{"name":"commercial_property_details","cols":8,"conns":1},{"name":"difa","cols":6,"conns":1},{"name":"dp_id","cols":8,"conns":1},{"name":"employees","cols":8,"conns":1},{"name":"experian_rating_1","cols":5,"conns":1},{"name":"feature","cols":8,"conns":1},{"name":"ifa","cols":4,"conns":1},{"name":"ifa_1","cols":6,"conns":1},{"name":"ipo_details","cols":16,"conns":1},{"name":"know_your_investor","cols":7,"conns":1},{"name":"ledger_details","cols":9,"conns":1},{"name":"permissions","cols":7,"conns":1},{"name":"product_categories","cols":7,"conns":1},{"name":"sdi","cols":16,"conns":1},{"name":"seller_code","cols":8,"conns":1},{"name":"startup_equity_details","cols":18,"conns":1},{"name":"wealth_managers","cols":20,"conns":1},{"name":"website_routes","cols":5,"conns":1},{"name":"bids","cols":12,"conns":0},{"name":"category_fields","cols":20,"conns":0},{"name":"external_client_credentials","cols":7,"conns":0},{"name":"external_subscription","cols":5,"conns":0},{"name":"ifa_enquiry","cols":10,"conns":0},{"name":"investor_profiling","cols":19,"conns":0},{"name":"lead_attribution","cols":3,"conns":0},{"name":"mom_lead_vs_investors","cols":0,"conns":0},{"name":"nsdl_epi","cols":21,"conns":0},{"name":"rudderstack_url","cols":7,"conns":0},{"name":"settlement_calendar","cols":7,"conns":0},{"name":"short_urls","cols":6,"conns":0}],"Orders & Payments":[{"name":"tblorders","cols":34,"conns":6},{"name":"payment_gateway","cols":13,"conns":4},{"name":"asset_repayment_logs","cols":8,"conns":3},{"name":"invoice_repayment_logs","cols":9,"conns":2},{"name":"spv_category_rfq","cols":6,"conns":2},{"name":"mass_withdrawal_transaction","cols":10,"conns":1},{"name":"order_metadata","cols":12,"conns":1},{"name":"pg_vendors","cols":6,"conns":1},{"name":"rfq_gateway","cols":9,"conns":1},{"name":"tblrepaymentmetrics","cols":10,"conns":1},{"name":"tbltransactionlog","cols":12,"conns":1},{"name":"wallet_transactions","cols":13,"conns":1},{"name":"amo_cron_orders","cols":6,"conns":0},{"name":"amo_order_logs","cols":7,"conns":0},{"name":"fixerra_payment_status","cols":7,"conns":0},{"name":"lead_order_attribution","cols":4,"conns":0},{"name":"order_date_details","cols":10,"conns":0},{"name":"order_migrate_logs","cols":10,"conns":0},{"name":"orders_utm","cols":19,"conns":0},{"name":"tblasset_payment_schedule","cols":12,"conns":0},{"name":"tblorderdocument","cols":11,"conns":0}],"App Config":[{"name":"app.config_mapping","cols":7,"conns":2},{"name":"app.version_config","cols":6,"conns":1},{"name":"app.version_mapping","cols":6,"conns":1},{"name":"app.ota_update","cols":9,"conns":0},{"name":"app.version_update","cols":6,"conns":0}],"Assets & Securities":[{"name":"tblassets","cols":49,"conns":16},{"name":"securities","cols":14,"conns":12},{"name":"tblspvs","cols":30,"conns":9},{"name":"spv_category","cols":5,"conns":6},{"name":"tblspvdocument","cols":12,"conns":3},{"name":"spv_category_pg","cols":6,"conns":2},{"name":"spv_parent","cols":4,"conns":2},{"name":"spv_parent_referral_rules","cols":5,"conns":2},{"name":"spv_seller_code","cols":6,"conns":2},{"name":"tblassetdetails","cols":9,"conns":2},{"name":"asset_details","cols":8,"conns":1},{"name":"bonds","cols":20,"conns":1},{"name":"gc_asset_visibility_mapping","cols":6,"conns":1},{"name":"secured_bond_details","cols":11,"conns":1},{"name":"security_calculations","cols":7,"conns":1},{"name":"security_documents","cols":9,"conns":1},{"name":"security_metadata","cols":8,"conns":1},{"name":"security_nav","cols":7,"conns":1},{"name":"spv_category_bank","cols":8,"conns":1},{"name":"spv_details","cols":14,"conns":1},{"name":"spv_withdrawal_logs","cols":7,"conns":1},{"name":"tblsecuritydocument","cols":9,"conns":1},{"name":"tblspvbankdetails","cols":12,"conns":1},{"name":"asset_partners","cols":8,"conns":0},{"name":"asset_visibility","cols":6,"conns":0},{"name":"sip_bonds_interest","cols":8,"conns":0},{"name":"tblassetdocument","cols":12,"conns":0},{"name":"tblassetwaitlist","cols":5,"conns":0}],"Config & Master":[{"name":"autoinvest_preferences","cols":12,"conns":1},{"name":"preferences","cols":5,"conns":1},{"name":"external_config","cols":10,"conns":0},{"name":"tblconfig","cols":3,"conns":0},{"name":"terminal_config","cols":5,"conns":0}],"Logs & Audit":[{"name":"digilocker_logs","cols":9,"conns":1},{"name":"employee_logs","cols":7,"conns":1},{"name":"zoop_logs","cols":9,"conns":1},{"name":"bankcredit_log","cols":22,"conns":0},{"name":"bankwithdrawl_log","cols":15,"conns":0},{"name":"ecas_logs","cols":6,"conns":0},{"name":"kra_logs","cols":7,"conns":0},{"name":"kra_update_logs","cols":7,"conns":0},{"name":"similarity_match_logs","cols":11,"conns":0},{"name":"sql_script_logs","cols":5,"conns":0},{"name":"tblbankverifylogs","cols":11,"conns":0},{"name":"tblwarnlogs","cols":6,"conns":0}],"Partners & Brokers":[{"name":"tblpartners","cols":24,"conns":9},{"name":"vendor_invoice","cols":15,"conns":7},{"name":"fixerra_logs","cols":8,"conns":2},{"name":"partner_reconciliation_charges","cols":11,"conns":2},{"name":"partner_reconciliation_metrics","cols":15,"conns":2},{"name":"partner_reconciliation_schedule","cols":12,"conns":2},{"name":"tblpartnerdetails","cols":9,"conns":2},{"name":"vendor_approval_logs","cols":9,"conns":2},{"name":"vendors","cols":15,"conns":2},{"name":"partner_funding","cols":11,"conns":1},{"name":"partner_industry_mapping","cols":5,"conns":1},{"name":"vendor_invoice_approval","cols":8,"conns":1},{"name":"vendor_units","cols":17,"conns":1},{"name":"broker_dp_map","cols":6,"conns":0},{"name":"partner_enquiry","cols":15,"conns":0},{"name":"tblpartnerdocument","cols":12,"conns":0}],"Calculations":[{"name":"calculation.asset_multiplier_mapping","cols":7,"conns":2},{"name":"calculation.asset_unitary_header_calculation","cols":11,"conns":2},{"name":"calculation.calculation_asset_mapping","cols":8,"conns":2},{"name":"calculation.asset_unitary_calculation","cols":10,"conns":1},{"name":"calculation.calculation_metadata","cols":14,"conns":1},{"name":"calculation.user_tax_calculation","cols":6,"conns":0}],"Users & Auth":[{"name":"tblusers","cols":48,"conns":30},{"name":"fixerra_users","cols":6,"conns":12},{"name":"external_users","cols":10,"conns":7},{"name":"terminal_users","cols":9,"conns":6},{"name":"fixerra_user_bank_details","cols":12,"conns":2},{"name":"fixerra_user_personal_details","cols":17,"conns":2},{"name":"tbluserdocument","cols":14,"conns":2},{"name":"user_asset_notify","cols":7,"conns":2},{"name":"user_feature_mapping","cols":10,"conns":2},{"name":"user_group_permissions","cols":6,"conns":2},{"name":"user_groups","cols":5,"conns":2},{"name":"user_other_details","cols":37,"conns":2},{"name":"tbluserbankdetails","cols":21,"conns":1},{"name":"terminal_users_password","cols":6,"conns":1},{"name":"user_ddpi_details","cols":10,"conns":1},{"name":"user_kra","cols":30,"conns":1},{"name":"user_social_account","cols":7,"conns":1},{"name":"users_2fa_required","cols":6,"conns":1},{"name":"cube_users","cols":4,"conns":0},{"name":"gci_partner_users","cols":12,"conns":0},{"name":"invested_user_lead_attribution","cols":4,"conns":0},{"name":"invested_users_and_how_many_times","cols":3,"conns":0},{"name":"oauth_tokens","cols":6,"conns":0},{"name":"tblotps","cols":5,"conns":0},{"name":"tbluser_payment_history","cols":16,"conns":0},{"name":"tblusers_utm","cols":18,"conns":0},{"name":"terminal_user_document","cols":11,"conns":0},{"name":"user_extra_details","cols":6,"conns":0},{"name":"user_liveliness","cols":10,"conns":0},{"name":"user_van","cols":6,"conns":0}],"Mutual Funds (DMF)":[{"name":"dmf.sips","cols":29,"conns":3},{"name":"dmf.sip_infinite_mappings","cols":8,"conns":2},{"name":"dmf.amcs","cols":9,"conns":1},{"name":"dmf.investor_nominees","cols":7,"conns":1},{"name":"dmf.investor_profile","cols":16,"conns":1},{"name":"dmf.pg_vendors","cols":11,"conns":1},{"name":"dmf.sip_order_mappings","cols":9,"conns":1},{"name":"dmf.order_flags","cols":5,"conns":0},{"name":"dmf.orders","cols":16,"conns":0},{"name":"dmf.pg_order_mapping","cols":6,"conns":0},{"name":"dmf.scheme_level_returns","cols":18,"conns":0},{"name":"dmf.user_mf_amc_folio","cols":7,"conns":0}],"Communications":[{"name":"email_logs","cols":9,"conns":0},{"name":"email_messages","cols":8,"conns":0},{"name":"email_messages_logs","cols":7,"conns":0},{"name":"tblemail_deliverylogs","cols":13,"conns":0},{"name":"tblemail_sendlogs","cols":8,"conns":0},{"name":"tblsms_logs","cols":6,"conns":0}],"Reports":[{"name":"reports","cols":10,"conns":3},{"name":"experian_reports_1","cols":16,"conns":1},{"name":"ifa_reports","cols":7,"conns":0},{"name":"statement_requests","cols":7,"conns":0}],"Portfolio":[{"name":"portfolio.user_security_xirr","cols":8,"conns":1},{"name":"portfolio.adjustments","cols":15,"conns":0},{"name":"portfolio.asset_portfolio_table","cols":11,"conns":0},{"name":"portfolio.current_and_forecasted_portfolio","cols":14,"conns":0},{"name":"portfolio.user_initial_portfolio","cols":10,"conns":0},{"name":"portfolio.user_order_history","cols":13,"conns":0},{"name":"portfolio.user_portfolio_overview","cols":14,"conns":0}],"Referrals & Rewards":[{"name":"referral_logs","cols":12,"conns":4},{"name":"referral_redeem_requests","cols":7,"conns":3},{"name":"referral_rules","cols":11,"conns":1},{"name":"referral_details","cols":8,"conns":0},{"name":"referral_migration","cols":6,"conns":0},{"name":"referrals","cols":5,"conns":0},{"name":"referrals_bonus_logs","cols":9,"conns":0}]},"cross":[{"a":"Other / Misc","b":"Users & Auth","n":13},{"a":"KYC & Compliance","b":"Users & Auth","n":10},{"a":"Assets & Securities","b":"Other / Misc","n":9},{"a":"Assets & Securities","b":"Partners & Brokers","n":7},{"a":"Assets & Securities","b":"Orders & Payments","n":6},{"a":"GCI Partner Platform","b":"Users & Auth","n":5},{"a":"Logs & Audit","b":"Users & Auth","n":3},{"a":"Partners & Brokers","b":"Users & Auth","n":3},{"a":"Referrals & Rewards","b":"Users & Auth","n":3},{"a":"Assets & Securities","b":"Documents & E-sign","n":2}],"table_edges":{"GCI_SCHEMA.gci_asset_visibility":["GCI_SCHEMA.gci_config"],"GCI_SCHEMA.gci_config":["GCI_SCHEMA.gci_asset_visibility","GCI_SCHEMA.gci_client_credentials","GCI_SCHEMA.gci_external_users","GCI_SCHEMA.gci_kyc_logs","GCI_SCHEMA.gci_preferences_logs","GCI_SCHEMA.gci_subscription"],"GCI_SCHEMA.gci_client_credentials":["GCI_SCHEMA.gci_config"],"GCI_SCHEMA.gci_external_users":["GCI_SCHEMA.gci_config","external_users"],"external_users":["GCI_SCHEMA.gci_external_users","GCI_SCHEMA.gci_kyc_logs","GCI_SCHEMA.gci_orders","GCI_SCHEMA.gci_preferences_logs","GCI_SCHEMA.user_redirect_logs"],"GCI_SCHEMA.gci_kyc_logs":["GCI_SCHEMA.gci_config","external_users"],"GCI_SCHEMA.gci_orders":["GCI_SCHEMA.gci_orders_commissions","external_users"],"GCI_SCHEMA.gci_orders_commissions":["GCI_SCHEMA.gci_orders"],"GCI_SCHEMA.gci_preferences_logs":["GCI_SCHEMA.gci_config","external_users"],"GCI_SCHEMA.gci_subscription":["GCI_SCHEMA.gci_config"],"GCI_SCHEMA.user_redirect_logs":["external_users"],"agreement_pdfs":["tblspvdocument","tblspvs"],"tblspvdocument":["agreement_pdfs","tblpartners","vendor_invoice"],"tblspvs":["agreement_pdfs","aif_details","partner_reconciliation_charges","partner_reconciliation_metrics","partner_reconciliation_schedule","spv_category","spv_seller_code","tblspvbankdetails","vendor_invoice"],"aif_details":["tblspvs"],"app.config_mapping":["app.version_config","app.version_mapping"],"app.version_config":["app.config_mapping"],"app.version_mapping":["app.config_mapping"],"asset_details":["tblassets"],"tblassets":["asset_details","asset_repayment_logs","bonds","calculation.asset_multiplier_mapping","commercial_property_details","gc_asset_visibility_mapping","ipo_details","product_categories","sdi","secured_bond_details","securities","startup_equity_details","tblassetdetails","tblrepaymentmetrics","user_asset_notify"],"asset_repayment_logs":["spv_withdrawal_logs","tblassets","tblusers"],"tblusers":["asset_repayment_logs","auto_investment","autoinvest_consent","depository_kyc","difa","dp_id","experian_rating_1","fixerra_logs","fixerra_users","ifa","ifa_1","know_your_investor","ledger","preferences","referral_logs","referral_redeem_requests","tbluserbankdetails","user_asset_notify","user_ckyc","user_ddpi_details","user_feature_mapping","user_kra","user_kyc","user_kyc_source","user_nominee_details","user_social_account","users_2fa_required","wealth_managers","zoop_logs"],"auto_investment":["autoinvest_preferences","tblusers"],"autoinvest_preferences":["auto_investment"],"autoinvest_consent":["tblusers"],"bonds":["tblassets"],"calculation.asset_multiplier_mapping":["tblassets"],"calculation.asset_unitary_calculation":["calculation.asset_unitary_header_calculation"],"calculation.asset_unitary_header_calculation":["calculation.asset_unitary_calculation","calculation.calculation_asset_mapping"],"calculation.calculation_asset_mapping":["calculation.asset_unitary_header_calculation","calculation.calculation_metadata"],"calculation.calculation_metadata":["calculation.calculation_asset_mapping"],"chatbot_relation":["chatbot","website_routes"],"chatbot":["chatbot_relation"],"website_routes":["chatbot_relation"],"commercial_property_details":["tblassets"],"depository_kyc":["tbluserdocument","tblusers"],"tbluserdocument":["depository_kyc","user_other_details"],"difa":["tblusers"],"digilocker_logs":["user_other_details"],"user_other_details":["digilocker_logs","tbluserdocument"],"dmf.amcs":["dmf.pg_vendors"],"dmf.pg_vendors":["dmf.amcs"],"dmf.investor_nominees":["dmf.investor_profile"],"dmf.investor_profile":["dmf.investor_nominees"],"dmf.sip_infinite_mappings":["dmf.sips","securities"],"dmf.sips":["dmf.sip_infinite_mappings","dmf.sip_order_mappings","securities"],"securities":["buyer_code","dmf.sip_infinite_mappings","dmf.sips","portfolio.user_security_xirr","security_calculations","security_documents","security_metadata","security_nav","tblassets","tblorders","tblpartners","tblsecuritydocument"],"dmf.sip_order_mappings":["dmf.sips"],"dp_id":["tblusers"],"employee_logs":["terminal_users"],"terminal_users":["employee_logs","employees","invoice_repayment_logs","terminal_users_password","user_group_permissions","vendor_approval_logs"],"employees":["terminal_users"],"experian_rating_1":["tblusers"],"experian_reports_1":["reports"],"reports":["experian_reports_1"],"fixerra_logs":["fixerra_users","tblusers"],"fixerra_users":["fixerra_logs","fixerra_user_aadhaar_details","fixerra_user_bank_details","fixerra_user_nominee_details","fixerra_user_personal_details","tblusers"],"fixerra_user_aadhaar_details":["fixerra_users"],"fixerra_user_bank_details":["fixerra_users"],"fixerra_user_nominee_details":["fixerra_users"],"fixerra_user_personal_details":["fixerra_users"],"gc_asset_visibility_mapping":["tblassets"],"group_permissions":["permissions","user_groups"],"permissions":["group_permissions"],"user_groups":["group_permissions","user_group_permissions"],"ifa":["tblusers"],"ifa_1":["tblusers"],"invoice_repayment_logs":["terminal_users","vendor_invoice"],"vendor_invoice":["invoice_repayment_logs","tblpartners","tblspvdocument","tblspvs","vendor_approval_logs","vendor_invoice_approval","vendors"],"ipo_details":["tblassets"],"know_your_investor":["tblusers"],"kyc_category":["kyc_config","kyc_table_field_mapping"],"kyc_config":["kyc_category","spv_category_kyc_mapping"],"kyc_table_field_mapping":["kyc_category"],"ledger":["ledger_details","tblusers"],"ledger_details":["ledger"],"mass_withdrawal_transaction":["wallet_transactions"],"wallet_transactions":["mass_withdrawal_transaction"],"order_kyc_details":["tblorders"],"tblorders":["order_kyc_details","order_metadata","payment_gateway","securities","trades"],"order_metadata":["tblorders"],"partner_funding":["tblpartners"],"tblpartners":["partner_funding","partner_industry_mapping","partner_reconciliation_charges","partner_reconciliation_metrics","partner_reconciliation_schedule","securities","tblpartnerdetails","tblspvdocument","vendor_invoice"],"partner_industry_mapping":["tblpartners"],"partner_reconciliation_charges":["tblpartners","tblspvs"],"partner_reconciliation_metrics":["tblpartners","tblspvs"],"partner_reconciliation_schedule":["tblpartners","tblspvs"],"pg_vendors":["payment_gateway"],"payment_gateway":["pg_vendors","spv_category_pg","tblorders","tbltransactionlog"],"portfolio.user_security_xirr":["securities"],"preferences":["tblusers"],"product_categories":["tblassets"],"referral_logs":["referral_redeem_requests","tblusers"],"referral_redeem_requests":["referral_logs","tblusers"],"sdi":["tblassets"],"secured_bond_details":["tblassets"],"buyer_code":["securities"],"security_calculations":["securities"],"security_documents":["securities"],"security_metadata":["securities"],"security_nav":["securities"],"spv_category":["spv_category_bank","spv_category_kyc_mapping","spv_category_pg","spv_category_rfq","spv_parent","tblspvs"],"spv_parent":["spv_category","spv_parent_referral_rules"],"spv_category_bank":["spv_category"],"spv_category_kyc_mapping":["kyc_config","spv_category"],"spv_category_pg":["payment_gateway","spv_category"],"spv_category_rfq":["rfq_gateway","spv_category"],"rfq_gateway":["spv_category_rfq"],"spv_kyc":["kyc_types","spv_details"],"kyc_types":["spv_kyc","user_kyc"],"spv_details":["spv_kyc"],"spv_parent_referral_rules":["referral_rules","spv_parent"],"referral_rules":["spv_parent_referral_rules"],"spv_seller_code":["seller_code","tblspvs"],"seller_code":["spv_seller_code"],"spv_withdrawal_logs":["asset_repayment_logs"],"startup_equity_details":["tblassets"],"tblassetdetails":["details","tblassets"],"details":["tblassetdetails","tblpartnerdetails"],"tblpartnerdetails":["details","tblpartners"],"tblrepaymentmetrics":["tblassets"],"tblsecuritydocument":["securities"],"tblspvbankdetails":["tblspvs"],"tbltransactionlog":["payment_gateway"],"tbluserbankdetails":["tblusers"],"terminal_users_password":["terminal_users"],"trades":["tblorders"],"user_asset_notify":["tblassets","tblusers"],"user_ckyc":["tblusers"],"user_ddpi_details":["tblusers"],"user_feature_mapping":["feature","tblusers"],"feature":["user_feature_mapping"],"user_group_permissions":["terminal_users","user_groups"],"user_kra":["tblusers"],"user_kyc":["kyc_types","tblusers"],"user_kyc_source":["tblusers"],"user_nominee_details":["tblusers"],"user_social_account":["tblusers"],"users_2fa_required":["tblusers"],"vendor_approval_logs":["terminal_users","vendor_invoice"],"vendors":["vendor_invoice","vendor_units"],"vendor_invoice_approval":["vendor_invoice"],"vendor_units":["vendors"],"wealth_managers":["tblusers"],"zoop_logs":["tblusers"]}};
+
+const COLORS = {
+  'Users & Auth':          '#534AB7',
+  'Assets & Securities':   '#0F6E56',
+  'Orders & Payments':     '#993C1D',
+  'KYC & Compliance':      '#993556',
+  'Partners & Brokers':    '#185FA5',
+  'GCI Partner Platform':  '#3B6D11',
+  'Mutual Funds (DMF)':    '#854F0B',
+  'Logs & Audit':          '#5F5E5A',
+  'Portfolio':             '#A32D2D',
+  'Referrals & Rewards':   '#3C3489',
+  'Calculations':          '#085041',
+  'Communications':        '#712B13',
+  'App Config':            '#0C447C',
+  'Config & Master':       '#26215C',
+  'Documents & E-sign':    '#72243E',
+  'Reports':               '#27500A',
+  'System & Migrations':   '#444441',
+  'Other / Misc':          '#888780'
+};
+function colorFor(cat) { return COLORS[cat] || '#888780'; }
+
+const tableToCat = {};
+for (const [cat, tables] of Object.entries(DATA.cat_tables)) {
+  for (const t of tables) tableToCat[t.name] = cat;
+}
+
+let activeCategory = null;
+let activeTable = null;
+
+const grid = document.getElementById('gi-grid');
+const detail = document.getElementById('gi-detail');
+const search = document.getElementById('gi-search');
+const relsEl = document.getElementById('gi-rels');
+
+const cats = Object.entries(DATA.cat_tables).sort((a, b) => b[1].length - a[1].length);
+
+function escHtml(s) { return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function escAttr(s) { return String(s).replace(/["&<>]/g, c => ({'"':'&quot;','&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function renderGrid() {
+  grid.innerHTML = '';
+  for (const [cat, tables] of cats) {
+    const totalConns = tables.reduce((s, t) => s + t.conns, 0);
+    const c = colorFor(cat);
+    const card = document.createElement('div');
+    card.className = 'gi-card' + (activeCategory === cat ? ' active' : '');
+    card.style.borderLeftColor = c;
+    card.innerHTML = '<p class="gi-card-title">' + escHtml(cat) + '</p>' +
+      '<p class="gi-card-meta"><span>' + tables.length + ' tables</span><span>' + totalConns + ' links</span></p>';
+    card.onclick = () => selectCategory(cat);
+    grid.appendChild(card);
+  }
+}
+
+function selectCategory(cat) {
+  activeCategory = cat;
+  activeTable = null;
+  search.value = '';
+  renderGrid();
+  renderDetail();
+}
+
+function selectTable(name) {
+  activeTable = name;
+  activeCategory = tableToCat[name];
+  renderGrid();
+  renderDetail();
+}
+
+function renderDetail() {
+  if (!activeCategory) {
+    detail.innerHTML = '<div class="gi-detail-empty">Click a domain above, or search for a table.</div>';
+    return;
+  }
+  const tables = DATA.cat_tables[activeCategory];
+  const c = colorFor(activeCategory);
+  const totalCols = tables.reduce((s, t) => s + t.cols, 0);
+  let html = '<div class="gi-detail-header">' +
+    '<p class="gi-detail-title"><span class="gi-dot" style="background:' + c + '"></span>' + escHtml(activeCategory) + '</p>' +
+    '<p class="gi-detail-sub">' + tables.length + ' tables · ' + totalCols + ' columns total · click any table for its relationships</p>' +
+    '</div><div class="gi-tlist">';
+  for (const t of tables) {
+    const isActive = t.name === activeTable;
+    html += '<div class="gi-trow' + (isActive ? ' active' : '') + '" data-name="' + escAttr(t.name) + '">' +
+      '<span class="gi-tname" title="' + escAttr(t.name) + '">' + escHtml(t.name) + '</span>' +
+      '<span class="gi-tbadges"><span class="gi-badge" title="columns">' + t.cols + 'c</span>' +
+      (t.conns > 0 ? '<span class="gi-badge gi-badge-conn" title="connections">' + t.conns + '↔</span>' : '') +
+      '</span></div>';
+  }
+  html += '</div>';
+  if (activeTable && DATA.table_edges[activeTable]) {
+    const rels = DATA.table_edges[activeTable];
+    html += '<div class="gi-table-detail"><p class="gi-table-detail-name">' + escHtml(activeTable) + '</p>' +
+      '<p class="gi-table-detail-rels"><strong style="font-weight:500">Linked tables (' + rels.length + '):</strong><br/>' +
+      rels.map(r => '<code>' + escHtml(r) + '</code>').join(' ') + '</p></div>';
+  } else if (activeTable) {
+    html += '<div class="gi-table-detail"><p class="gi-table-detail-name">' + escHtml(activeTable) + '</p>' +
+      '<p class="gi-table-detail-rels">No outbound foreign-key links recorded for this table.</p></div>';
+  }
+  detail.innerHTML = html;
+  detail.querySelectorAll('.gi-trow').forEach(row => {
+    row.onclick = () => selectTable(row.dataset.name);
+  });
+}
+
+function renderRels() {
+  relsEl.innerHTML = DATA.cross.map(r => {
+    const ca = colorFor(r.a), cb = colorFor(r.b);
+    return '<div class="gi-rel"><div class="gi-rel-pair">' +
+      '<span class="gi-dot" style="background:' + ca + '"></span><span>' + escHtml(r.a) + '</span>' +
+      '<span class="gi-rel-arrow">↔</span>' +
+      '<span class="gi-dot" style="background:' + cb + '"></span><span>' + escHtml(r.b) + '</span>' +
+      '</div><span class="gi-rel-count">' + r.n + ' link' + (r.n > 1 ? 's' : '') + '</span></div>';
+  }).join('');
+}
+
+search.addEventListener('input', () => {
+  const q = search.value.trim().toLowerCase();
+  if (!q) { activeCategory = cats[1][0]; activeTable = null; renderGrid(); renderDetail(); return; }
+  const matches = [];
+  for (const [cat, tables] of Object.entries(DATA.cat_tables)) {
+    for (const t of tables) {
+      if (t.name.toLowerCase().includes(q)) matches.push(Object.assign({}, t, {cat}));
+    }
+  }
+  if (matches.length === 0) {
+    detail.innerHTML = '<div class="gi-detail-empty">No tables matching "' + escHtml(q) + '"</div>';
+    return;
+  }
+  matches.sort((a, b) => b.conns - a.conns);
+  let html = '<div class="gi-detail-header"><p class="gi-detail-title">Search: "' + escHtml(q) + '"</p>' +
+    '<p class="gi-detail-sub">' + matches.length + ' match' + (matches.length > 1 ? 'es' : '') + ' across all domains</p></div><div class="gi-tlist">';
+  for (const t of matches.slice(0, 80)) {
+    const c = colorFor(t.cat);
+    html += '<div class="gi-trow" data-name="' + escAttr(t.name) + '" title="' + escAttr(t.cat) + '">' +
+      '<span class="gi-tname"><span class="gi-dot" style="background:' + c + ';margin-right:6px;width:6px;height:6px"></span>' + escHtml(t.name) + '</span>' +
+      '<span class="gi-tbadges"><span class="gi-badge">' + t.cols + 'c</span>' +
+      (t.conns > 0 ? '<span class="gi-badge gi-badge-conn">' + t.conns + '↔</span>' : '') +
+      '</span></div>';
+  }
+  html += '</div>';
+  if (matches.length > 80) {
+    html += '<p style="font-size:12px;color:var(--color-text-tertiary);margin:8px 0 0;text-align:center">Showing first 80 of ' + matches.length + ' matches</p>';
+  }
+  detail.innerHTML = html;
+  detail.querySelectorAll('.gi-trow').forEach(row => {
+    row.onclick = () => { search.value = ''; selectTable(row.dataset.name); };
+  });
+});
+
+renderGrid();
+renderRels();
+selectCategory('Users & Auth');
+</script></body>
+</html>
