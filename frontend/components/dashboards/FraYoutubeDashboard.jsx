@@ -15,7 +15,7 @@ import {
   Area, Bar, Line, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
 } from "recharts";
 import { fetchFraInsights } from "@/lib/api";
-import { useFraYoutube, rowsOf, errOf, computeTrend, trendLabel } from "@/lib/queries/fraYoutube";
+import { useFraYoutube, rowsOf, errOf, computeTrend } from "@/lib/queries/fraYoutube";
 import { color, chartPalette } from "@/lib/tokens";
 import {
   Card, CardHeader, CardTitle, CardSubtitle, CardBody,
@@ -126,14 +126,67 @@ function DeltaChip({ delta, goodIsUp = true, suffix = "" }) {
   );
 }
 
-/* Stat props for a snapshot-history trend field — the delta chip plus a
-   caption naming the comparison window ("vs last week" / "vs yesterday"), so a
-   zero reads as "flat over that window" rather than a bare, puzzling ±0. */
+/* Per-field formatters for delta magnitudes. */
+const deltaFmt = {
+  int: (v) => fmt(v),
+  dec1: (v) => Number(v).toFixed(1),
+  dec2: (v) => Number(v).toFixed(2),
+  secs: (v) => `${Math.round(Number(v))}s`,
+};
+
+/* One line of a delta block: an arrow + magnitude in success/error/neutral,
+   then the muted window caption. A null delta (window not deep enough yet)
+   shows an em-dash so the caption still names the window that is coming. */
+function DeltaLine({ delta, label, format = fmt, goodIsUp = true }) {
+  if (delta == null) {
+    return <span className="t-body-xs text-tertiary">— {label}</span>;
+  }
+  const d = Number(delta);
+  const sign = d > 0 ? "▲" : d < 0 ? "▼" : "±";
+  const tone =
+    d === 0 || goodIsUp == null
+      ? "text-tertiary"
+      : (goodIsUp ? d > 0 : d < 0)
+        ? "text-success-700"
+        : "text-error-600";
+  return (
+    <span className={`t-body-xs ${tone}`}>
+      {sign} {d === 0 ? "0" : format(Math.abs(d))}{" "}
+      <span className="text-tertiary">{label}</span>
+    </span>
+  );
+}
+
+/* The "At a glance" delta block — day-over-day and week-over-week stacked, the
+   week line populating once the snapshot history is a week deep. */
+function DualDelta({ trend, field, format, goodIsUp = true }) {
+  if (!trend) return null;
+  return (
+    <div className="mt-0.5 flex flex-col gap-0.5">
+      <DeltaLine
+        delta={trend.day?.deltas?.[field]}
+        label={trend.day?.label || "vs yesterday"}
+        format={format}
+        goodIsUp={goodIsUp}
+      />
+      <DeltaLine
+        delta={trend.week?.deltas?.[field]}
+        label={trend.week?.label || "vs last week"}
+        format={format}
+        goodIsUp={goodIsUp}
+      />
+    </div>
+  );
+}
+
+/* Masthead stat props — the single day-over-day delta chip plus its window
+   caption, so a zero reads as "flat since yesterday" rather than a bare ±0. */
 function trendProps(trend, field) {
-  if (!trend || trend[field] == null) return {};
+  const d = trend?.day?.deltas?.[field];
+  if (d == null) return {};
   return {
-    delta: <DeltaChip delta={trend[field]} goodIsUp />,
-    hint: trendLabel(trend),
+    delta: <DeltaChip delta={d} goodIsUp />,
+    hint: trend.day.label,
   };
 }
 
@@ -239,8 +292,8 @@ export default function FraYoutubeDashboard({ project }) {
   const titleRows = rowsOf(data, "titlePatterns");
   const videoViewsRows = rowsOf(data, "videoViews");
 
-  // Week-over-week trend from the snapshot history — see computeTrend.
-  const trend = computeTrend(channelSnapshotRows);
+  // Day- and week-over-week trend from the overview history — see computeTrend.
+  const trend = computeTrend(overviewRows);
 
   /* ── chart-ready series ─────────────────────────────────────────────────*/
 
@@ -335,7 +388,7 @@ export default function FraYoutubeDashboard({ project }) {
               <Stat
                 label="Total views"
                 value={overview ? fmt(overview.total_views) : "—"}
-                {...trendProps(trend, "totalViews")}
+                {...trendProps(trend, "total_views")}
               />
               <Stat label="Videos" value={overview ? fmt(overview.video_count) : "—"} />
               <Stat
@@ -363,24 +416,39 @@ export default function FraYoutubeDashboard({ project }) {
               <Stat
                 label="Subscribers"
                 value={overview ? fmt(overview.subscribers) : "—"}
-                {...trendProps(trend, "subscribers")}
+                delta={<DualDelta trend={trend} field="subscribers" format={deltaFmt.int} />}
               />
               <Stat
                 label="Total views"
                 value={overview ? fmt(overview.total_views) : "—"}
-                {...trendProps(trend, "totalViews")}
+                delta={<DualDelta trend={trend} field="total_views" format={deltaFmt.int} />}
               />
-              <Stat label="Videos" value={overview ? fmt(overview.video_count) : "—"} />
-              <Stat label="Avg views / video" value={overview ? fmt(overview.avg_views) : "—"} />
+              <Stat
+                label="Videos"
+                value={overview ? fmt(overview.video_count) : "—"}
+                delta={<DualDelta trend={trend} field="video_count" format={deltaFmt.int} />}
+              />
+              <Stat
+                label="Avg views / video"
+                value={overview ? fmt(overview.avg_views) : "—"}
+                delta={<DualDelta trend={trend} field="avg_views" format={deltaFmt.dec1} />}
+              />
               <Stat
                 label="Median views / video"
                 value={overview?.median_views != null ? fmt(overview.median_views) : "—"}
-                hint="the typical video"
+                delta={<DualDelta trend={trend} field="median_views" format={deltaFmt.dec1} />}
               />
               <Stat
                 label="Avg duration"
                 value={fmtDuration(overview?.avg_duration_sec)}
-                hint="per video"
+                delta={
+                  <DualDelta
+                    trend={trend}
+                    field="avg_duration_sec"
+                    format={deltaFmt.secs}
+                    goodIsUp={null}
+                  />
+                }
               />
               <Stat
                 label="Subscriber efficiency"
@@ -389,7 +457,7 @@ export default function FraYoutubeDashboard({ project }) {
                     ? Number(catalogRow.subscriber_efficiency).toFixed(2)
                     : "—"
                 }
-                hint="total views ÷ subscribers"
+                delta={<DualDelta trend={trend} field="subscriber_efficiency" format={deltaFmt.dec2} />}
               />
             </StatStrip>
           )}

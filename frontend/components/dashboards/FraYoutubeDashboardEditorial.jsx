@@ -25,7 +25,7 @@ import {
   Cell, ReferenceLine, LabelList,
 } from "recharts";
 import { fetchFraInsights } from "@/lib/api";
-import { useFraYoutube, rowsOf, errOf, computeTrend, trendLabel } from "@/lib/queries/fraYoutube";
+import { useFraYoutube, rowsOf, errOf, computeTrend } from "@/lib/queries/fraYoutube";
 
 /* ── editorial palette (ink marks on paper, sparing accents) ─────────────────
    Mirrors the --ed-* CSS vars; charts need literal hex, not var() lookups. */
@@ -251,23 +251,69 @@ function Figure({ figNum, title, caption, footnote, children, height = 280, erro
 /* A small delta tick — rust ▼ for negative, forest ▲ for positive. An optional
    `note` names the comparison window so a ±0 reads as "flat over that window"
    rather than a bare, puzzling zero. */
-function DeltaTick({ value, goodIsUp = true, suffix = "", note }) {
+function DeltaTick({ value, goodIsUp = true, suffix = "" }) {
   if (value == null || value === "" || Number.isNaN(Number(value))) return null;
   const d = Number(value);
-  const noteEl = note ? (
-    <span className="ed-caption" style={{ color: ED_INK_FAINT, fontWeight: 400, marginLeft: 6 }}>
-      {note}
-    </span>
-  ) : null;
   if (d === 0) {
-    return (
-      <span className="ed-caption" style={{ color: ED_INK_MUTED }}>±0{suffix}{noteEl}</span>
-    );
+    return <span className="ed-caption" style={{ color: ED_INK_MUTED }}>±0{suffix}</span>;
   }
   const good = goodIsUp ? d > 0 : d < 0;
   return (
     <span className="ed-caption" style={{ color: good ? ED_FOREST : ED_RUST, fontWeight: 600 }}>
-      {d > 0 ? "▲" : "▼"} {fmt(Math.abs(d))}{suffix}{noteEl}
+      {d > 0 ? "▲" : "▼"} {fmt(Math.abs(d))}{suffix}
+    </span>
+  );
+}
+
+/* Per-field formatters for editorial delta magnitudes. */
+const edDeltaFmt = {
+  int: (v) => fmt(v),
+  dec1: (v) => Number(v).toFixed(1),
+  dec2: (v) => Number(v).toFixed(2),
+  secs: (v) => `${Math.round(Number(v))}s`,
+};
+
+/* One delta line — forest ▲ / rust ▼ / muted ±, then the window caption. A
+   null delta (window not deep enough yet) shows an em-dash so the caption
+   still names the window that is coming. */
+function DeltaTickLine({ delta, label, format = fmt, goodIsUp = true }) {
+  if (delta == null) {
+    return <span className="ed-caption" style={{ color: ED_INK_FAINT }}>— {label}</span>;
+  }
+  const d = Number(delta);
+  const sign = d > 0 ? "▲" : d < 0 ? "▼" : "±";
+  const color =
+    d === 0 || goodIsUp == null
+      ? ED_INK_MUTED
+      : (goodIsUp ? d > 0 : d < 0)
+        ? ED_FOREST
+        : ED_RUST;
+  return (
+    <span className="ed-caption" style={{ color, fontWeight: d === 0 ? 400 : 600 }}>
+      {sign} {d === 0 ? "0" : format(Math.abs(d))}
+      <span style={{ color: ED_INK_FAINT, fontWeight: 400, marginLeft: 5 }}>{label}</span>
+    </span>
+  );
+}
+
+/* The At-a-glance delta block — day- and week-over-week stacked, the week line
+   populating once the snapshot history is a week deep. */
+function DualDeltaTick({ trend, field, format, goodIsUp = true }) {
+  if (!trend) return null;
+  return (
+    <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <DeltaTickLine
+        delta={trend.day?.deltas?.[field]}
+        label={trend.day?.label || "vs yesterday"}
+        format={format}
+        goodIsUp={goodIsUp}
+      />
+      <DeltaTickLine
+        delta={trend.week?.deltas?.[field]}
+        label={trend.week?.label || "vs last week"}
+        format={format}
+        goodIsUp={goodIsUp}
+      />
     </span>
   );
 }
@@ -430,7 +476,8 @@ export default function FraYoutubeDashboardEditorial({ project }) {
   const insightsState = useFraInsights();
 
   /* ── row extraction ──────────────────────────────────────────────────────*/
-  const overview = rowsOf(data, "overview")[0] || null;
+  const overviewRows = rowsOf(data, "overview");
+  const overview = overviewRows[0] || null;
   const distRow = rowsOf(data, "distribution")[0] || null;
   const catalogRow = rowsOf(data, "catalogHealth")[0] || null;
   const videoViewsRows = rowsOf(data, "videoViews");
@@ -486,8 +533,8 @@ export default function FraYoutubeDashboardEditorial({ project }) {
   }));
   const hasRealTrend = Object.keys(channelByMonth).length > 0;
 
-  // §2 — week-over-week trend from the snapshot history (see computeTrend).
-  const trend = computeTrend(channelSnapshotRows);
+  // §2 — day- and week-over-week trend from the overview history (computeTrend).
+  const trend = computeTrend(overviewRows);
 
   // §3 — view-distribution histogram (log-scaled buckets). Bucketed client-side
   // from the raw per-video view counts in videoViews.
@@ -659,40 +706,35 @@ export default function FraYoutubeDashboardEditorial({ project }) {
                   label="Subscribers"
                   loading={loading}
                   value={overview ? fmt(overview.subscribers) : "—"}
-                  delta={
-                    trend?.subscribers != null
-                      ? <DeltaTick value={trend.subscribers} goodIsUp note={trendLabel(trend)} />
-                      : null
-                  }
+                  delta={<DualDeltaTick trend={trend} field="subscribers" format={edDeltaFmt.int} />}
                   sub="channel followers"
                 />
                 <Exhibit
                   label="Total views"
                   loading={loading}
                   value={overview ? compact(overview.total_views) : "—"}
-                  delta={
-                    trend?.totalViews != null
-                      ? <DeltaTick value={trend.totalViews} goodIsUp note={trendLabel(trend)} />
-                      : null
-                  }
+                  delta={<DualDeltaTick trend={trend} field="total_views" format={edDeltaFmt.int} />}
                   sub="lifetime, all videos"
                 />
                 <Exhibit
                   label="Videos"
                   loading={loading}
                   value={overview ? fmt(overview.video_count) : "—"}
+                  delta={<DualDeltaTick trend={trend} field="video_count" format={edDeltaFmt.int} />}
                   sub="in the catalogue"
                 />
                 <Exhibit
                   label="Avg views / video"
                   loading={loading}
                   value={overview ? fmt(overview.avg_views) : "—"}
+                  delta={<DualDeltaTick trend={trend} field="avg_views" format={edDeltaFmt.dec1} />}
                   sub="mean across the library"
                 />
                 <Exhibit
                   label="Median views / video"
                   loading={loading}
                   value={overview?.median_views != null ? fmt(overview.median_views) : "—"}
+                  delta={<DualDeltaTick trend={trend} field="median_views" format={edDeltaFmt.dec1} />}
                   sub="the typical video"
                 />
                 <Exhibit
@@ -705,6 +747,14 @@ export default function FraYoutubeDashboardEditorial({ project }) {
                     const s = Math.round(sec % 60);
                     return `${m}m ${s}s`;
                   })()}
+                  delta={
+                    <DualDeltaTick
+                      trend={trend}
+                      field="avg_duration_sec"
+                      format={edDeltaFmt.secs}
+                      goodIsUp={null}
+                    />
+                  }
                   sub="per video"
                 />
                 <Exhibit
@@ -715,6 +765,7 @@ export default function FraYoutubeDashboardEditorial({ project }) {
                       ? Number(catalogRow.subscriber_efficiency).toFixed(2)
                       : "—"
                   }
+                  delta={<DualDeltaTick trend={trend} field="subscriber_efficiency" format={edDeltaFmt.dec2} />}
                   sub="total views ÷ subscribers"
                 />
               </div>
