@@ -31,3 +31,6 @@ services:
         sync: false                       # paste in the Render dashboard
       - key: METABASE_PASSWORD
         sync: false                       # paste in the Render dashboard
+      # YouTube Data API v3 — powers the FRA YouTube refresh.
+      - key: YOUTUBE_API_KEY
+        sync: false                       # paste in the Render dashboard
