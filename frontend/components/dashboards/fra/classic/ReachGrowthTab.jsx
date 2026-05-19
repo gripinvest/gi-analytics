@@ -11,7 +11,7 @@
 import * as React from "react";
 import {
   ResponsiveContainer, ComposedChart, BarChart,
-  Area, Bar, Line, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
+  Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 import { errOf } from "@/lib/queries/fraYoutube";
 import { color, chartPalette } from "@/lib/tokens";
@@ -319,7 +319,7 @@ function PercentileLadderSection({ index, loading, error, distRow }) {
             <p className="t-body-sm text-tertiary">No distribution data for the current snapshot.</p>
           ) : (
             <ul className="divide-y divide-border-default">
-              {rungs.map((r, i) => {
+              {rungs.map((r) => {
                 const w = Math.max(2, Math.round((r.value / top) * 100));
                 return (
                   <li key={r.label} className="flex items-center gap-4 py-3">
@@ -423,8 +423,8 @@ function MonthlyDetailSection({ index, loading, error, monthlyRows }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={i} className="border-b border-border-default last:border-0">
+                  {rows.map((r) => (
+                    <tr key={r.month} className="border-b border-border-default last:border-0">
                       <td className="py-2 pr-4 text-body">{fmtMonth(r.month)}</td>
                       <td className="py-2 pr-4 text-right t-num text-secondary">{fmt(r.video_count)}</td>
                       <td className="py-2 pr-4 text-right t-num text-secondary">{compact(r.total_views)}</td>
