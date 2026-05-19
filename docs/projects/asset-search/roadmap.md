@@ -74,6 +74,17 @@ search-vs-browse deal size. Each is a query builder + a Conversion-tab exhibit.
 Current search CVR is same-day only. Add a 7-day attribution window via an
 `anonymous_id` join across dates — needs no new export.
 
+### 4. Daily-granularity dashboard views 🟡 (its own project)
+
+Today the dashboard is entirely week-grained — `groupTables()`, every
+`assetSearch.js` / `conversion.js` builder, and every chart aggregate by
+feature week. Per-day views (daily trend lines, day-of-week patterns) are a
+genuine analytics improvement, but a real project: it means re-grained CSVs +
+reworking every builder, and a migration plan for the **frozen W1–W6 weekly
+CSVs** (the W1–W3 thin schema cannot be re-fetched). The live-data fetch
+pipeline (#1) is unaffected — it already fetches at a fine grain internally;
+this item is purely about what the dashboard *shows*. Scope it separately.
+
 ## Open decisions
 
 - `view_payment_status_page` schema — does it carry a success/fail column?
