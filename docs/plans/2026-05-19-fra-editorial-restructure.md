@@ -52,14 +52,21 @@ The shell owns both hooks and all derived series, and passes each tab exactly wh
 
 ## Task ordering rationale
 
-Tasks are sequenced so the build stays green at every commit:
+Tasks are sequenced so the build stays green at every commit and **no section is ever moved twice**:
 
 1. **Task 1** adds the `fraYoutube.js` query specs first — pure data-layer change, no UI consumer yet, build stays green.
 2. **Task 2** creates `helpers.js` and **Task 3** creates `primitives.jsx` — both pure module extractions with no behavior change; nothing imports them yet so the build stays green. They must exist before any tab file imports them.
 3. **Tasks 4–9** create the six tab files. The shell does not import them until **Task 10**, so each tab file lands as an unreferenced module — the build compiles it but renders nothing, staying green.
 4. **Task 10** rewrites `FraYoutubeDashboardEditorial.jsx` into the shell that wires everything together. This is the only task that changes what users see; it lands last so the dashboard never renders a half-built tab set.
 
-Tab files are built **OverviewTab first** (Task 4) because Overview *is* the entire current report — relocating existing sections is the lowest-risk move and front-loads the bulk of the relocation work. The four deep-dive tabs (Tasks 5–8) then reuse those same sections and add net-new UI. InsightsTab (Task 9) is the smallest. Within a tab task, relocated sections are moved verbatim (precise line ranges given) and net-new sections carry full code.
+The tab files are built in dependency order, **deep-dive tabs before OverviewTab**, so each shared section is relocated exactly once:
+
+- **Tasks 4–7 build the four deep-dive tabs** — ReachGrowth, Content & Format, Audience, Cadence & SEO. Each one extracts the shared section(s) it owns **directly from the original, still-intact `FraYoutubeDashboardEditorial.jsx`** (by the precise line ranges given), defining them as `export function`s, and adds its net-new UI. The original mega-file is not rewritten until Task 10, so extracting from it here is valid.
+- **Task 8 builds OverviewTab** — pure composition. It *imports* the shared section `export function`s from the four deep-dive tabs (which now exist), then adds only the Overview-only pieces: the "At a glance" section, the `TabConnect` deep-dive-link primitive, and the condensed AI block. No shared section is defined in OverviewTab, so nothing it touches is ever moved a second time.
+- **Task 9 builds InsightsTab** — the smallest, a thin wrapper over `AiInsights`.
+- **Task 10 rewrites the shell** last.
+
+This ordering eliminates the "move a section into OverviewTab, then move it back out" round-trip: a section is extracted from the original file once, by the deep-dive tab that owns it, and OverviewTab simply imports it. The build stays green because Tasks 1–9 add unreferenced modules and Task 10 wires them. Net-new sections carry full code; relocated sections are moved verbatim with precise line ranges given.
 
 ---
 
@@ -283,214 +290,7 @@ git commit -m "feat: extract FRA editorial rendering primitives into primitives.
 
 ---
 
-## Task 4: Create `editorial/OverviewTab.jsx` — the whole current report
-
-**Files:**
-- Create: `frontend/components/dashboards/fra/editorial/OverviewTab.jsx`
-
-OverviewTab is the entire current single-scroll body — every section at its current depth — except the AI section, which is condensed to verdict + top-3 action items. Each section gets a "connects to" link to its deep-dive tab.
-
-- [ ] **Step 1: Scaffold the file and imports**
-
-Create `frontend/components/dashboards/fra/editorial/OverviewTab.jsx`:
-
-```jsx
-"use client";
-/**
- * Overview tab — the FRA Weekly in full. Every section of the original single-
- * scroll report at its current depth: At a glance, Discovery, Growth, Content
- * fit, Engagement, Cadence, Titles & SEO, Catalog health. The AI section is
- * condensed to the verdict + top-3 action items; each section carries a
- * "read the full analysis" link to its deep-dive tab.
- */
-
-import * as React from "react";
-import {
-  ResponsiveContainer, ComposedChart, AreaChart, BarChart, ScatterChart,
-  Area, Bar, Line, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip,
-  Cell, ReferenceLine, LabelList,
-} from "recharts";
-import { errOf } from "@/lib/queries/fraYoutube";
-import { fmt, pct1, compact } from "../helpers";
-import {
-  ED_PAPER, ED_INK, ED_INK_SOFT, ED_INK_MUTED, ED_INK_FAINT,
-  ED_RUST, ED_FOREST, ED_GOLD, ED_RULE_FAINT,
-  edAxisProps, edGridProps, edDeltaFmt,
-  useCountUp, RevealSection, EdTooltip, SectionHead, Figure,
-  DeltaTick, DualDeltaTick, Exhibit, LedgerTable, EmptyPlate, ErrorNote,
-  insightItemText,
-} from "./primitives";
-import { fmtMonth } from "../helpers";
-```
-
-(Recharts elements unused by a given section can be trimmed from the import after Step 5's build flags them — keep the full list while moving code.)
-
-- [ ] **Step 2: Add the `TabConnect` link primitive**
-
-A small "connects to" rail used at the foot of each Overview section. It is Overview-specific (no other tab links *out*), so it lives in this file, not `primitives.jsx`. Add after the imports:
-
-```jsx
-/* The "connects to" link at the foot of an Overview section — sends the reader
-   to the matching deep-dive tab. Styled in the ed-section-link rail idiom. */
-function TabConnect({ label, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="ed-section-link mt-5 inline-flex items-center gap-1.5"
-      style={{ minHeight: 36, background: "none", border: "none", cursor: "pointer" }}
-    >
-      {label} <span aria-hidden>→</span>
-    </button>
-  );
-}
-```
-
-- [ ] **Step 3: Move the section render bodies**
-
-Move these section blocks out of `FraYoutubeDashboardEditorial.jsx` into `OverviewTab.jsx` as the tab's render body, **verbatim** at the noted line ranges:
-
-- **§II At a glance** — lines 697-776 (`<RevealSection … id="sec-glance">` … `</RevealSection>`).
-- **§III Discovery** — the `<DiscoverySection … />` call at lines 778-789 **and** the `DiscoverySection` component definition at lines 1223-1345. Move the whole `function DiscoverySection(...)` into `OverviewTab.jsx` as a file-local `function DiscoverySection(...)`.
-- **§IV Growth** — lines 791-875.
-- **§V Content fit** — lines 877-987.
-- **§VI Engagement** — lines 989-1036.
-- **§VII Cadence** — lines 1038-1094.
-- **§VIII Titles & SEO** — lines 1096-1138.
-- **§IX Catalog health** — lines 1140-1188.
-
-These blocks reference `loading`, `errOf(data, …)`, `trend`, `reduced`, `animProps` and the derived series. They become props (see the data-prop contract above) — the section JSX itself is unchanged; only the surrounding component signature changes.
-
-- [ ] **Step 4: Assemble the `OverviewTab` component**
-
-Wrap the moved sections in the tab component. Signature and shape:
-
-```jsx
-export default function OverviewTab({
-  reduced, loading, animProps, data,
-  overview, trend, catalogRow, distRow, breakoutRate, ladder, distBuckets,
-  growthSeries, growthSeriesWithReal, hasRealTrend,
-  categoryScatter, categoryRows, engagementSeries, engMean,
-  cadenceDaySeries, cadenceHourSeries, titleSeries,
-  insightsState, onNavigate,
-}) {
-  return (
-    <>
-      {/* §II At a glance — moved verbatim from lines 697-776 */}
-      {/* …followed by: */}
-      <TabConnect label="Reach & Growth — the full discovery analysis" onClick={() => onNavigate("reach-growth")} />
-
-      {/* §III Discovery — <DiscoverySection … /> as moved from lines 778-789 */}
-      <TabConnect label="Reach & Growth — percentile ladder & concentration" onClick={() => onNavigate("reach-growth")} />
-
-      {/* §IV Growth — moved verbatim from lines 791-875 */}
-      <TabConnect label="Reach & Growth — monthly detail with MoM %" onClick={() => onNavigate("reach-growth")} />
-
-      {/* §V Content fit — moved verbatim from lines 877-987 */}
-      <TabConnect label="Content & Format — duration buckets & leaderboards" onClick={() => onNavigate("content-format")} />
-
-      {/* §VI Engagement — moved verbatim from lines 989-1036 */}
-      <TabConnect label="Audience — like vs comment split & engagement by duration" onClick={() => onNavigate("audience")} />
-
-      {/* §VII Cadence — moved verbatim from lines 1038-1094 */}
-      <TabConnect label="Cadence & SEO — upload pacing & gap stats" onClick={() => onNavigate("cadence-seo")} />
-
-      {/* §VIII Titles & SEO — moved verbatim from lines 1096-1138 */}
-      <TabConnect label="Cadence & SEO — tag-frequency analysis" onClick={() => onNavigate("cadence-seo")} />
-
-      {/* §IX Catalog health — moved verbatim from lines 1140-1188 */}
-      <TabConnect label="Reach & Growth — catalog health in context" onClick={() => onNavigate("reach-growth")} />
-
-      {/* Condensed AI section — verdict + top-3 actions */}
-      <OverviewInsightsCondensed insightsState={insightsState} reduced={reduced} onNavigate={onNavigate} />
-    </>
-  );
-}
-```
-
-Renumber the moved `SectionHead` `number` props so they read I–IX within the tab (At a glance becomes `number="I"`, Discovery `"II"`, … Catalog health `"VIII"`, condensed AI `"IX"`) — the original masthead-as-I numbering no longer applies, the masthead now lives outside the tab in the shell. The section anchors (`id="sec-glance"` etc.) stay; they remain valid within-page anchors.
-
-- [ ] **Step 5: Add the condensed AI section**
-
-The Overview AI section is verdict + top-3 recommendations only (spec §4.3) — full strengths/weaknesses live in the AI Insights tab. Add this file-local component:
-
-```jsx
-/* The condensed AI block for Overview — the verdict and at most three action
-   items. The full strengths/weaknesses/recommendations live in the AI Insights
-   tab; this is the executive read. */
-function OverviewInsightsCondensed({ insightsState, reduced, onNavigate }) {
-  const { loading, error, insights } = insightsState;
-  const actions = (insights?.recommendations || []).slice(0, 3);
-  return (
-    <RevealSection reduced={reduced} id="sec-insights">
-      <SectionHead
-        number="IX"
-        italic="The verdict"
-        deck="The automated read on this snapshot, in brief — the headline call and the three moves that matter most."
-      />
-      {loading ? (
-        <div className="flex flex-col gap-3">
-          {["70%", "92%", "60%"].map((w, i) => (
-            <span key={i} className="ed-skeleton" style={{ width: w, height: "0.8em" }} aria-label="loading" />
-          ))}
-        </div>
-      ) : (
-        <>
-          {error && (
-            <p className="ed-caption mb-4" style={{ color: ED_RUST, lineHeight: 1.7 }}>
-              ⚠ The AI brief fell back to a cached read — {error}
-            </p>
-          )}
-          {insights?.verdict ? (
-            <p className="ed-lede ed-dropcap" style={{ maxWidth: "62ch" }}>{insights.verdict}</p>
-          ) : (
-            <p className="ed-prose-italic" style={{ color: ED_INK_FAINT }}>
-              No verdict available for this snapshot yet.
-            </p>
-          )}
-          {actions.length > 0 && (
-            <div className="mt-7">
-              <p className="ed-overline mb-3">TOP THREE ACTIONS</p>
-              <ul className="flex flex-col gap-3">
-                {actions.map((it, i) => (
-                  <li key={i} className="ed-prose flex gap-2.5" style={{ fontSize: 14 }}>
-                    <span className="ed-num shrink-0" style={{ color: ED_GOLD, fontWeight: 700, lineHeight: 1.5 }} aria-hidden>→</span>
-                    <span>{insightItemText(it)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={() => onNavigate("ai-insights")}
-            className="ed-section-link mt-6 inline-flex items-center gap-1.5"
-            style={{ minHeight: 36, background: "none", border: "none", cursor: "pointer" }}
-          >
-            AI Insights — the full strengths &amp; weaknesses read <span aria-hidden>→</span>
-          </button>
-        </>
-      )}
-    </RevealSection>
-  );
-}
-```
-
-- [ ] **Step 6: Build-verify**
-
-Run: `cd frontend && pnpm build`
-Expected: PASS. (Tab file is not yet imported by the shell — confirms it compiles and every import resolves.) Trim any genuinely unused Recharts imports the build warns about.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add frontend/components/dashboards/fra/editorial/OverviewTab.jsx
-git commit -m "feat: add FRA editorial OverviewTab — full report with deep-dive links"
-```
-
----
-
-## Task 5: Create `editorial/ReachGrowthTab.jsx` — Discovery + Growth + Catalog + new depth
+## Task 4: Create `editorial/ReachGrowthTab.jsx` — Discovery + Growth + Catalog + new depth
 
 **Files:**
 - Create: `frontend/components/dashboards/fra/editorial/ReachGrowthTab.jsx`
@@ -501,15 +301,15 @@ Reach & Growth = Discovery + Growth + Catalog health in full, plus the percentil
 
 Create `frontend/components/dashboards/fra/editorial/ReachGrowthTab.jsx` with the imports OverviewTab uses (Recharts elements `ComposedChart, AreaChart, BarChart, Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer`; `errOf`; `fmt, pct1, compact, fmtMonth`; the primitives `ED_*`, `edAxisProps`, `edGridProps`, `useCountUp`, `RevealSection`, `EdTooltip`, `SectionHead`, `Figure`, `DeltaTick`, `Exhibit`, `LedgerTable`, `EmptyPlate`, `ErrorNote`).
 
-- [ ] **Step 2: Reuse the Discovery, Growth and Catalog sections**
+- [ ] **Step 2: Extract the Discovery, Growth and Catalog sections from the original file**
 
-These three sections are *also* rendered in OverviewTab. Per spec §4.2 the editorial theme has no cross-theme sharing, but **within the editorial theme** a section reused by two tabs should be defined once. Define `DiscoverySection`, `GrowthSection` and `CatalogHealthSection` as file-local functions in `ReachGrowthTab.jsx`, and have `OverviewTab.jsx` import them from here:
+These three sections are *also* rendered in OverviewTab. Per spec §4.2 the editorial theme has no cross-theme sharing, but **within the editorial theme** a section reused by two tabs should be defined once. ReachGrowthTab owns them: define `DiscoverySection`, `GrowthSection` and `CatalogHealthSection` here as `export function`s, lifted **directly from the original, still-intact `FraYoutubeDashboardEditorial.jsx`** at the noted line ranges (the file is not rewritten until Task 10). OverviewTab (Task 8) imports them from here — `import { DiscoverySection, GrowthSection, CatalogHealthSection } from "./ReachGrowthTab";`.
 
-- In Task 4 you moved `DiscoverySection` into `OverviewTab.jsx`. **Now move it again** — out of `OverviewTab.jsx` and into `ReachGrowthTab.jsx` as `export function DiscoverySection(...)`. `OverviewTab.jsx` imports it: `import { DiscoverySection, GrowthSection, CatalogHealthSection } from "./ReachGrowthTab";`.
-- Extract the §IV Growth body (the two `<Figure>` blocks from old lines 791-875) into `export function GrowthSection({ loading, data, growthSeries, growthSeriesWithReal, hasRealTrend, animProps })` in `ReachGrowthTab.jsx`. Replace the inline block in `OverviewTab.jsx` with `<GrowthSection … />`.
-- Extract the §IX Catalog health body (old lines 1140-1188) into `export function CatalogHealthSection({ loading, data, catalogRow })`. Replace the inline block in `OverviewTab.jsx` with `<CatalogHealthSection … />`.
+- Extract the §III Discovery `DiscoverySection` component definition (old `FraYoutubeDashboardEditorial.jsx` lines 1223-1345) into `ReachGrowthTab.jsx` as `export function DiscoverySection(...)`, verbatim.
+- Extract the §IV Growth body (the two `<Figure>` blocks from old lines 791-875) into `export function GrowthSection({ number, loading, data, growthSeries, growthSeriesWithReal, hasRealTrend, animProps })` in `ReachGrowthTab.jsx`, verbatim.
+- Extract the §IX Catalog health body (old lines 1140-1188) into `export function CatalogHealthSection({ number, loading, data, catalogRow })`, verbatim.
 
-This keeps the editorial report DRY across its own tabs without crossing the theme boundary. The `SectionHead` `number` prop is passed in by each consuming tab (Overview numbers I–IX; Reach & Growth numbers I–V), so make `number` a prop of each `*Section` function rather than hard-coding it.
+This keeps the editorial report DRY across its own tabs without crossing the theme boundary, and no section is ever moved twice — each is extracted once, by the tab that owns it. The `SectionHead` `number` prop is passed in by each consuming tab (Overview numbers I–IX; Reach & Growth numbers I–V), so make `number` a prop of each `*Section` function rather than hard-coding it.
 
 - [ ] **Step 3: Build the percentile-ladder section (net-new)**
 
@@ -674,13 +474,13 @@ Expected: PASS. Manual visual check deferred until the shell wires the tab (Task
 - [ ] **Step 7: Commit**
 
 ```bash
-git add frontend/components/dashboards/fra/editorial/ReachGrowthTab.jsx frontend/components/dashboards/fra/editorial/OverviewTab.jsx
+git add frontend/components/dashboards/fra/editorial/ReachGrowthTab.jsx
 git commit -m "feat: add FRA editorial ReachGrowthTab with percentile ladder & monthly detail"
 ```
 
 ---
 
-## Task 6: Create `editorial/ContentFormatTab.jsx` — Content fit + duration buckets + leaderboards
+## Task 5: Create `editorial/ContentFormatTab.jsx` — Content fit + duration buckets + leaderboards
 
 **Files:**
 - Create: `frontend/components/dashboards/fra/editorial/ContentFormatTab.jsx`
@@ -689,7 +489,7 @@ Content & Format = Content fit in full, plus duration-bucket performance and the
 
 - [ ] **Step 1: Scaffold the file and extract the Content-fit section**
 
-Create `frontend/components/dashboards/fra/editorial/ContentFormatTab.jsx`. Extract the §V Content fit body (old `FraYoutubeDashboardEditorial.jsx` lines 877-987 — the scatter `Figure` and the category `LedgerTable`) into `export function ContentFitSection({ number, loading, data, categoryScatter, categoryRows, animProps })` here, and update `OverviewTab.jsx` to import and render `<ContentFitSection … />` instead of its inline copy.
+Create `frontend/components/dashboards/fra/editorial/ContentFormatTab.jsx`. Extract the §V Content fit body **directly from the original, still-intact `FraYoutubeDashboardEditorial.jsx`** (lines 877-987 — the scatter `Figure` and the category `LedgerTable`) into `export function ContentFitSection({ number, loading, data, categoryScatter, categoryRows, animProps })` here, verbatim. OverviewTab (Task 8) imports `ContentFitSection` from this file.
 
 Imports: Recharts `ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, Cell, LabelList, BarChart, Bar, ResponsiveContainer`; `errOf`; `fmt, pct1, compact`; primitives `ED_*, edAxisProps, edGridProps, RevealSection, EdTooltip, SectionHead, Figure, LedgerTable, EmptyPlate, ErrorNote`.
 
@@ -867,13 +667,13 @@ Expected: PASS. Note: the leaderboard tables and duration chart re-checked at 37
 - [ ] **Step 6: Commit**
 
 ```bash
-git add frontend/components/dashboards/fra/editorial/ContentFormatTab.jsx frontend/components/dashboards/fra/editorial/OverviewTab.jsx
+git add frontend/components/dashboards/fra/editorial/ContentFormatTab.jsx
 git commit -m "feat: add FRA editorial ContentFormatTab with duration buckets & leaderboards"
 ```
 
 ---
 
-## Task 7: Create `editorial/AudienceTab.jsx` — Engagement + like/comment split + engagement by duration
+## Task 6: Create `editorial/AudienceTab.jsx` — Engagement + like/comment split + engagement by duration
 
 **Files:**
 - Create: `frontend/components/dashboards/fra/editorial/AudienceTab.jsx`
@@ -882,7 +682,7 @@ Audience = Engagement in full, plus the like-rate vs comment-rate split and enga
 
 - [ ] **Step 1: Scaffold the file and extract the Engagement section**
 
-Create `frontend/components/dashboards/fra/editorial/AudienceTab.jsx`. Extract the §VI Engagement body (old lines 989-1036 — the diverging `Figure` bar chart) into `export function EngagementSection({ number, loading, data, engagementSeries, engMean, animProps })` here, and update `OverviewTab.jsx` to import and render `<EngagementSection … />` instead of its inline copy.
+Create `frontend/components/dashboards/fra/editorial/AudienceTab.jsx`. Extract the §VI Engagement body **directly from the original, still-intact `FraYoutubeDashboardEditorial.jsx`** (lines 989-1036 — the diverging `Figure` bar chart) into `export function EngagementSection({ number, loading, data, engagementSeries, engMean, animProps })` here, verbatim. OverviewTab (Task 8) imports `EngagementSection` from this file.
 
 Imports: Recharts `BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ReferenceLine, ResponsiveContainer`; `errOf`; `fmt, pct1, compact`; primitives `ED_*, edAxisProps, edGridProps, RevealSection, EdTooltip, SectionHead, Figure, Exhibit, EmptyPlate, ErrorNote`.
 
@@ -1034,13 +834,13 @@ Expected: PASS. 375px check deferred to Task 10.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add frontend/components/dashboards/fra/editorial/AudienceTab.jsx frontend/components/dashboards/fra/editorial/OverviewTab.jsx
+git add frontend/components/dashboards/fra/editorial/AudienceTab.jsx
 git commit -m "feat: add FRA editorial AudienceTab with like/comment split & engagement by duration"
 ```
 
 ---
 
-## Task 8: Create `editorial/CadenceSeoTab.jsx` — Cadence + Titles & SEO + upload pacing + tag analysis
+## Task 7: Create `editorial/CadenceSeoTab.jsx` — Cadence + Titles & SEO + upload pacing + tag analysis
 
 **Files:**
 - Create: `frontend/components/dashboards/fra/editorial/CadenceSeoTab.jsx`
@@ -1049,12 +849,12 @@ Cadence & SEO = Cadence + Titles & SEO in full, plus upload cadence & gap stats 
 
 - [ ] **Step 1: Scaffold the file and extract the Cadence + Titles sections**
 
-Create `frontend/components/dashboards/fra/editorial/CadenceSeoTab.jsx`. Extract two section bodies from the old file:
+Create `frontend/components/dashboards/fra/editorial/CadenceSeoTab.jsx`. Extract two section bodies **directly from the original, still-intact `FraYoutubeDashboardEditorial.jsx`** at the noted line ranges, verbatim:
 
-- §VII Cadence body (old lines 1038-1094 — the two posting-day/posting-hour `Figure` blocks) into `export function CadenceSection({ number, loading, data, cadenceDaySeries, cadenceHourSeries, animProps })`.
-- §VIII Titles & SEO body (old lines 1096-1138 — the title-pattern `Figure`) into `export function TitlesSeoSection({ number, loading, data, titleSeries, animProps })`.
+- §VII Cadence body (lines 1038-1094 — the two posting-day/posting-hour `Figure` blocks) into `export function CadenceSection({ number, loading, data, cadenceDaySeries, cadenceHourSeries, animProps })`.
+- §VIII Titles & SEO body (lines 1096-1138 — the title-pattern `Figure`) into `export function TitlesSeoSection({ number, loading, data, titleSeries, animProps })`.
 
-Update `OverviewTab.jsx` to import and render `<CadenceSection … />` and `<TitlesSeoSection … />` instead of its inline copies.
+OverviewTab (Task 8) imports `CadenceSection` and `TitlesSeoSection` from this file.
 
 Imports: Recharts `BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LabelList, ResponsiveContainer`; `errOf`; `fmt, compact`; primitives `ED_*, edAxisProps, edGridProps, RevealSection, EdTooltip, SectionHead, Figure, Exhibit, LedgerTable, EmptyPlate, ErrorNote`.
 
@@ -1232,8 +1032,212 @@ Expected: PASS. 375px check deferred to Task 10.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add frontend/components/dashboards/fra/editorial/CadenceSeoTab.jsx frontend/components/dashboards/fra/editorial/OverviewTab.jsx
+git add frontend/components/dashboards/fra/editorial/CadenceSeoTab.jsx
 git commit -m "feat: add FRA editorial CadenceSeoTab with upload pacing & tag analysis"
+```
+
+---
+
+## Task 8: Create `editorial/OverviewTab.jsx` — the whole current report
+
+**Files:**
+- Create: `frontend/components/dashboards/fra/editorial/OverviewTab.jsx`
+
+OverviewTab is the entire current single-scroll body — every section at its current depth — except the AI section, which is condensed to verdict + top-3 action items. Each section gets a "connects to" link to its deep-dive tab.
+
+OverviewTab is **pure composition**: it does **not** define the shared section bodies. Discovery, Growth, Catalog health, Content fit, Engagement, Cadence and Titles & SEO were already extracted as `export function`s by the four deep-dive tabs (Tasks 4–7); OverviewTab imports them and only adds the Overview-only pieces — the "At a glance" section, the `TabConnect` deep-dive-link primitive, and the condensed AI block. Nothing here is moved a second time.
+
+- [ ] **Step 1: Scaffold the file and imports**
+
+Create `frontend/components/dashboards/fra/editorial/OverviewTab.jsx`. The shared sections are imported from the deep-dive tab files; only the §II At a glance render body is extracted from the original `FraYoutubeDashboardEditorial.jsx`.
+
+```jsx
+"use client";
+/**
+ * Overview tab — the FRA Weekly in full. Every section of the original single-
+ * scroll report at its current depth: At a glance, Discovery, Growth, Content
+ * fit, Engagement, Cadence, Titles & SEO, Catalog health. The AI section is
+ * condensed to the verdict + top-3 action items; each section carries a
+ * "read the full analysis" link to its deep-dive tab.
+ */
+
+import * as React from "react";
+import {
+  ResponsiveContainer, ComposedChart, AreaChart, BarChart, ScatterChart,
+  Area, Bar, Line, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip,
+  Cell, ReferenceLine, LabelList,
+} from "recharts";
+import { errOf } from "@/lib/queries/fraYoutube";
+import { fmt, pct1, compact } from "../helpers";
+import {
+  ED_PAPER, ED_INK, ED_INK_SOFT, ED_INK_MUTED, ED_INK_FAINT,
+  ED_RUST, ED_FOREST, ED_GOLD, ED_RULE_FAINT,
+  edAxisProps, edGridProps, edDeltaFmt,
+  useCountUp, RevealSection, EdTooltip, SectionHead, Figure,
+  DeltaTick, DualDeltaTick, Exhibit, LedgerTable, EmptyPlate, ErrorNote,
+  insightItemText,
+} from "./primitives";
+import { fmtMonth } from "../helpers";
+import { DiscoverySection, GrowthSection, CatalogHealthSection } from "./ReachGrowthTab";
+import { ContentFitSection } from "./ContentFormatTab";
+import { EngagementSection } from "./AudienceTab";
+import { CadenceSection, TitlesSeoSection } from "./CadenceSeoTab";
+```
+
+The seven shared section components (`DiscoverySection`, `GrowthSection`, `CatalogHealthSection`, `ContentFitSection`, `EngagementSection`, `CadenceSection`, `TitlesSeoSection`) are the `export function`s defined by Tasks 4–7 — OverviewTab does not redefine them. (Recharts elements unused by the §II At-a-glance body or `TabConnect`/`OverviewInsightsCondensed` can be trimmed from the import after Step 5's build flags them — keep the full list while moving the At-a-glance code.)
+
+- [ ] **Step 2: Add the `TabConnect` link primitive**
+
+A small "connects to" rail used at the foot of each Overview section. It is Overview-specific (no other tab links *out*), so it lives in this file, not `primitives.jsx`. Add after the imports:
+
+```jsx
+/* The "connects to" link at the foot of an Overview section — sends the reader
+   to the matching deep-dive tab. Styled in the ed-section-link rail idiom. */
+function TabConnect({ label, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="ed-section-link mt-5 inline-flex items-center gap-1.5"
+      style={{ minHeight: 36, background: "none", border: "none", cursor: "pointer" }}
+    >
+      {label} <span aria-hidden>→</span>
+    </button>
+  );
+}
+```
+
+- [ ] **Step 3: Extract the §II At a glance section body**
+
+Extract the **§II At a glance** render body **directly from the original, still-intact `FraYoutubeDashboardEditorial.jsx`** (lines 697-776 — `<RevealSection … id="sec-glance">` … `</RevealSection>`), verbatim, into `OverviewTab.jsx`. This is the only section body OverviewTab itself carries — the seven shared sections (Discovery, Growth, Content fit, Engagement, Cadence, Titles & SEO, Catalog health) are imported from the deep-dive tabs and not re-extracted here.
+
+The At-a-glance block references `loading`, `errOf(data, …)`, `trend`, `reduced`, `animProps` and the derived series. They become props (see the data-prop contract above) — the section JSX itself is unchanged; only the surrounding component signature changes.
+
+- [ ] **Step 4: Assemble the `OverviewTab` component**
+
+Wrap the At-a-glance section and the imported shared sections in the tab component. OverviewTab composes them; it does not define them. Signature and shape:
+
+```jsx
+export default function OverviewTab({
+  reduced, loading, animProps, data,
+  overview, trend, catalogRow, distRow, breakoutRate, ladder, distBuckets,
+  growthSeries, growthSeriesWithReal, hasRealTrend,
+  categoryScatter, categoryRows, engagementSeries, engMean,
+  cadenceDaySeries, cadenceHourSeries, titleSeries,
+  insightsState, onNavigate,
+}) {
+  return (
+    <>
+      {/* §II At a glance — extracted verbatim from original lines 697-776 */}
+      {/* …followed by: */}
+      <TabConnect label="Reach & Growth — the full discovery analysis" onClick={() => onNavigate("reach-growth")} />
+
+      {/* §III Discovery — <DiscoverySection … /> imported from ReachGrowthTab */}
+      <TabConnect label="Reach & Growth — percentile ladder & concentration" onClick={() => onNavigate("reach-growth")} />
+
+      {/* §IV Growth — <GrowthSection … /> imported from ReachGrowthTab */}
+      <TabConnect label="Reach & Growth — monthly detail with MoM %" onClick={() => onNavigate("reach-growth")} />
+
+      {/* §V Content fit — <ContentFitSection … /> imported from ContentFormatTab */}
+      <TabConnect label="Content & Format — duration buckets & leaderboards" onClick={() => onNavigate("content-format")} />
+
+      {/* §VI Engagement — <EngagementSection … /> imported from AudienceTab */}
+      <TabConnect label="Audience — like vs comment split & engagement by duration" onClick={() => onNavigate("audience")} />
+
+      {/* §VII Cadence — <CadenceSection … /> imported from CadenceSeoTab */}
+      <TabConnect label="Cadence & SEO — upload pacing & gap stats" onClick={() => onNavigate("cadence-seo")} />
+
+      {/* §VIII Titles & SEO — <TitlesSeoSection … /> imported from CadenceSeoTab */}
+      <TabConnect label="Cadence & SEO — tag-frequency analysis" onClick={() => onNavigate("cadence-seo")} />
+
+      {/* §IX Catalog health — <CatalogHealthSection … /> imported from ReachGrowthTab */}
+      <TabConnect label="Reach & Growth — catalog health in context" onClick={() => onNavigate("reach-growth")} />
+
+      {/* Condensed AI section — verdict + top-3 actions */}
+      <OverviewInsightsCondensed insightsState={insightsState} reduced={reduced} onNavigate={onNavigate} />
+    </>
+  );
+}
+```
+
+Render each imported shared section with the `number` prop set so the sections read I–IX within the tab — At a glance is `number="I"`, `DiscoverySection` `number="II"`, `GrowthSection` `number="III"`, `ContentFitSection` `number="IV"`, `EngagementSection` `number="V"`, `CadenceSection` `number="VI"`, `TitlesSeoSection` `number="VII"`, `CatalogHealthSection` `number="VIII"`, condensed AI `number="IX"`. (Each `*Section` takes `number` as a prop — Tasks 4–7 define them that way — so Overview's I–IX numbering and the deep-dive tabs' own numbering coexist without conflict.) The section anchors (`id="sec-glance"` etc.) stay; they remain valid within-page anchors.
+
+- [ ] **Step 5: Add the condensed AI section**
+
+The Overview AI section is verdict + top-3 recommendations only (spec §4.3) — full strengths/weaknesses live in the AI Insights tab. Add this file-local component:
+
+```jsx
+/* The condensed AI block for Overview — the verdict and at most three action
+   items. The full strengths/weaknesses/recommendations live in the AI Insights
+   tab; this is the executive read. */
+function OverviewInsightsCondensed({ insightsState, reduced, onNavigate }) {
+  const { loading, error, insights } = insightsState;
+  const actions = (insights?.recommendations || []).slice(0, 3);
+  return (
+    <RevealSection reduced={reduced} id="sec-insights">
+      <SectionHead
+        number="IX"
+        italic="The verdict"
+        deck="The automated read on this snapshot, in brief — the headline call and the three moves that matter most."
+      />
+      {loading ? (
+        <div className="flex flex-col gap-3">
+          {["70%", "92%", "60%"].map((w, i) => (
+            <span key={i} className="ed-skeleton" style={{ width: w, height: "0.8em" }} aria-label="loading" />
+          ))}
+        </div>
+      ) : (
+        <>
+          {error && (
+            <p className="ed-caption mb-4" style={{ color: ED_RUST, lineHeight: 1.7 }}>
+              ⚠ The AI brief fell back to a cached read — {error}
+            </p>
+          )}
+          {insights?.verdict ? (
+            <p className="ed-lede ed-dropcap" style={{ maxWidth: "62ch" }}>{insights.verdict}</p>
+          ) : (
+            <p className="ed-prose-italic" style={{ color: ED_INK_FAINT }}>
+              No verdict available for this snapshot yet.
+            </p>
+          )}
+          {actions.length > 0 && (
+            <div className="mt-7">
+              <p className="ed-overline mb-3">TOP THREE ACTIONS</p>
+              <ul className="flex flex-col gap-3">
+                {actions.map((it, i) => (
+                  <li key={i} className="ed-prose flex gap-2.5" style={{ fontSize: 14 }}>
+                    <span className="ed-num shrink-0" style={{ color: ED_GOLD, fontWeight: 700, lineHeight: 1.5 }} aria-hidden>→</span>
+                    <span>{insightItemText(it)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => onNavigate("ai-insights")}
+            className="ed-section-link mt-6 inline-flex items-center gap-1.5"
+            style={{ minHeight: 36, background: "none", border: "none", cursor: "pointer" }}
+          >
+            AI Insights — the full strengths &amp; weaknesses read <span aria-hidden>→</span>
+          </button>
+        </>
+      )}
+    </RevealSection>
+  );
+}
+```
+
+- [ ] **Step 6: Build-verify**
+
+Run: `cd frontend && pnpm build`
+Expected: PASS. (Tab file is not yet imported by the shell — confirms it compiles and every import resolves, including the seven shared sections imported from the four deep-dive tabs created in Tasks 4–7.) Trim any genuinely unused Recharts imports the build warns about.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add frontend/components/dashboards/fra/editorial/OverviewTab.jsx
+git commit -m "feat: add FRA editorial OverviewTab — full report with deep-dive links"
 ```
 
 ---
@@ -1654,17 +1658,17 @@ git commit -m "feat: convert FRA editorial dashboard to a six-tab shell"
 - **§4.1 Navigation** — six fixed-order tabs (Overview · Reach & Growth · Content & Format · Audience · Cadence & SEO · AI Insights) → `TABS` const, Task 10 ✓. "Weekly"-idiom tab strip (mono labels, ruled, `ed-section-link` rail) → `TabStrip`, Task 10 ✓. Masthead persistent above the tab bar → shell `<header>` with `<TabStrip>` inside it, Task 10 ✓.
 - **§4.2 File organization** — thin shell → Task 10 (1449 → ~350 lines) ✓. `fra/helpers.js` theme-agnostic utility only → Task 2 ✓. `fra/editorial/` six tab components → Tasks 4–9 ✓. `fraYoutube.js` stays the single shared data layer + new specs → Task 1 ✓. No cross-theme sharing → all new code is under `fra/editorial/` or theme-agnostic in `helpers.js`; the File-Structure decision section documents why `primitives.jsx` exists and stays editorial-namespaced ✓.
 - **§4.3 Tab contents:**
-  - Overview = whole report at current depth, AI condensed to verdict + top-3, each section links to its deep-dive → Task 4 (`OverviewTab`, `TabConnect`, `OverviewInsightsCondensed`) ✓.
-  - Reach & Growth = Discovery + Growth + Catalog health in full + percentile ladder + monthly MoM → Task 5 ✓.
-  - Content & Format = Content fit in full + duration buckets + per-video leaderboards → Task 6 ✓.
-  - Audience = Engagement in full + like/comment split + engagement by duration → Task 7 ✓.
-  - Cadence & SEO = Cadence + Titles & SEO in full + upload cadence + tag analysis → Task 8 ✓.
+  - Reach & Growth = Discovery + Growth + Catalog health in full + percentile ladder + monthly MoM → Task 4 ✓.
+  - Content & Format = Content fit in full + duration buckets + per-video leaderboards → Task 5 ✓.
+  - Audience = Engagement in full + like/comment split + engagement by duration → Task 6 ✓.
+  - Cadence & SEO = Cadence + Titles & SEO in full + upload cadence + tag analysis → Task 7 ✓.
+  - Overview = whole report at current depth, AI condensed to verdict + top-3, each section links to its deep-dive → Task 8 (`OverviewTab`, `TabConnect`, `OverviewInsightsCondensed`) ✓.
   - AI Insights = full verdict + strengths/weaknesses/recommendations → Task 9 (`InsightsTab` wrapping `AiInsights`) ✓.
 - **§4.4 New data-layer query specs** — `durationBuckets`, `tagAnalysis`, `uploadCadence` (`SELECT * … latest`), `topVideosByViews` (`ORDER BY views DESC LIMIT 10`), `topVideosByEngagement` (`ORDER BY (likes+comments)/NULLIF(views,0) DESC`), `engagementOverall` (`dimension='overall'`) → Task 1 ✓. `distribution` left unchanged (already `SELECT *`) → noted in Task 1 ✓.
 
-**Net-new UI carries full code:** percentile ladder (Task 5), monthly detail with MoM (Task 5), duration-bucket chart (Task 6), both leaderboards (Task 6), like/comment split (Task 7), engagement-by-duration (Task 7), upload cadence stats (Task 8), tag-frequency/SEO analysis (Task 8) — every one has complete JSX following the existing `Figure`/`Exhibit`/`LedgerTable` patterns.
+**Net-new UI carries full code:** percentile ladder (Task 4), monthly detail with MoM (Task 4), duration-bucket chart (Task 5), both leaderboards (Task 5), like/comment split (Task 6), engagement-by-duration (Task 6), upload cadence stats (Task 7), tag-frequency/SEO analysis (Task 7) — every one has complete JSX following the existing `Figure`/`Exhibit`/`LedgerTable` patterns.
 
-**Relocated code carries precise instructions:** every moved section names its source line range in the pre-restructure `FraYoutubeDashboardEditorial.jsx` and its destination function signature. Sections reused by two editorial tabs (Discovery, Growth, Catalog health, Content fit, Engagement, Cadence, Titles & SEO) are defined once as `export function`s in their deep-dive tab and imported by `OverviewTab` — DRY within the editorial theme, no theme boundary crossed.
+**Relocated code carries precise instructions, and no section is moved twice:** every moved section names its source line range in the pre-restructure `FraYoutubeDashboardEditorial.jsx` and its destination function signature. Each shared section is extracted exactly once — directly from the original, still-intact mega-file — by the deep-dive tab that owns it (Tasks 4–7), defined there as an `export function`. `OverviewTab` (Task 8) imports those `export function`s rather than redefining them. This is DRY within the editorial theme, crosses no theme boundary, and eliminates the earlier "move into OverviewTab then move back out" round-trip.
 
 **Build stays green at every commit:** Tasks 1–9 add unreferenced modules (data specs / helpers / primitives / tab files); Task 10 wires them. Each frontend-touching task ends with an explicit `cd frontend && pnpm build` step; Task 10 adds the manual 375px + desktop visual pass.
 
