@@ -20,10 +20,10 @@ import {
 import { errOf } from "@/lib/queries/fraYoutube";
 import { fmt, pct1, compact } from "../helpers";
 import {
-  ED_INK, ED_INK_FAINT, ED_INK_MUTED, ED_FOREST, ED_RUST, ED_RULE_FAINT, ED_GOLD,
+  ED_INK, ED_INK_FAINT, ED_INK_MUTED, ED_FOREST, ED_RUST, ED_RULE_FAINT,
   edAxisProps, edGridProps,
   RevealSection, EdTooltip, SectionHead,
-  Figure, LedgerTable, EmptyPlate, ErrorNote,
+  Figure, LedgerTable, ErrorNote,
 } from "./primitives";
 
 /* ── Section V — Content fit (extracted from FraYoutubeDashboardEditorial.jsx
