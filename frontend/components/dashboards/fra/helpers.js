@@ -38,3 +38,45 @@ export const fmtMonth = (s) => {
     ? String(s ?? "")
     : `${d.toLocaleDateString("en-IN", { month: "short" })} '${m[1].slice(2)}`;
 };
+
+/**
+ * Parse a pipe-delimited recommendation string into structured label/value pairs.
+ *
+ * Input: "Lever: <lever> | Metric: <metric> | Action: <action>"
+ * Output: [{ label: "Lever", value: "<lever>" }, { label: "Metric", value: "<metric>" }, ...]
+ *
+ * If the input has no `|` and no `:` (a plain sentence — strengths/weaknesses),
+ * returns [{ label: null, value: text }] so callers can render it plainly.
+ *
+ * Pure function — no React, no JSX.
+ *
+ * @param {string} text
+ * @returns {{ label: string|null, value: string }[]}
+ */
+export function parseRecommendation(text) {
+  const str = String(text ?? "").trim();
+  if (!str) return [{ label: null, value: str }];
+
+  const hasPipe = str.includes("|");
+  const hasColon = str.includes(":");
+
+  if (!hasPipe && !hasColon) {
+    return [{ label: null, value: str }];
+  }
+
+  const segments = hasPipe ? str.split("|") : [str];
+  const parts = segments.map((seg) => {
+    const trimmed = seg.trim();
+    const colonIdx = trimmed.indexOf(":");
+    if (colonIdx === -1) return { label: null, value: trimmed };
+    const label = trimmed.slice(0, colonIdx).trim();
+    const value = trimmed.slice(colonIdx + 1).trim();
+    return { label: label || null, value };
+  });
+
+  // If every segment produced a null label, treat as plain text
+  const hasAnyLabel = parts.some((p) => p.label !== null);
+  if (!hasAnyLabel) return [{ label: null, value: str }];
+
+  return parts;
+}

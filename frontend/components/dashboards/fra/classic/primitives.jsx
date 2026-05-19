@@ -17,7 +17,7 @@ import { fetchFraInsights } from "@/lib/api";
 import {
   Card, CardBody, Badge, Skeleton,
 } from "@/components/ui";
-import { fmt } from "../helpers";
+import { fmt, parseRecommendation } from "../helpers";
 
 /* ── classic-only null-coercion helpers ──────────────────────────────────── */
 
@@ -256,7 +256,7 @@ export function AiInsightsCard({ state }) {
               <p className="t-body-sm text-tertiary">No insights available yet.</p>
             )}
 
-            <div className="grid gap-x-8 gap-y-6 md:grid-cols-3">
+            <div className="flex flex-col gap-6">
               <InsightColumn
                 heading="Strengths"
                 mark="✓"
@@ -309,13 +309,31 @@ export function InsightColumn({ heading, mark, markClass, items }) {
         {heading}
       </div>
       {items && items.length > 0 ? (
-        <ul className="flex flex-col gap-2">
-          {items.map((it, i) => (
-            <li key={i} className="t-body-sm text-body flex gap-2">
-              <span className={`shrink-0 ${markClass}`} aria-hidden>{mark}</span>
-              <span>{insightItemText(it)}</span>
-            </li>
-          ))}
+        <ul className="flex flex-col gap-3">
+          {items.map((it, i) => {
+            const text = insightItemText(it);
+            const parts = parseRecommendation(text);
+            const isStructured = parts.length > 1 || (parts.length === 1 && parts[0].label !== null);
+            return (
+              <li key={i} className="flex gap-2">
+                <span className={`shrink-0 mt-0.5 ${markClass}`} aria-hidden>{mark}</span>
+                {isStructured ? (
+                  <div className="flex flex-col gap-1">
+                    {parts.map((part, j) => (
+                      <div key={j}>
+                        {part.label && (
+                          <span className="t-overline text-tertiary mr-1">{part.label}:</span>
+                        )}
+                        <span className="t-body-sm text-body">{part.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="t-body-sm text-body">{parts[0]?.value ?? text}</span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="t-body-sm text-tertiary">Nothing noted for this snapshot.</p>
