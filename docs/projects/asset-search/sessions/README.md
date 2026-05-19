@@ -16,7 +16,7 @@ and [`roadmap.md`](../roadmap.md). Work in a dedicated worktree (standing mandat
 | [S2](./S2-shared-ui-fixes.md) | Shared UI fixes — sign-out / theme-switcher overlap + UI-break audit | — | yes | ✅ merged — [PR #50](https://github.com/purujit-grip/grip-analytics/pull/50) |
 | [S3](./S3-metabase-data-validation.md) | Validate Asset Search data points against Metabase | — | yes | ✅ merged — [PR #52](https://github.com/purujit-grip/grip-analytics/pull/52) |
 | [S4](./S4-live-data-spec.md) | Asset Search live-data — design spec (Metabase fetch + daily cron + new tables) | — | yes | ✅ done — [PR #51](https://github.com/purujit-grip/grip-analytics/pull/51) |
-| [S5](./S5-live-data-implementation.md) | Asset Search live-data — implementation | **S4** (benefits from S3) | no | ✅ done — PR open |
+| [S5](./S5-live-data-implementation.md) | Asset Search live-data — implementation | **S4** (benefits from S3) | no | ✅ done — [PR #54](https://github.com/purujit-grip/grip-analytics/pull/54) |
 
 S1–S4 are independent and can run in any order or in parallel (separate
 worktrees). S5 must follow S4.
@@ -82,7 +82,8 @@ As of 2026-05-19 — see the **Status** column in the table above:
   live-data design spec (`specs/2026-05-19-asset-search-live-data-design.md`),
   8-agent-reviewed.
 - **S5 done** — live-data implementation (5 phases: fetch core, refresh
-  registry, refresh endpoint, refresh UI, daily cron), PR open to `main`.
+  registry, refresh endpoint, refresh UI, daily cron),
+  [PR #54](https://github.com/purujit-grip/grip-analytics/pull/54) open to `main`.
   Backend 102 tests pass, `next build` clean. Pre-cutover: the Metabase
   native-query-permission check + credentialed first run are operator/CI
   steps, and the cron's GitHub Actions secrets must be set before it goes live.

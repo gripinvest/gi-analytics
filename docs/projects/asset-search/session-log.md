@@ -9,8 +9,8 @@ Read the top entry when starting a new session. Supersedes the old loose
 ## 2026-05-19 — S5: live-data implementation (PR open)
 
 **Status:** S5 complete — branch `worktree-feat+asset-search-live-data-impl`,
-PR open to `main`. Built against the S4 spec. Backend: 102 tests pass;
-`next build` clean.
+[PR #54](https://github.com/purujit-grip/grip-analytics/pull/54) open to `main`.
+Built against the S4 spec. Backend: 102 tests pass; `next build` clean.
 
 Built the Metabase → CSV → DuckDB live-data pipeline for Asset Search and its
 daily 00:00 IST refresh cron, so the dashboard always shows current data
