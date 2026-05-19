@@ -19,6 +19,7 @@ import {
 } from "recharts";
 
 import { runQuery } from "@/lib/api";
+import { useProjectRefresh, RefreshControl } from "@/components/RefreshControl";
 import * as Q from "@/lib/queries/assetSearch";
 import { METRIC_DEFS, ISSUER_MAP, ISSUER_CATEGORY } from "@/lib/queries/assetSearch";
 import * as C from "@/lib/queries/conversion";
@@ -58,7 +59,7 @@ const COHORT_W_SPECS = {
   conv_adoption: (conv) => C.weeklyAdoption(conv),
 };
 
-function useDashboard(project) {
+function useDashboard(project, nonce) {
   const grouped = React.useMemo(() => Q.groupTables(project.tables || []), [project.tables]);
   const conv = React.useMemo(() => C.conversionTables(project.tables || []), [project.tables]);
   const [state, setState] = React.useState({ loading: true, fatal: null, data: {} });
@@ -90,7 +91,8 @@ function useDashboard(project) {
       if (!cancelled) setState({ loading: false, fatal: null, data: Object.fromEntries(entries) });
     })();
     return () => { cancelled = true; };
-  }, [project.id, grouped, conv]);
+    // `nonce` bumps after a refresh — re-runs the fetch so the report updates.
+  }, [project.id, grouped, conv, nonce]);
 
   return { ...state, weeks: grouped.weeks, lastWeek: grouped.lastWeek, convOk: conv.ok };
 }
@@ -283,7 +285,8 @@ function Term({ n, children }) {
 /* ── main ──────────────────────────────────────────────────────────────────── */
 
 export default function AssetSearchDashboardEditorial({ project }) {
-  const { loading, fatal, data, weeks, lastWeek, convOk } = useDashboard(project);
+  const refreshState = useProjectRefresh(project);
+  const { loading, fatal, data, weeks, lastWeek, convOk } = useDashboard(project, refreshState.nonce);
 
   // ── headline numbers ─────────────────────────────────────────────────────
   const health = rowsOf(data, "health");
@@ -417,6 +420,9 @@ export default function AssetSearchDashboardEditorial({ project }) {
             </>
           )}
         </p>
+        {/* live-data refresh — present only when project.refreshable is true */}
+        <RefreshControl project={project} state={refreshState} variant="editorial" />
+
         {/* Week glossary — feature weeks are counted from the Apr 2 2026 launch,
             NOT ISO calendar weeks. All six weeks are now complete (W6 = May 7–13). */}
         <p className="ed-caption mt-4" style={{ lineHeight: 1.8 }}>

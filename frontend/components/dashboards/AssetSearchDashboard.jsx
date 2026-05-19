@@ -49,6 +49,7 @@ function Metric({ k, children, align }) {
   );
 }
 import { ChartCard, TooltipBox, axisProps, gridProps } from "@/components/charts";
+import { useProjectRefresh, RefreshControl } from "@/components/RefreshControl";
 
 /* ── data loading ─────────────────────────────────────────────────────────── */
 
@@ -90,7 +91,7 @@ const COHORT_W_SPECS = {
   conv_adoption: (conv) => C.weeklyAdoption(conv),
 };
 
-function useDashboard(project) {
+function useDashboard(project, nonce) {
   const grouped = React.useMemo(() => Q.groupTables(project.tables || []), [project.tables]);
   const conv = React.useMemo(() => C.conversionTables(project.tables || []), [project.tables]);
   const [state, setState] = React.useState({ loading: true, fatal: null, data: {} });
@@ -122,7 +123,8 @@ function useDashboard(project) {
       if (!cancelled) setState({ loading: false, fatal: null, data: Object.fromEntries(entries) });
     })();
     return () => { cancelled = true; };
-  }, [project.id, grouped, conv]);
+    // `nonce` bumps after a refresh — re-runs the fetch so the report updates.
+  }, [project.id, grouped, conv, nonce]);
 
   return { ...state, weeks: grouped.weeks, lastWeek: grouped.lastWeek, convOk: conv.ok };
 }
@@ -156,7 +158,8 @@ function DeltaChip({ from, to, goodIsDown = true, suffix = "" }) {
 /* ── component ────────────────────────────────────────────────────────────── */
 
 export default function AssetSearchDashboard({ project }) {
-  const { loading, fatal, data, weeks, lastWeek, convOk } = useDashboard(project);
+  const refreshState = useProjectRefresh(project);
+  const { loading, fatal, data, weeks, lastWeek, convOk } = useDashboard(project, refreshState.nonce);
 
   const health = rowsOf(data, "health");
   const funnel = rowsOf(data, "funnel");
@@ -232,6 +235,9 @@ export default function AssetSearchDashboard({ project }) {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* live-data refresh — present only when project.refreshable is true */}
+      <RefreshControl project={project} state={refreshState} variant="classic" />
+
       {/* headline stat strip — inline, not a card grid */}
       <Card pad="lg">
         {loading ? (
