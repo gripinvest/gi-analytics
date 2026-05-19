@@ -12,19 +12,42 @@
 
 ## 0. Validation status
 
-Validated against the **local W1–W6 CSV exports** — there is no live Metabase
-connection wired into this workspace, so the not-yet-exported tables (§3) could
-not be schema-checked.
+A deterministic validation harness now exists —
+`backend/services/integrations/validate_asset_search.py` — which re-computes
+every dashboard metric from the local W1–W6 CSVs and, in `metabase` mode, from
+the live `client_web` schema, then diffs them under a two-tier verdict policy
+(exact / minor-drift / discrepant). Run `--local-only` for the no-credentials
+baseline; the credentialed Metabase diff is a CI / operator job (S3 discipline).
+Latest output: [`metabase-validation-report.md`](./metabase-validation-report.md).
 
-| Claim | Result |
-|-------|--------|
-| `asset_search_query` ~30K | ✅ 29,582 rows W1–W6 |
-| `asset_search_empty_state` ~12K | ✅ 12,845 |
-| `asset_search_result_clicked` ~4.5K | ✅ 4,384 |
-| `asset_search_cleared` ~3K | ✅ 3,282 |
-| `asset_search_initiated` ~8K | ⚠️ **estimate stale** — 10,294 rows in W1–W6 alone |
-| `asset_search_suggestion_clicked` ~700 | ⚠️ low — 887 in W1–W6 |
+**Row counts — W1–W6, raw `COUNT(*)`** (corrected — see the F1 note below;
+confirmed against the deployed CSVs by the harness's §0 regression guard):
+
+| Table | W1–W6 rows | Status |
+|-------|-----------:|--------|
+| `asset_search_query` | 26,544 | ✅ matches deployed data |
+| `asset_search_empty_state` | 11,509 | ✅ matches deployed data |
+| `asset_search_result_clicked` | 3,897 | ✅ matches deployed data |
+| `asset_search_cleared` | 2,967 | ✅ matches deployed data |
+| `asset_search_initiated` | 9,252 | ✅ matches deployed data |
+| `asset_search_suggestion_clicked` | 804 | ✅ matches deployed data |
 | `asset_search_cleared` carries `had_results`/`any_result_clicked`/`query_text_at_clear` | ❌ **only W4 onward** — see §2a |
+
+> **Pending:** the rows above are confirmed against the local CSVs the dashboard
+> ships. The local↔Metabase diff (these counts against the live `client_web`
+> tables, plus every metric in §6) is computed by the harness but awaits the
+> credentialed run — every check is `PENDING` in the current report.
+
+**⚠️ F1 — the earlier §0 row counts were overstated (corrected 19 May 2026).**
+The previous figures (`query` 29,582 / `empty_state` 12,845 / `result_clicked`
+4,384 / `cleared` 3,282 / `initiated` 10,294 / `suggestion_clicked` 887) were
+summed from `metabase-connect/`, which holds **two** W6 exports — a superseded
+partial (`W6_may07-may11`) and the full week (`W6_may07-may13`) — and the
+partial was counted on top of the full week. The dashboard's deployed data
+(`backend/data/asset_search/`, full W6 only) was always correct; only this doc
+was wrong. Verified exactly for all six events (e.g. 26,544 + 3,038 partial =
+29,582). The §6 metric trends are unaffected — they are computed per-week from
+the same correct deployed data.
 
 **Schema change mid-window (important):** the `asset_search_cleared` export
 schema changed. W1–W3 exports are **4-column** (`timestamp`,
@@ -165,23 +188,36 @@ extended to Asset Search — see [`roadmap.md`](./roadmap.md), not hand-exported
 
 ## 6. Metric coverage
 
-| Metric | Computable now | Notes |
-|--------|:--------------:|-------|
-| **Session-outcome funnel** (success / relevance-gap / dead-end) | ✅ | **Primary metric.** Live from `asset_search_query` + `result_clicked`; exact all weeks. |
-| Search Success Rate | ✅ | Headline; clicked-result share of searched sessions. |
-| Search adoption rate | ✅ | `view_assets` users → `search_initiated` users |
-| ZRR (query-level) | ✅ | `asset_search_query.results_count` |
-| Refinement rate | ✅ | `asset_search_query.is_refinement` |
-| Position bias | ✅ | `asset_search_result_clicked.result_position` |
-| Suggestion CTR | ✅ | `suggestion_clicked` / `initiated` |
-| Search CVR (invest-now level), same-day | ✅ | invest events / search users, same day |
-| Search lift vs browse CVR | ✅ | with `view_assets` denominator |
-| `cleared`-based true abandonment / relevance gap | ⚠️ secondary | Exact W4+ only; **understates failure ~10×** vs the outcome funnel. Demoted to a friction signal — not the primary metric. |
-| Search → payment-page rate | ❌ | needs `view_payment_page_loaded` |
-| True payment completion | ❌ | needs `view_payment_status_page` (schema check) |
-| Search → payment value | ❌ | needs `payble_amount` joined to search |
-| Cross-day attribution | ❌→🟡 | doable now with a 7-day `anonymous_id` join |
-| FTI rate via search | ❌ | needs `new_user_order` |
+The **Validation** column maps each metric to the check that exercises it in
+`validate_asset_search.py`. Every ✅ metric has a check; the harness computes
+the local-CSV baseline (committed in
+[`metabase-validation-report.md`](./metabase-validation-report.md)) and, on the
+credentialed run, the live-Metabase diff. Status `baseline ✅ / Metabase ⏳`
+means the local computation is confirmed and the Metabase diff is pending.
+
+| Metric | Computable now | Validation check | Notes |
+|--------|:--------------:|------------------|-------|
+| **Session-outcome funnel** (success / relevance-gap / dead-end) | ✅ | `session_outcome`, `issuer_outcome` — baseline ✅ / Metabase ⏳ | **Primary metric.** Live from `asset_search_query` + `result_clicked`; exact all weeks. |
+| Search Success Rate | ✅ | `session_outcome` (`success_pct`) — baseline ✅ / Metabase ⏳ | Headline; clicked-result share of searched sessions. |
+| Search adoption rate | ✅ | `adoption` — **informational** | Local base is the derived `assets_page_views`; Metabase side is raw `view_assets` (~88–95% distinct-user overlap by design) — never marked discrepant. |
+| ZRR (query-level) | ✅ | `query_health` (`zrr_pct`) — baseline ✅ / Metabase ⏳ | `asset_search_query.results_count` |
+| Refinement rate | ✅ | `query_health` (`refinement_pct`) — baseline ✅ / Metabase ⏳ | `asset_search_query.is_refinement` |
+| Position bias | ✅ | `clicks_by_position` — baseline ✅ / Metabase ⏳ | `asset_search_result_clicked.result_position` |
+| Suggestion CTR | ✅ | `suggestions` — baseline ✅ / Metabase ⏳ | `suggestion_clicked` / `initiated` |
+| Search CVR (invest-now level), same-day | ✅ | `conversion_by_week`, `search_to_invest` — baseline ✅ / Metabase ⏳ | invest events / search users, same IST day |
+| Search lift vs browse CVR | ✅ | `conversion_by_week` (atoms) — baseline ✅ / Metabase ⏳ | Cohort lift is derived from the validated atoms; the launch-week cohort table (`14_…`) is a pre-computed export with no raw Metabase table. |
+| `cleared`-based true abandonment / relevance gap | ⚠️ secondary | `clears` (event count) — baseline ✅ / Metabase ⏳ | Exact W4+ only; **understates failure ~10×** vs the outcome funnel. Demoted to a friction signal — not the primary metric. |
+| Search → payment-page rate | ❌ | n/a — table not exported | needs `view_payment_page_loaded` |
+| True payment completion | ❌ | n/a — table not exported | needs `view_payment_status_page` (schema check) |
+| Search → payment value | ❌ | n/a — table not exported | needs `payble_amount` joined to search |
+| Cross-day attribution | ❌→🟡 | n/a — not yet built | doable now with a 7-day `anonymous_id` join |
+| FTI rate via search | ❌ | n/a — table not exported | needs `new_user_order` |
+
+Raw event-table volumes (§2) are covered by the `vol_*` checks. The pre-computed
+export rollups `10_daily_funnel_summary`, `13_asset_click_aggregated` and
+`14_conversion_cohort_summary` have no raw Metabase table — they are validated
+transitively through the raw events they derive from; re-deriving them belongs
+to the S4/S5 fetch pipeline.
 
 ---
 
