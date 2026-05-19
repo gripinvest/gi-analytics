@@ -8,7 +8,7 @@ to comma strings so they survive CSV round-trips.
 """
 from collections import defaultdict
 from datetime import datetime, timedelta
-from services.integrations.fra_classify import classify_video
+from services.integrations.fra_classify import classify_video, classify_tag
 from services.integrations.fra_metrics import gini, median, percentile, safe_div
 
 # v1: FRA only. Add competitor handles here for the deferred comparison tab.
@@ -275,6 +275,33 @@ def build_title_patterns(video_rows) -> list[dict]:
                     "video_count": len(group),
                     "avg_views": round(safe_div(sum(views), len(views)), 1),
                 })
+    return out
+
+
+def build_tag_analysis(video_rows, top_n=30) -> list[dict]:
+    """Per channel: tag frequency across the library, ranked, capped at top N,
+    each with a keyword-classified tag_type. The `tags` field is a comma-joined
+    string from build_layer1; it is split and trimmed here."""
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        snap = vids[0]["snapshot_date"]
+        counts = defaultdict(int)
+        for v in vids:
+            for raw in str(v["tags"]).split(","):
+                tag = raw.strip().lower()
+                if tag:
+                    counts[tag] += 1
+        ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:top_n]
+        for tag, freq in ranked:
+            out.append({
+                "channel_handle": handle,
+                "snapshot_date": snap,
+                "tag": tag,
+                "frequency": freq,
+                "tag_type": classify_tag(tag),
+            })
     return out
 
 
