@@ -16,16 +16,15 @@ class FakeClient:
         self.fail_tables = set(fail_tables)
         self.queries: list[str] = []
 
-    def run_sql(self, database_id, sql, raw_columns=False):
+    def run_native_export(self, database_id, sql):
         self.queries.append(sql)
         for t in self.fail_tables:
             if f"client_web.{t}" in sql:
                 raise MetabaseError(f"boom {t}")
         for t, rows in self.rows_by_table.items():
             if f"client_web.{t}\n" in sql or f"client_web.{t} " in sql:
-                cols = list(rows[0].keys()) if rows else []
-                return [dict(r) for r in rows], cols
-        return [], []
+                return [dict(r) for r in rows]
+        return []
 
 
 # ── SQL template ────────────────────────────────────────────────────────────

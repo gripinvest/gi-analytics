@@ -6,7 +6,8 @@ and `assetSearch.js`'s `groupTables()` already expect.
 
 Design: `docs/projects/asset-search/specs/2026-05-19-asset-search-live-data-design.md`.
 Key decisions carried here:
-  · D1 — fetch by native SQL via `MetabaseClient.run_sql` (not saved cards).
+  · D1 — fetch by native SQL via `MetabaseClient.run_native_export` (the
+         uncapped export endpoint — `/api/dataset` truncates at 2000 rows).
   · D3 — each run fetches the current + prior feature week; older weeks frozen.
   · D5 — whole-week CSV is rewritten atomically; no row-level upsert.
   · D7 — search events fetched daily; heavy browse/conversion tables weekly.
@@ -121,7 +122,10 @@ def build_layer1(client, weeks: list[int], *, include_weekly: bool = False,
             stem = f"{feature_week.label(n)}_{ev.stem}"
             sql = build_sql(ev.source_table, start, end, ev.has_user_id)
             try:
-                rows, _cols = client.run_sql(database_id, sql, raw_columns=True)
+                # Export endpoint, not run_sql: a feature week of a busy table
+                # exceeds /api/dataset's 2000-row cap and would silently
+                # truncate (a week of `view_assets` is ~68k rows).
+                rows = client.run_native_export(database_id, sql)
             except (MetabaseError, Exception) as exc:  # noqa: BLE001 — log & continue
                 failures += 1
                 log.append(f"FAIL {stem}: {exc}")
