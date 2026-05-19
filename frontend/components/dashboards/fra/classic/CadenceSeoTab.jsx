@@ -17,7 +17,7 @@ import { errOf } from "@/lib/queries/fraYoutube";
 import { color, chartPalette } from "@/lib/tokens";
 import {
   Card, CardHeader, CardTitle, CardSubtitle, CardBody,
-  Badge, Stat, StatStrip, Skeleton,
+  Stat, StatStrip, Skeleton,
 } from "@/components/ui";
 import { ChartCard, TooltipBox, axisProps, gridProps } from "@/components/charts";
 import { fmt, compact } from "../helpers";
