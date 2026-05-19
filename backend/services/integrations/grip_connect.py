@@ -5,11 +5,24 @@ Layer 2 = derived dashboard tables (North Star, reg-to-KYC funnel).
 Card IDs, partner list and RETENTION_FIELD_MAP are lifted from
 gc-analyst's metabase_fetch.py.
 """
+import json
 import math
-from datetime import date
+from datetime import date, datetime, timezone
+from pathlib import Path
 from .transforms import (
     compute_mtd_from_dod, detect_dod_date_column, detect_dod_aum_column, to_float,
 )
+
+# Natural keys per canonical table — used by upsert accumulation.
+KEYS = {
+    "card_3841_summary_wow":  ["partner", "week"],
+    "card_4499_kyc_funnel":   ["partner", "week"],
+    "card_3843_summary_dod":  ["partner", "day"],
+    "card_5042_retention_d1": ["partner"],
+    "card_5046_retention_d2": ["partner"],
+    "01_north_star":          ["partner", "metric"],
+    "02_reg_to_kyc":          ["partner"],
+}
 
 # Card registry — keyed by a stable short name. (metabase_fetch.py:35-54 + 5042/5046)
 CARDS = {
@@ -146,3 +159,35 @@ def _as_pct(frac):
     if f is None or not math.isfinite(f):
         return None
     return round(100.0 * f, 2)
+
+
+def run(client, data_dir, *, partners=PARTNERS, active_week_start=None) -> dict:
+    """Registry entry point (spec D6) — fetch -> accumulate -> derive -> write
+    CSVs + manifest. Returns {status, log, refreshed_at}.
+
+    This is the body that used to live in refresh.run_refresh; only its home
+    moved (refresh.py is now a per-project dispatcher). Behaviour unchanged —
+    the `partners` / `active_week_start` kwargs keep their old defaults so the
+    registry can call `run(client, data_dir)` and tests can still pin them.
+    """
+    from .accumulate import upsert_csv
+    data_dir = Path(data_dir)
+    active_week_start = active_week_start or date.today()
+    log: list[str] = []
+
+    layer1 = build_layer1(client, partners=partners)
+    for table, rows in layer1.items():
+        upsert_csv(data_dir / f"{table}.csv", rows, key=KEYS.get(table, ["partner"]))
+        log.append(f"{table}: {len(rows)} rows")
+
+    layer2 = build_layer2(layer1, partners=partners, active_week_start=active_week_start)
+    for table, rows in layer2.items():
+        upsert_csv(data_dir / f"{table}.csv", rows, key=KEYS.get(table, ["partner"]))
+        log.append(f"{table}: {len(rows)} rows")
+
+    now = datetime.now(timezone.utc).isoformat()
+    all_tables = list(layer1) + list(layer2)
+    manifest = {"refreshed_at": now,
+                "tables": {t: {"last_refreshed_at": now} for t in all_tables}}
+    (data_dir / "_manifest.json").write_text(json.dumps(manifest, indent=2))
+    return {"status": "ok", "log": log, "refreshed_at": now}

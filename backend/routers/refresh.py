@@ -32,7 +32,7 @@ def _run_job(job_id: str, project_id: str):
         client = MetabaseClient(base)
         client.login(email, password)
         csv_dir = DATA_DIR / project_id
-        result = refresh_mod.run_refresh(client, csv_dir)
+        result = refresh_mod.run_refresh(project_id, client, csv_dir)
         db.load_csvs_for_project(project_id, csv_dir)  # reload DuckDB
         job.update(status="done", log=result["log"],
                    finished_at=datetime.now(timezone.utc).isoformat())

@@ -3,9 +3,10 @@ import time
 from fastapi.testclient import TestClient
 
 
-def _app(monkeypatch):
+def _app(monkeypatch, calls=None):
     """Build an app with the refresh router, with all I/O stubbed out:
-    no network (Metabase login), no real fetch, no DuckDB reload."""
+    no network (Metabase login), no real fetch, no DuckDB reload.
+    `calls` — optional list the stubbed run_refresh appends its args to."""
     monkeypatch.setenv("METABASE_EMAIL", "test@x.com")
     monkeypatch.setenv("METABASE_PASSWORD", "pw")
 
@@ -13,8 +14,13 @@ def _app(monkeypatch):
     monkeypatch.setattr(mb.MetabaseClient, "login", lambda self, e, p: "tok")
 
     import services.integrations.refresh as refresh_mod
-    monkeypatch.setattr(refresh_mod, "run_refresh",
-                        lambda *a, **k: {"status": "ok", "log": ["done"], "refreshed_at": "now"})
+
+    def _stub_run_refresh(*args, **kwargs):
+        if calls is not None:
+            calls.append(args)
+        return {"status": "ok", "log": ["done"], "refreshed_at": "now"}
+
+    monkeypatch.setattr(refresh_mod, "run_refresh", _stub_run_refresh)
 
     import services.duck as duck_mod
     monkeypatch.setattr(duck_mod.db, "load_csvs_for_project", lambda *a, **k: None)
@@ -50,3 +56,13 @@ def test_poll_refresh_reports_status(monkeypatch):
     job_id = client.post("/api/projects/proj_b/refresh").json()["job_id"]
     final = _wait_terminal(client, "proj_b", job_id)
     assert final == "done"
+
+
+def test_refresh_dispatches_project_id_to_run_refresh(monkeypatch):
+    # The router must pass the project_id as run_refresh's first arg
+    # (spec D6) so the registry dispatches to the right project.
+    calls: list = []
+    client = TestClient(_app(monkeypatch, calls=calls))
+    job_id = client.post("/api/projects/asset_search/refresh").json()["job_id"]
+    _wait_terminal(client, "asset_search", job_id)
+    assert calls and calls[0][0] == "asset_search"

@@ -1,6 +1,10 @@
 import json
 from datetime import date
-from services.integrations.refresh import run_refresh
+
+import pytest
+
+from services.integrations import grip_connect
+from services.integrations.refresh import REGISTRY, run_refresh
 
 
 class FakeClient:
@@ -17,12 +21,29 @@ class FakeClient:
         return list(canned.get(card_id, [])), []
 
 
-def test_run_refresh_writes_csvs_and_manifest(tmp_path):
-    result = run_refresh(FakeClient(), data_dir=tmp_path, partners=["ET money"],
-                         active_week_start=date(2026, 5, 11))
+def test_grip_connect_run_writes_csvs_and_manifest(tmp_path):
+    # GC regression gate (spec §16 Phase 2): the GC fetch must behave exactly
+    # as before, now that its body lives in grip_connect.run().
+    result = grip_connect.run(FakeClient(), tmp_path, partners=["ET money"],
+                              active_week_start=date(2026, 5, 11))
     assert (tmp_path / "card_3841_summary_wow.csv").exists()
     assert (tmp_path / "01_north_star.csv").exists()
     manifest = json.loads((tmp_path / "_manifest.json").read_text())
     assert "01_north_star" in manifest["tables"]
     assert manifest["tables"]["01_north_star"]["last_refreshed_at"]
     assert result["status"] == "ok"
+
+
+def test_run_refresh_dispatches_by_project(tmp_path):
+    result = run_refresh("grip_connect", FakeClient(), tmp_path)
+    assert result["status"] == "ok"
+    assert (tmp_path / "01_north_star.csv").exists()
+
+
+def test_run_refresh_unknown_project_raises():
+    with pytest.raises(ValueError, match="no refresh runner"):
+        run_refresh("not_a_project", FakeClient(), "/tmp")
+
+
+def test_registry_has_both_projects():
+    assert set(REGISTRY) == {"grip_connect", "asset_search"}

@@ -1,74 +1,63 @@
-"""Refresh runner — the single source of truth, two entry points:
+"""Refresh runner — a per-project registry with two entry points (spec D6):
   · imported by the refresh endpoint (routers/refresh.py)
-  · run standalone:  python -m services.integrations.refresh
+  · run standalone:  python -m services.integrations.refresh <project_id>
+
+Each project's fetch module exposes `run(client, data_dir) -> {status, log,
+refreshed_at}`; `refresh.py` only dispatches. Adding a project = one REGISTRY
+entry — no edit to the existing projects' code paths.
 """
-import json
 import os
 import sys
-from datetime import date, datetime, timezone
 from pathlib import Path
 
-from .grip_connect import CARDS, PARTNERS, build_layer1, build_layer2
+from . import asset_search, grip_connect
 from .metabase import MetabaseClient
 
-# Natural keys per canonical table — used by upsert accumulation.
-KEYS = {
-    "card_3841_summary_wow":  ["partner", "week"],
-    "card_4499_kyc_funnel":   ["partner", "week"],
-    "card_3843_summary_dod":  ["partner", "day"],
-    "card_5042_retention_d1": ["partner"],
-    "card_5046_retention_d2": ["partner"],
-    "01_north_star":          ["partner", "metric"],
-    "02_reg_to_kyc":          ["partner"],
+# project_id -> run callable. Signature: run(client, data_dir) -> dict.
+REGISTRY = {
+    "grip_connect": grip_connect.run,
+    "asset_search": asset_search.run,
 }
 
 
-def run_refresh(client, data_dir, partners=PARTNERS, active_week_start=None) -> dict:
-    """Fetch -> accumulate -> derive -> write CSVs + manifest. Returns a summary.
-
-    NOTE: the exact `week`/`date` column names are confirmed against a live card
-    response in the first run (spec §16). If a card's week column is not literally
-    `week`/`date`, adjust KEYS above — this is the one Phase-1 pin.
-    """
-    from .accumulate import upsert_csv  # local import keeps this importable w/o cycles
-    data_dir = Path(data_dir)
-    active_week_start = active_week_start or date.today()
-    log: list[str] = []
-
-    layer1 = build_layer1(client, partners=partners)
-    for table, rows in layer1.items():
-        upsert_csv(data_dir / f"{table}.csv", rows, key=KEYS.get(table, ["partner"]))
-        log.append(f"{table}: {len(rows)} rows")
-
-    layer2 = build_layer2(layer1, partners=partners, active_week_start=active_week_start)
-    for table, rows in layer2.items():
-        upsert_csv(data_dir / f"{table}.csv", rows, key=KEYS.get(table, ["partner"]))
-        log.append(f"{table}: {len(rows)} rows")
-
-    now = datetime.now(timezone.utc).isoformat()
-    all_tables = list(layer1) + list(layer2)
-    manifest = {"refreshed_at": now,
-                "tables": {t: {"last_refreshed_at": now} for t in all_tables}}
-    (data_dir / "_manifest.json").write_text(json.dumps(manifest, indent=2))
-    return {"status": "ok", "log": log, "refreshed_at": now}
+def run_refresh(project_id: str, client, data_dir) -> dict:
+    """Dispatch a refresh to the project's fetch module."""
+    runner = REGISTRY.get(project_id)
+    if runner is None:
+        raise ValueError(
+            f"no refresh runner registered for project '{project_id}' — "
+            f"one of {sorted(REGISTRY)}")
+    return runner(client, data_dir)
 
 
-def main() -> int:
-    # Standalone CLI: load .env so METABASE_* are available (the FastAPI app
-    # loads it in main.py; the GitHub Action injects real env vars instead).
+def main(argv: list[str] | None = None) -> int:
+    """Standalone CLI: `python -m services.integrations.refresh [project_id]`.
+    project_id defaults to `grip_connect` so the existing GC workflow, which
+    passes no argument, keeps working unchanged."""
     from dotenv import load_dotenv
     load_dotenv()
-    base = os.getenv("METABASE_URL", "https://metabase.gripinvest.in")
-    email, password = os.getenv("METABASE_EMAIL"), os.getenv("METABASE_PASSWORD")
-    if not email or not password:
-        print("ERROR: set METABASE_EMAIL and METABASE_PASSWORD", file=sys.stderr)
+    argv = sys.argv[1:] if argv is None else argv
+    project_id = argv[0] if argv else "grip_connect"
+    if project_id not in REGISTRY:
+        print(f"ERROR: unknown project '{project_id}' — one of {sorted(REGISTRY)}",
+              file=sys.stderr)
         return 1
-    client = MetabaseClient(base)
-    client.login(email, password)
-    data_dir = Path(os.getenv("DATA_DIR", "./data")) / "grip_connect"
-    result = run_refresh(client, data_dir)
+
+    base = os.getenv("METABASE_URL", "https://metabase.gripinvest.in")
+    api_key = os.getenv("METABASE_API_KEY")
+    email, password = os.getenv("METABASE_EMAIL"), os.getenv("METABASE_PASSWORD")
+    if not api_key and not (email and password):
+        print("ERROR: set METABASE_API_KEY, or METABASE_EMAIL and METABASE_PASSWORD",
+              file=sys.stderr)
+        return 1
+    client = MetabaseClient(base, api_key=api_key)
+    if not api_key:
+        client.login(email, password)
+
+    data_dir = Path(os.getenv("DATA_DIR", "./data")) / project_id
+    result = run_refresh(project_id, client, data_dir)
     print("\n".join(result["log"]))
-    print(f"Done — {result['refreshed_at']}")
+    print(f"Done ({result['status']}) — {result['refreshed_at']}")
     return 0
 
 
