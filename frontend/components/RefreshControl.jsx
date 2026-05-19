@@ -28,6 +28,13 @@ function fmtAsOf(iso) {
 // a slow run, so a healthy dashboard never trips the warning.
 const STALE_AFTER_HOURS = 26;
 
+// Refresh-job polling budget — MAX_POLLS × POLL_INTERVAL_MS = a 5-minute ceiling.
+const POLL_INTERVAL_MS = 2000;
+const MAX_POLLS = 150;
+// Spec §12: the Refresh button stays disabled for 60 s after a refresh
+// completes, so a viewer cannot hammer Metabase with back-to-back pulls.
+const REFRESH_COOLDOWN_MS = 60_000;
+
 /* Refresh controller hook. Mirrors GripConnect's in-component logic so the
    two dashboards behave identically: POST a refresh, poll to completion,
    then bump `nonce`. Returns the state machine, the current "as of" stamp,
@@ -38,6 +45,7 @@ export function useProjectRefresh(project) {
     (project.manifest && project.manifest.refreshed_at) || null
   );
   const [nonce, setNonce] = React.useState(0);
+  const [cooldownUntil, setCooldownUntil] = React.useState(0);
 
   const handleRefresh = React.useCallback(async () => {
     setRefresh({ state: "running", error: null });
@@ -45,8 +53,8 @@ export function useProjectRefresh(project) {
       const { job_id } = await refreshProject(project.id);
       if (!job_id) throw new Error("no job id returned");
       let done = null;
-      for (let i = 0; i < 150 && !done; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
+      for (let i = 0; i < MAX_POLLS && !done; i++) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
         const p = await pollRefresh(project.id, job_id);
         if (p.status === "done") done = p;
         else if (p.status === "error") {
@@ -58,7 +66,11 @@ export function useProjectRefresh(project) {
       setNonce((n) => n + 1);
       setAsOf(done.finished_at || new Date().toISOString());
       setRefresh({ state: "done", error: null });
+      // 60 s cooldown — keep the button disabled even after the "done" chip
+      // clears (spec §12). setCooldownUntil(0) at expiry re-renders to re-enable.
+      setCooldownUntil(Date.now() + REFRESH_COOLDOWN_MS);
       setTimeout(() => setRefresh({ state: "idle", error: null }), 3000);
+      setTimeout(() => setCooldownUntil(0), REFRESH_COOLDOWN_MS);
     } catch (e) {
       setRefresh({ state: "error", error: String((e && e.message) || e) });
     }
@@ -71,7 +83,7 @@ export function useProjectRefresh(project) {
     return (Date.now() - t) / 3600000 > STALE_AFTER_HOURS;
   }, [asOf]);
 
-  return { refresh, asOf, nonce, stale, handleRefresh };
+  return { refresh, asOf, nonce, stale, cooldownUntil, handleRefresh };
 }
 
 /* Presentational control. `state` is the object returned by useProjectRefresh;
@@ -79,8 +91,10 @@ export function useProjectRefresh(project) {
    project without live data (refreshable !== true). */
 export function RefreshControl({ project, state, variant = "classic" }) {
   if (!project || project.refreshable !== true) return null;
-  const { refresh, asOf, stale, handleRefresh } = state;
+  const { refresh, asOf, stale, cooldownUntil, handleRefresh } = state;
   const running = refresh.state === "running";
+  // Disabled while a job runs and through the 60 s post-refresh cooldown.
+  const disabled = running || (cooldownUntil || 0) > Date.now();
 
   if (variant === "editorial") {
     return (
@@ -88,7 +102,7 @@ export function RefreshControl({ project, state, variant = "classic" }) {
         <button
           type="button"
           onClick={handleRefresh}
-          disabled={running}
+          disabled={disabled}
           className="ed-btn ed-btn-ghost"
           style={{ minHeight: 44, minWidth: 44, fontSize: 12 }}
         >
@@ -123,7 +137,7 @@ export function RefreshControl({ project, state, variant = "classic" }) {
         size="md"
         className="min-h-[44px]"
         onClick={handleRefresh}
-        disabled={running}
+        disabled={disabled}
       >
         {running ? "Refreshing…" : "Refresh data ↻"}
       </Button>

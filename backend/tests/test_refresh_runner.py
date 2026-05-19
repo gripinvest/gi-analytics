@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 
 from services.integrations import grip_connect
-from services.integrations.refresh import REGISTRY, run_refresh
+from services.integrations.refresh import REGISTRY, VALIDATORS, run_refresh
 
 
 class FakeClient:
@@ -47,3 +47,9 @@ def test_run_refresh_unknown_project_raises():
 
 def test_registry_has_both_projects():
     assert set(REGISTRY) == {"grip_connect", "asset_search"}
+
+
+def test_validators_registry_wires_asset_search():
+    # The --validate CLI step dispatches through VALIDATORS (spec §14).
+    from services.integrations import asset_search
+    assert VALIDATORS["asset_search"] is asset_search.validate_data_dir

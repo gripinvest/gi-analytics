@@ -25,12 +25,19 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 def _run_job(job_id: str, project_id: str):
     job = _JOBS[job_id]
     try:
+        # Auth mirrors the CLI (services/integrations/refresh.py): prefer a
+        # service-account API key, fall back to email/password. Without this
+        # the manual Refresh button would break whenever only METABASE_API_KEY
+        # is configured — the credential the daily cron is meant to use.
         base = os.getenv("METABASE_URL", "https://metabase.gripinvest.in")
+        api_key = os.getenv("METABASE_API_KEY")
         email, password = os.getenv("METABASE_EMAIL"), os.getenv("METABASE_PASSWORD")
-        if not email or not password:
-            raise RuntimeError("METABASE_EMAIL/METABASE_PASSWORD not set")
-        client = MetabaseClient(base)
-        client.login(email, password)
+        if not api_key and not (email and password):
+            raise RuntimeError(
+                "Set METABASE_API_KEY, or METABASE_EMAIL and METABASE_PASSWORD")
+        client = MetabaseClient(base, api_key=api_key)
+        if not api_key:
+            client.login(email, password)
         csv_dir = DATA_DIR / project_id
         result = refresh_mod.run_refresh(project_id, client, csv_dir)
         db.load_csvs_for_project(project_id, csv_dir)  # reload DuckDB

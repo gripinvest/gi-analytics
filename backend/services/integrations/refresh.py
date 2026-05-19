@@ -19,6 +19,13 @@ REGISTRY = {
     "asset_search": asset_search.run,
 }
 
+# project_id -> post-fetch validator. Signature: validate(data_dir) -> list[str]
+# (a non-empty list means the fetch output is suspect). Run by `--validate`
+# after a refresh; a project absent here simply has no `--validate` support.
+VALIDATORS = {
+    "asset_search": asset_search.validate_data_dir,
+}
+
 
 def run_refresh(project_id: str, client, data_dir) -> dict:
     """Dispatch a refresh to the project's fetch module."""
@@ -31,13 +38,18 @@ def run_refresh(project_id: str, client, data_dir) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Standalone CLI: `python -m services.integrations.refresh [project_id]`.
+    """Standalone CLI: `python -m services.integrations.refresh [project_id] [--validate]`.
     project_id defaults to `grip_connect` so the existing GC workflow, which
-    passes no argument, keeps working unchanged."""
+    passes no argument, keeps working unchanged. `--validate` runs the
+    project's post-fetch validator after the refresh and exits non-zero if it
+    finds anything wrong — so a cron step can block a bad commit (spec §14)."""
     from dotenv import load_dotenv
     load_dotenv()
     argv = sys.argv[1:] if argv is None else argv
-    project_id = argv[0] if argv else "grip_connect"
+    flags = {a for a in argv if a.startswith("--")}
+    positional = [a for a in argv if not a.startswith("--")]
+    project_id = positional[0] if positional else "grip_connect"
+    do_validate = "--validate" in flags
     if project_id not in REGISTRY:
         print(f"ERROR: unknown project '{project_id}' — one of {sorted(REGISTRY)}",
               file=sys.stderr)
@@ -58,6 +70,20 @@ def main(argv: list[str] | None = None) -> int:
     result = run_refresh(project_id, client, data_dir)
     print("\n".join(result["log"]))
     print(f"Done ({result['status']}) — {result['refreshed_at']}")
+
+    if do_validate:
+        validator = VALIDATORS.get(project_id)
+        if validator is None:
+            print(f"note: --validate not supported for '{project_id}', skipping")
+        else:
+            errors = validator(data_dir)
+            if errors:
+                print("VALIDATION FAILED — fetch output is suspect:",
+                      file=sys.stderr)
+                for e in errors:
+                    print(f"  - {e}", file=sys.stderr)
+                return 1
+            print(f"validation: ok ({project_id})")
     return 0
 
 

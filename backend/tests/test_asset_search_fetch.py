@@ -6,6 +6,7 @@ from datetime import date
 import pytest
 
 from services.integrations import asset_search as a_s
+from services.integrations import feature_week as fw
 from services.integrations.metabase import MetabaseError
 
 
@@ -170,3 +171,44 @@ def test_run_before_first_live_week_is_a_noop(tmp_path):
     result = a_s.run(FakeClient(), tmp_path, today=date(2026, 5, 1))
     assert result["status"] == "ok"
     assert not (tmp_path / "_manifest.json").exists()
+
+
+def test_run_does_not_advance_freshness_when_nothing_written(tmp_path):
+    # A run that fetches zero rows everywhere must NOT reset the staleness
+    # clock — otherwise a no-op refresh silences the 26h staleness warning.
+    old = "2020-01-01T00:00:00+00:00"
+    (tmp_path / "_manifest.json").write_text(
+        json.dumps({"refreshed_at": old, "tables": {}}))
+    result = a_s.run(FakeClient(), tmp_path, today=date(2026, 5, 15))
+    manifest = json.loads((tmp_path / "_manifest.json").read_text())
+    assert manifest["refreshed_at"] == old
+    assert result["refreshed_at"] == old
+
+
+# ── validate_data_dir (the --validate CLI step, spec §14) ───────────────────
+
+def _good_query_row(ts):
+    return {"timestamp": ts, "context_session_id": "s1", "query_text": "navi",
+            "results_count": 3, "is_refinement": False}
+
+
+def test_validate_data_dir_passes_on_good_csvs(tmp_path):
+    a_s.write_csv_atomic(tmp_path / f"{fw.label(7)}_asset_search_query.csv",
+                         [_good_query_row("2026-05-15 10:00:00")])
+    assert a_s.validate_data_dir(tmp_path, today=date(2026, 5, 15)) == []
+
+
+def test_validate_data_dir_flags_timestamp_outside_window(tmp_path):
+    a_s.write_csv_atomic(tmp_path / f"{fw.label(7)}_asset_search_query.csv",
+                         [_good_query_row("2026-06-01 10:00:00")])
+    errors = a_s.validate_data_dir(tmp_path, today=date(2026, 5, 15))
+    assert any("outside" in e for e in errors)
+
+
+def test_validate_data_dir_flags_row_count_swing(tmp_path):
+    a_s.write_csv_atomic(tmp_path / f"{fw.label(7)}_asset_search_query.csv",
+                         [_good_query_row("2026-05-15 10:00:00")])
+    a_s.write_csv_atomic(tmp_path / f"{fw.label(8)}_asset_search_query.csv",
+                         [_good_query_row("2026-05-22 10:00:00")] * 50)
+    errors = a_s.validate_data_dir(tmp_path, today=date(2026, 5, 24))
+    assert any("swing" in e for e in errors)
