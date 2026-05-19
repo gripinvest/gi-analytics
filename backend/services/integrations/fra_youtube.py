@@ -416,4 +416,7 @@ def build_layer2(layer1: dict, history: dict) -> dict:
         "posting_patterns": build_posting_patterns(video_rows),
         "title_patterns": build_title_patterns(video_rows),
         "catalog_health": build_catalog_health(channel_rows, video_rows),
+        "duration_buckets": build_duration_buckets(video_rows),
+        "tag_analysis": build_tag_analysis(video_rows),
+        "upload_cadence": build_upload_cadence(video_rows),
     }

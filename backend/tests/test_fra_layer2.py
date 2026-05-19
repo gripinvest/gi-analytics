@@ -4,6 +4,7 @@ from tests.fra_fixture import CHANNEL, VIDEOS
 EXPECTED_TABLES = {
     "overview", "distribution", "category_mix", "monthly_views",
     "engagement_breakdown", "posting_patterns", "title_patterns", "catalog_health",
+    "duration_buckets", "tag_analysis", "upload_cadence",
 }
 
 
@@ -33,3 +34,13 @@ def test_build_layer2_emits_all_tables():
     assert len(layer2["title_patterns"]) >= 1
     # catalog_health: subscriber_efficiency = total_views / subscribers = 20000/1300
     assert layer2["catalog_health"][0]["subscriber_efficiency"] == round(20000 / 1300, 1)
+
+
+def test_layer2_includes_new_metric_tables():
+    layer1 = build_layer1([(CHANNEL, VIDEOS)], snapshot_date="2026-05-18")
+    layer2 = build_layer2(layer1, history={})
+    assert "duration_buckets" in layer2
+    assert "tag_analysis" in layer2
+    assert "upload_cadence" in layer2
+    assert len(layer2["duration_buckets"]) == 7      # one row per bucket
+    assert len(layer2["upload_cadence"]) == 1        # one channel-level row

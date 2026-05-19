@@ -32,6 +32,9 @@ KEYS = {
     "posting_patterns":     ["channel_handle", "snapshot_date", "dimension", "bucket"],
     "title_patterns":       ["channel_handle", "snapshot_date", "pattern"],
     "catalog_health":       ["channel_handle", "snapshot_date"],
+    "duration_buckets":     ["channel_handle", "snapshot_date", "bucket"],
+    "tag_analysis":         ["channel_handle", "snapshot_date", "tag"],
+    "upload_cadence":       ["channel_handle", "snapshot_date"],
 }
 
 
