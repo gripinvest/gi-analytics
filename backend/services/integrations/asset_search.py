@@ -160,6 +160,47 @@ def write_csv_atomic(path: Path, rows: list[dict]) -> int:
     return len(rows)
 
 
+def _read_csv_rows(path: Path) -> list[dict]:
+    """Read a written CSV back into dict rows (all values are strings — the
+    §14 validators are string-tolerant, so no type coercion is needed here)."""
+    with open(path, newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def validate_data_dir(data_dir, *, today: date | None = None) -> list[str]:
+    """Post-fetch validation of the Asset Search CSVs (spec §14) — the body of
+    the `--validate` CLI step, run after a refresh. Validates the freshly-
+    fetched current + prior feature weeks: per-week schema / test-user / window
+    checks, plus the cross-week row-count sanity band. Returns a list of error
+    strings; empty means the fetch output looks sound. Frozen historical weeks
+    are out of scope — `current_and_prior` only yields live weeks.
+    """
+    from .validate import (validate_asset_search_row_counts,
+                           validate_asset_search_week)
+    data_dir = Path(data_dir)
+    today = today or date.today()
+    weeks = feature_week.current_and_prior(today)
+    errors: list[str] = []
+    counts: dict[str, dict[int, int]] = {}
+    for ev in EVENTS.values():
+        if ev.cadence == "off":
+            continue
+        for n in weeks:
+            start, end = feature_week.bounds(n)
+            stem = f"{feature_week.label(n)}_{ev.stem}"
+            path = data_dir / f"{stem}.csv"
+            if not path.exists():
+                # A weekly table on a non-rollover run is not re-fetched — its
+                # absence here is expected, not a validation failure.
+                continue
+            rows = _read_csv_rows(path)
+            errors += validate_asset_search_week(stem, rows, start, end)
+            counts.setdefault(ev.key, {})[n] = len(rows)
+    for ev_key, by_week in counts.items():
+        errors += validate_asset_search_row_counts(ev_key, by_week)
+    return errors
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -190,7 +231,10 @@ def run(client, data_dir, *, today: date | None = None,
     for stem, rows in layer1.items():
         n = write_csv_atomic(data_dir / f"{stem}.csv", rows)
         if n == 0:
-            log.append(f"skip {stem}: 0 rows — file left unwritten")
+            # A zero-row event is suspect (we fetch whole feature weeks). The
+            # CSV is left untouched; the `--validate` step (validate.py §14)
+            # is what flags this as a hard error and blocks the cron commit.
+            log.append(f"WARN {stem}: 0 rows — file left unwritten")
         else:
             written.append(stem)
 
@@ -202,12 +246,19 @@ def run(client, data_dir, *, today: date | None = None,
             manifest = json.loads(manifest_path.read_text())
         except (ValueError, OSError):
             manifest = {"refreshed_at": now, "tables": {}}
-    manifest["refreshed_at"] = now
     manifest.setdefault("tables", {})
-    for stem in written:
-        manifest["tables"][stem] = {"last_refreshed_at": now}
+    # Advance the freshness clock only when this run actually wrote a CSV. A
+    # run that fetched zero rows everywhere must leave `refreshed_at` stale so
+    # the dashboard's 26 h staleness warning still fires (spec §12) instead of
+    # being silenced by a no-op refresh.
+    if written:
+        manifest["refreshed_at"] = now
+        for stem in written:
+            manifest["tables"][stem] = {"last_refreshed_at": now}
+    manifest.setdefault("refreshed_at", now)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2))
 
     status = "partial" if any(l.startswith("FAIL") for l in log) else "ok"
-    return {"status": status, "log": log, "refreshed_at": now}
+    return {"status": status, "log": log,
+            "refreshed_at": manifest["refreshed_at"]}

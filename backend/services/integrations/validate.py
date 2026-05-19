@@ -87,3 +87,22 @@ def validate_asset_search_week(stem: str, rows: list[dict],
                 f"{stem}: {out} rows with timestamp outside [{start}, {end})")
 
     return errors
+
+
+def validate_asset_search_row_counts(event: str, by_week: dict[int, int],
+                                     *, factor: int = 10) -> list[str]:
+    """Row-count sanity band (spec §14): flag a >`factor`x swing in one event's
+    row count between consecutive feature weeks. A 10x jump or collapse is
+    almost always a fetch bug (a broken window, a schema change, a duplicate
+    join) rather than real product movement. Weeks with zero rows are skipped —
+    the per-week check already flags those — so this never divides by zero."""
+    errors: list[str] = []
+    weeks = sorted(by_week)
+    for prev, cur in zip(weeks, weeks[1:]):
+        a, b = by_week[prev], by_week[cur]
+        if a == 0 or b == 0:
+            continue
+        if max(a, b) / min(a, b) > factor:
+            errors.append(
+                f"{event}: row-count swing W{prev}={a} -> W{cur}={b} (>{factor}x)")
+    return errors
