@@ -297,9 +297,11 @@ def build_tag_analysis(video_rows, top_n=30) -> list[dict]:
         snap = vids[0]["snapshot_date"]
         counts = defaultdict(int)
         for v in vids:
+            seen = set()
             for raw in str(v["tags"]).split(","):
                 tag = raw.strip().lower()
-                if tag:
+                if tag and tag not in seen:
+                    seen.add(tag)
                     counts[tag] += 1
         ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:top_n]
         for tag, freq in ranked:
@@ -330,7 +332,13 @@ def _duration_bucket_label(sec) -> str:
 
 def build_duration_buckets(video_rows) -> list[dict]:
     """Per channel: video count, avg views, engagement rate per duration bucket.
-    Every bucket is emitted even when empty, so the chart axis is stable."""
+    Every bucket is emitted even when empty, so the chart axis is stable.
+
+    engagement_rate_pct is the MEAN of per-video ratios (spec §3.1):
+      mean of (likes + comments) / views * 100 over videos in the bucket.
+    A zero-view video contributes 0.0 via safe_div and IS counted in the
+    denominator. Empty buckets emit 0.0.
+    """
     out = []
     handles = sorted({v["channel_handle"] for v in video_rows})
     for handle in handles:
@@ -342,14 +350,14 @@ def build_duration_buckets(video_rows) -> list[dict]:
         for label, _ in _DURATION_BUCKETS:
             group = groups.get(label, [])
             views = sum(v["views"] for v in group)
-            interactions = sum(v["likes"] + v["comments"] for v in group)
+            ratios = [100 * safe_div(v["likes"] + v["comments"], v["views"]) for v in group]
             out.append({
                 "channel_handle": handle,
                 "snapshot_date": snap,
                 "bucket": label,
                 "video_count": len(group),
                 "avg_views": round(safe_div(views, len(group)), 1),
-                "engagement_rate_pct": round(100 * safe_div(interactions, views), 3),
+                "engagement_rate_pct": round(safe_div(sum(ratios), len(ratios)), 3),
             })
     return out
 
