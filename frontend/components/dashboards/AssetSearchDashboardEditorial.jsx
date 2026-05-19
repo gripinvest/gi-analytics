@@ -109,14 +109,19 @@ const weightedPct = (rows, num, den) => {
   return Math.round((1000 * sum(rows, num)) / d) / 10;
 };
 
-/* ── editorial chart styling ───────────────────────────────────────────────── */
+/* ── editorial chart styling ───────────────────────────────────────────────────
+   Colours reference the --ed-* CSS variables rather than literal hex, so the
+   charts follow whichever editorial theme is active (sepia / light). Recharts
+   passes these straight through to SVG fill/stroke, where var() resolves
+   normally — the editorial dashboard always renders inside [data-design=
+   "editorial"], so the variables are always in scope. */
 
-const ED_INK = "#1B1818";
-const ED_RUST = "#A6242B";
-const ED_FOREST = "#3B5E3D";
-const ED_GOLD = "#B8870A";
-const ED_INK_MUTED = "#5D5752";
-const ED_RULE_FAINT = "#C8BFA9";
+const ED_INK = "var(--ed-ink)";
+const ED_RUST = "var(--ed-rust)";
+const ED_FOREST = "var(--ed-forest)";
+const ED_GOLD = "var(--ed-gold)";
+const ED_INK_MUTED = "var(--ed-ink-muted)";
+const ED_RULE_FAINT = "var(--ed-rule-faint)";
 
 const edAxisProps = {
   stroke: ED_INK_MUTED,
@@ -1418,10 +1423,9 @@ function IssuersSection({ rows, outcomeRows, keywordRows, weeks, lastWeek, loadi
   );
 }
 
-// Soft-ink colour for prose paragraphs (matches editorial.css's --ed-ink-soft
-// but inlined so the editorial section doesn't need to grep through CSS vars
-// for a one-off colour swap).
-const ED_INK_SOFT_INLINE = "#2C2926";
+// Soft-ink colour for prose paragraphs — the --ed-ink-soft CSS variable, so it
+// follows the active editorial theme (sepia / light).
+const ED_INK_SOFT_INLINE = "var(--ed-ink-soft)";
 
 function SortCue({ active, onClick, label }) {
   return (

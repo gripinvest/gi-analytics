@@ -3,21 +3,27 @@ import "./editorial.css";
 import Script from "next/script";
 import { DesignProvider } from "@/lib/design";
 
-// First-paint flash fix. Stamps data-design on <html> before React hydrates,
-// so the editorial token set applies on the very first paint instead of
-// flashing classic chrome and then swapping.
+// First-paint flash fix. Stamps data-design AND data-ed-theme on <html>
+// before React hydrates, so the editorial token set + colour theme apply on
+// the very first paint instead of flashing the wrong chrome and swapping.
 //
-// Editorial is the product default — only an EXPLICIT 'classic' saved in
-// localStorage opts back. Any other state (missing key, garbage value, a
-// thrown localStorage from private-mode) falls through to editorial.
+// Editorial is the product default — only an EXPLICIT 'classic' opts back.
+// Sepia is the default editorial theme — only an EXPLICIT 'light' opts in.
+// Any other state (missing key, garbage value, a thrown localStorage from
+// private-mode) falls through to editorial + sepia.
 //
 // Stored as a constant separate from the JSX so it stays trivially auditable
 // — no template interpolation, no user input, no concatenation.
 const designBootstrap =
-  "(function(){try{var d=localStorage.getItem('grip-design');" +
-  "if(d!=='classic'){d='editorial';}" +
+  "(function(){try{" +
+  "var d=localStorage.getItem('grip-design');if(d!=='classic'){d='editorial';}" +
   "document.documentElement.setAttribute('data-design',d);" +
-  "}catch(e){document.documentElement.setAttribute('data-design','editorial');}})();";
+  "var t=localStorage.getItem('grip-ed-theme');if(t!=='light'){t='sepia';}" +
+  "document.documentElement.setAttribute('data-ed-theme',t);" +
+  "}catch(e){" +
+  "document.documentElement.setAttribute('data-design','editorial');" +
+  "document.documentElement.setAttribute('data-ed-theme','sepia');" +
+  "}})();";
 
 // metadataBase keeps openGraph image URLs absolute on every deploy URL.
 // Templated titles give per-page pages (like /projects/[id]) a "<page> · Grip

@@ -1,57 +1,83 @@
 "use client";
 // Design switcher — context + hook + localStorage sync.
-// Two designs ship: "classic" (current SaaS look) and "editorial" (Weekly Report).
-// The provider sets data-design on <body> so editorial CSS (scoped via
-// [data-design="editorial"]) cascades. localStorage key: "grip-design".
+//
+// Two orthogonal axes:
+//  · design   "classic" | "editorial"  — the whole design system. data-design.
+//  · edTheme  "sepia"   | "light"       — a colour-only variant WITHIN
+//             editorial (white page instead of sepia paper). data-ed-theme.
+//             Has no effect in classic mode; the attribute is still set so
+//             switching back into editorial is instant.
+//
+// Both attributes are mirrored onto <html> and <body> so the editorial CSS
+// (scoped via [data-design="editorial"] / [data-ed-theme="light"]) cascades.
+// localStorage keys: "grip-design", "grip-ed-theme".
 
 import * as React from "react";
 
 export type Design = "classic" | "editorial";
+export type EdTheme = "sepia" | "light";
 
 interface DesignCtx {
   design: Design;
   setDesign: (d: Design) => void;
+  edTheme: EdTheme;
+  setEdTheme: (t: EdTheme) => void;
 }
 
 const Ctx = React.createContext<DesignCtx | null>(null);
-const STORAGE_KEY = "grip-design";
+const DESIGN_KEY = "grip-design";
+const THEME_KEY = "grip-ed-theme";
 
 export function DesignProvider({ children }: { children: React.ReactNode }) {
-  // Editorial is now the product's default surface. The flash-prevention IIFE
-  // in app/layout.js sets data-design on <html> at first paint (defaulting to
-  // editorial when localStorage is empty), so the initial paint uses the
-  // editorial token set with no flicker.
+  // Editorial is the product's default surface; sepia is the default editorial
+  // theme. The flash-prevention IIFE in app/layout.js stamps both attributes
+  // on <html> at first paint, so the initial paint is correct with no flicker.
   const [design, setDesignState] = React.useState<Design>("editorial");
+  const [edTheme, setEdThemeState] = React.useState<EdTheme>("sepia");
 
-  // Initial read from localStorage. Wrapped in useEffect so it runs once on
-  // the client only. If the user explicitly set "classic" we honour it;
-  // anything else (missing key, garbage value, private-mode throw) falls
-  // through to the editorial default the IIFE already painted.
+  // Initial read from localStorage — client-only. Anything other than an
+  // explicit valid value falls through to the default the IIFE already
+  // painted (classic only on explicit "classic"; light only on "light").
   React.useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw === "editorial" || raw === "classic") setDesignState(raw);
-    } catch { /* localStorage may be blocked (private mode) — silently keep default */ }
+      const d = window.localStorage.getItem(DESIGN_KEY);
+      if (d === "editorial" || d === "classic") setDesignState(d);
+      const t = window.localStorage.getItem(THEME_KEY);
+      if (t === "sepia" || t === "light") setEdThemeState(t);
+    } catch { /* localStorage may be blocked (private mode) — keep defaults */ }
   }, []);
 
-  // Reflect on BOTH <html> and <body>. Previously only <body> was updated on
-  // switch, but the bootstrap IIFE in layout.js sets the attribute on <html>;
-  // that meant after a runtime switch the two disagreed and editorial's
-  // [data-design="editorial"] custom-property overrides on <html> kept
-  // cascading into <body>'s background through --gi-bg-page. Updating both
-  // keeps them in lock-step.
+  // Reflect on BOTH <html> and <body> so the attribute the bootstrap IIFE set
+  // on <html> and the one React owns on <body> never disagree (a mismatch
+  // would let editorial's custom-property overrides leak across — see the
+  // git history of the html/body data-design fix).
   React.useEffect(() => {
     if (typeof document === "undefined") return;
     document.documentElement.setAttribute("data-design", design);
     document.body.setAttribute("data-design", design);
   }, [design]);
 
+  React.useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.documentElement.setAttribute("data-ed-theme", edTheme);
+    document.body.setAttribute("data-ed-theme", edTheme);
+  }, [edTheme]);
+
   const setDesign = React.useCallback((d: Design) => {
     setDesignState(d);
-    try { window.localStorage.setItem(STORAGE_KEY, d); } catch { /* see above */ }
+    try { window.localStorage.setItem(DESIGN_KEY, d); } catch { /* see above */ }
   }, []);
 
-  return <Ctx.Provider value={{ design, setDesign }}>{children}</Ctx.Provider>;
+  const setEdTheme = React.useCallback((t: EdTheme) => {
+    setEdThemeState(t);
+    try { window.localStorage.setItem(THEME_KEY, t); } catch { /* see above */ }
+  }, []);
+
+  return (
+    <Ctx.Provider value={{ design, setDesign, edTheme, setEdTheme }}>
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export function useDesign(): DesignCtx {

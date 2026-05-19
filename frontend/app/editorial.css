@@ -46,6 +46,51 @@
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.08 0 0 0 0 0.06 0 0 0 0 0.05 0 0 0 0.10 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
+/* ── Light theme — a colour-only variant of Editorial ──────────────────────
+   Same Fraunces / Newsreader / IBM Plex Mono typography, same rules-as-
+   structure layout — only the palette changes: a white page instead of sepia
+   paper. Colours are drawn from the Grip Invest design tokens
+   (grip-code/design-tokens.tokens.json): the neutral scale for paper + ink,
+   error/success for deltas, navy for the highlight accent.
+
+   Activated by data-ed-theme="light" alongside data-design="editorial"
+   (set by lib/design.tsx + the layout.js bootstrap). The compound selector
+   keeps specificity above the base block so these win. Type vars (--ed-body
+   /-display/-mono) are deliberately NOT redefined here — theme = colour only.
+
+   The downstream [data-design="editorial"] block that re-points the --gi-*
+   semantic vars references --ed-* indirectly, so the chat panel and shared
+   primitives follow this theme with no extra rule. */
+[data-design="editorial"][data-ed-theme="light"],
+[data-force-editorial="true"][data-ed-theme="light"] {
+  /* paper + ink — the neutral scale */
+  --ed-paper:        #ffffff;   /* neutral.0   — clean white page */
+  --ed-paper-deep:   #f7f7fc;   /* neutral.100 — card / aside surface */
+  --ed-paper-edge:   #ecedef;   /* neutral.200 — a thin edge */
+  --ed-ink:          #282c3f;   /* neutral.900 — headlines, masthead */
+  --ed-ink-soft:     #373a46;   /* neutral.800 — body */
+  --ed-ink-muted:    #696b74;   /* neutral.600 — captions */
+  --ed-ink-faint:    #a1a3ad;   /* neutral.500 — faint metadata */
+  --ed-rule:         #282c3f;   /* neutral.900 — rules stay bold + dark */
+  --ed-rule-faint:   #e6e6e6;   /* neutral.300 — ledger gridlines */
+
+  /* accents — error / success for deltas, navy for the highlight */
+  --ed-rust:         #b02020;   /* error.700   — negative deltas, warnings */
+  --ed-rust-soft:    #ef3c3c;   /* error.500 */
+  --ed-forest:       #076e4f;   /* success.700 — positive deltas */
+  --ed-forest-soft:  #12a46e;   /* success.500 */
+  --ed-gold:         #00357c;   /* navy.700 — highlight accent. The var keeps
+                                   the 'gold' name for parity with the sepia
+                                   theme; here it is brand navy, not gold. */
+  --ed-gold-soft:    #2b6bd4;   /* navy.400 */
+  --ed-ink-tint:     rgba(40, 44, 63, 0.05);
+  --ed-rust-tint:    rgba(176, 32, 32, 0.07);
+  --ed-gold-tint:    rgba(0, 53, 124, 0.07);
+
+  /* no paper-fibre noise on the light theme — a clean white surface */
+  --ed-grain: none;
+}
+
 [data-design="editorial"] body,
 body[data-design="editorial"],
 [data-force-editorial="true"] {
