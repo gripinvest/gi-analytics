@@ -1,8 +1,8 @@
 "use client";
-// Design switcher pill — fixed top-right, two-mode toggle.
-// Styled to fit both designs: a paper pill with ink labels in editorial mode,
-// a neutral pill in classic mode. Position is fixed so it's reachable from
-// any scroll depth.
+// Design switcher pill — a two-mode toggle. Styled to fit both designs: a
+// paper pill with ink labels in editorial mode, a neutral pill in classic
+// mode. Placement (fixed, top-right) is owned by <PageChrome />, which lays
+// this pill out beside <SignOut /> so the two can never overlap.
 
 import * as React from "react";
 import { useDesign } from "@/lib/design";
@@ -15,9 +15,9 @@ export function DesignSwitcher({ className }) {
   return (
     <div
       className={cn(
-        "fixed top-3 right-3 z-50 select-none",
-        "flex items-center gap-1 p-1 rounded-full",
-        "transition-colors duration-200",
+        "select-none",
+        "flex items-center gap-0.5 p-0.5 rounded-full",
+        "transition-colors duration-150",
         isEditorial
           ? "bg-[var(--ed-paper-deep)] border border-[var(--ed-rule)] shadow-[0_2px_6px_rgba(27,24,24,0.10)]"
           : "bg-white/80 border border-border-default shadow-sm backdrop-blur-sm",
@@ -50,7 +50,12 @@ function PillButton({ active, onClick, editorial, label }) {
       aria-checked={active}
       onClick={onClick}
       className={cn(
-        "relative px-3 py-1.5 rounded-full transition-all duration-200",
+        // min-h-[44px] is the touch-target floor; the visible pill stays
+        // compact because the label is small. inline-flex centres the text
+        // within that taller hit area.
+        "inline-flex items-center justify-center min-h-[44px] px-3 rounded-full",
+        "transition-[color,background-color,transform] duration-150",
+        "active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100",
         "text-[11px] tracking-[0.10em] uppercase font-medium",
         active
           ? editorial

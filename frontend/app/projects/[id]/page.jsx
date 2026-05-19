@@ -5,8 +5,7 @@ import Link from "next/link";
 import { fetchProject } from "@/lib/api";
 import { getDashboard } from "@/components/dashboards";
 import { ChatPanel } from "@/components/ChatPanel";
-import { DesignSwitcher } from "@/components/DesignSwitcher";
-import { SignOut } from "@/components/SignOut";
+import { PageChrome } from "@/components/PageChrome";
 import { useDesign } from "@/lib/design";
 import { PageHeader, Button, Badge, Card, Skeleton } from "@/components/ui";
 
@@ -39,9 +38,11 @@ export default function ProjectPage({ params }) {
   if (isEditorial) {
     return (
       <main className="min-h-screen">
-        <DesignSwitcher />
-        <SignOut />
-        <div className="mx-auto max-w-[920px] px-5 py-12 sm:px-8 sm:py-16">
+        <PageChrome />
+        {/* pt-20 on mobile reserves space for the fixed PageChrome cluster
+            (~62px tall) so it clears the dashboard's top content; sm:py-16
+            reverts it once there's room beside the chrome. */}
+        <div className="mx-auto max-w-[920px] px-5 py-12 pt-20 sm:px-8 sm:py-16">
           {error ? (
             <section>
               <h2 className="ed-headline mb-3">We can't render <em>{niceId}</em>.</h2>
@@ -73,9 +74,11 @@ export default function ProjectPage({ params }) {
   // Classic mode — unchanged from before.
   return (
     <main className="min-h-screen bg-page">
-      <DesignSwitcher />
-      <SignOut />
-      <div className="mx-auto max-w-[1180px] px-4 py-5 sm:px-6 sm:py-7 md:px-8">
+      <PageChrome />
+      {/* pt-20 on mobile reserves space for the fixed PageChrome cluster
+          (~62px tall) so it doesn't overlap the PageHeader breadcrumb/title;
+          sm:py-7 reverts it once there's room beside the header. */}
+      <div className="mx-auto max-w-[1180px] px-4 py-5 pt-20 sm:px-6 sm:py-7 md:px-8">
         <PageHeader
           breadcrumb={<Link href="/" className="text-link hover:underline">← Grip Analytics</Link>}
           overline="Project"

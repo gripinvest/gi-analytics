@@ -4,8 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { fetchProjects, uploadCSVs } from "@/lib/api";
 import { ChatPanel } from "@/components/ChatPanel";
-import { DesignSwitcher } from "@/components/DesignSwitcher";
-import { SignOut } from "@/components/SignOut";
+import { PageChrome } from "@/components/PageChrome";
 import { useDesign } from "@/lib/design";
 import {
   PageHeader, Card, CardHeader, CardTitle, CardBody, Button, Badge, Stat, Skeleton,
@@ -52,9 +51,11 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-page">
-      <DesignSwitcher />
-      <SignOut />
-      <div className="mx-auto max-w-[1180px] px-6 py-7 md:px-8">
+      <PageChrome />
+      {/* pt-20 on mobile reserves space for the fixed PageChrome cluster
+          (~62px tall) so it doesn't overlap the PageHeader; sm:pt-7 reverts
+          it once there's room beside the header. */}
+      <div className="mx-auto max-w-[1180px] px-6 py-7 pt-20 sm:pt-7 md:px-8">
         <PageHeader
           overline="Grip Invest · Internal"
           title="Analytics Platform"
@@ -184,9 +185,11 @@ const ED_EXTRAS = {
 function EditorialHome({ projects, loadError, showUpload, setShowUpload, chatProject, setChatProject, load, onOpen }) {
   return (
     <main className="min-h-screen">
-      <DesignSwitcher />
-      <SignOut />
-      <div className="mx-auto max-w-[920px] px-5 py-12 sm:px-8 sm:py-16">
+      <PageChrome />
+      {/* pt-20 on mobile reserves space for the fixed PageChrome cluster
+          (~62px tall) so it clears the masthead; sm:py-16 reverts it once
+          there's room beside the chrome. */}
+      <div className="mx-auto max-w-[920px] px-5 py-12 pt-20 sm:px-8 sm:py-16">
         {/* ── masthead ────────────────────────────────────────────────── */}
         <header className="ed-set">
           <p className="ed-caption mb-2">A FINANCIAL WEEKLY · INTERNAL EDITION</p>
