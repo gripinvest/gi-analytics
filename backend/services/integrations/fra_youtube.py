@@ -305,6 +305,47 @@ def build_tag_analysis(video_rows, top_n=30) -> list[dict]:
     return out
 
 
+# Upper-bound-inclusive duration buckets (seconds). A video lands in the first
+# bucket whose ceiling it does not exceed; the last bucket is open-ended.
+_DURATION_BUCKETS = [
+    ("0–30s", 30), ("30–60s", 60), ("1–2m", 120), ("2–5m", 300),
+    ("5–10m", 600), ("10–20m", 1200), ("20m+", float("inf")),
+]
+
+
+def _duration_bucket_label(sec) -> str:
+    for label, ceiling in _DURATION_BUCKETS:
+        if sec <= ceiling:
+            return label
+    return _DURATION_BUCKETS[-1][0]
+
+
+def build_duration_buckets(video_rows) -> list[dict]:
+    """Per channel: video count, avg views, engagement rate per duration bucket.
+    Every bucket is emitted even when empty, so the chart axis is stable."""
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        snap = vids[0]["snapshot_date"]
+        groups = defaultdict(list)
+        for v in vids:
+            groups[_duration_bucket_label(v["duration_sec"])].append(v)
+        for label, _ in _DURATION_BUCKETS:
+            group = groups.get(label, [])
+            views = sum(v["views"] for v in group)
+            interactions = sum(v["likes"] + v["comments"] for v in group)
+            out.append({
+                "channel_handle": handle,
+                "snapshot_date": snap,
+                "bucket": label,
+                "video_count": len(group),
+                "avg_views": round(safe_div(views, len(group)), 1),
+                "engagement_rate_pct": round(100 * safe_div(interactions, views), 3),
+            })
+    return out
+
+
 def build_catalog_health(channel_rows, video_rows) -> list[dict]:
     """Recent (trailing 30d) vs all-time averages, freshness, subscriber efficiency."""
     out = []
