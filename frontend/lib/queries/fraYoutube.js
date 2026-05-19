@@ -94,6 +94,54 @@ export const SQL = {
     SELECT views FROM fra_youtube__video_snapshots
     WHERE snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__video_snapshots)
   `,
+  /* Layer-2 duration-bucket performance — one row per bucket (Task 1 backend).
+     Powers Content & Format's duration analysis and Audience's engagement-by-
+     duration read. Buckets are emitted even when empty, so the chart axis is
+     stable; ORDER BY snapshot_date keeps the latest snapshot's seven rows. */
+  durationBuckets: `
+    SELECT * FROM fra_youtube__duration_buckets
+    WHERE snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__duration_buckets)
+  `,
+  /* Layer-2 tag/SEO analysis — top 30 tags by frequency, each keyword-classified.
+     Powers Cadence & SEO's tag analysis. */
+  tagAnalysis: `
+    SELECT * FROM fra_youtube__tag_analysis
+    WHERE snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__tag_analysis)
+    ORDER BY frequency DESC
+  `,
+  /* Layer-2 upload cadence — a single channel-level row of pacing stats.
+     Powers Cadence & SEO's pacing read. */
+  uploadCadence: `
+    SELECT * FROM fra_youtube__upload_cadence
+    WHERE snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__upload_cadence)
+  `,
+  /* Per-video leaderboard — top 10 by lifetime views. Reads video_snapshots
+     directly (no new table); pinned to the latest snapshot like every other
+     query. Powers Content & Format's leaderboards. */
+  topVideosByViews: `
+    SELECT title, published_at, views, likes, comments, category
+    FROM fra_youtube__video_snapshots
+    WHERE snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__video_snapshots)
+    ORDER BY views DESC
+    LIMIT 10
+  `,
+  /* Per-video leaderboard — top 10 by engagement rate ((likes+comments)/views).
+     NULLIF guards against divide-by-zero on a 0-view video. */
+  topVideosByEngagement: `
+    SELECT title, published_at, views, likes, comments, category
+    FROM fra_youtube__video_snapshots
+    WHERE snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__video_snapshots)
+    ORDER BY (likes + comments) / NULLIF(views, 0) DESC
+    LIMIT 10
+  `,
+  /* Channel-level engagement — the `overall` dimension row of the engagement
+     breakdown, carrying like_rate_pct / comment_rate_pct. Powers Audience's
+     like-rate vs comment-rate split. */
+  engagementOverall: `
+    SELECT * FROM fra_youtube__engagement_breakdown
+    WHERE dimension = 'overall'
+      AND snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__engagement_breakdown)
+  `,
 };
 
 /* ── small accessors ──────────────────────────────────────────────────────────
