@@ -8,9 +8,9 @@ Read the top entry when starting a new session. Supersedes the old loose
 
 ## 2026-05-19 — S3: Metabase data validation
 
-**Status:** S3 complete — branch `feat/asset-search-data-validation`, PR open.
-Build-irrelevant (backend Python + docs only; `next build` untouched). Backend
-tests: 66 pass.
+**Status:** S3 complete — branch `feat/asset-search-data-validation`,
+[PR #52](https://github.com/purujit-grip/grip-analytics/pull/52). Build-irrelevant
+(backend Python + docs only; `next build` untouched). Backend tests: 73 pass.
 
 ### Shipped
 
@@ -68,9 +68,10 @@ as a SQL error if wrong, never silently.
 
 ### When resuming
 
-S3 is done. Next per `sessions/README.md`: S1 / S2 / S4 (parallel-safe), then
-S5. The harness's `MetabaseClient.run_sql`, API-key auth and window-anchoring
-code is reusable by the S5 fetch pipeline.
+S1, S2 and S3 are done. Next per `sessions/README.md`: **S4** (live-data design
+spec), then **S5** (implementation, blocked on S4). The harness's
+`MetabaseClient.run_sql`, API-key auth and window-anchoring code is reusable by
+the S5 fetch pipeline.
 
 ---
 
