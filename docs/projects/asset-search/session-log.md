@@ -6,6 +6,53 @@ Read the top entry when starting a new session. Supersedes the old loose
 
 ---
 
+## 2026-05-19 — S5: live-data implementation (PR open)
+
+**Status:** S5 complete — branch `worktree-feat+asset-search-live-data-impl`,
+PR open to `main`. Built against the S4 spec. Backend: 102 tests pass;
+`next build` clean.
+
+Built the Metabase → CSV → DuckDB live-data pipeline for Asset Search and its
+daily 00:00 IST refresh cron, so the dashboard always shows current data
+without anyone hand-uploading CSVs.
+
+### Shipped — 5 phases
+
+- **Phase 1 — fetch core.** `services/integrations/feature_week.py`
+  (feature-week math off the Apr 2 2026 launch) + `services/integrations/
+  asset_search.py` (the fetch module — 14 events, raw native SQL via
+  `POST /api/dataset`, trailing-2-week re-fetch window, atomic whole-week-file
+  CSV replace, partial-success). `metabase.py` gained `run_sql(raw_columns=)`.
+- **Phase 2 — per-project refresh registry.** `refresh.py` is now a `REGISTRY`
+  dispatch (`grip_connect` + `asset_search`); the Grip Connect fetch body moved
+  verbatim into `grip_connect.run()`. `validate.py` gained
+  `validate_asset_search_week()` — §14 post-fetch schema / test-user / window
+  checks.
+- **Phase 3 — refresh endpoint.** `POST /api/projects/{id}/refresh` dispatches
+  by project id to the right runner.
+- **Phase 4 — refresh UI.** A shared `RefreshControl` component +
+  `useProjectRefresh` hook back both the classic and editorial dashboards:
+  Refresh button, transient updated/failed chip, "as of" stamp, >26h staleness
+  warning. `project.json` → `refreshable: true`, stale `W1-W6` copy dropped.
+- **Phase 5 — daily cron.** `.github/workflows/refresh-asset-search.yml` —
+  00:00 IST daily; fetches and commits the CSVs (git is the durable store,
+  Render's container disk is ephemeral), with `::error::` + Slack failure
+  alerting.
+
+### Pre-cutover gates — not run interactively, by design
+
+- The native-query-permission check (spec §18) and the credentialed first run
+  that must reproduce S3's known-good numbers are run by an operator/CI with
+  `backend/.env` creds — never by Claude.
+- Metabase secrets (`METABASE_API_KEY` / `_EMAIL` / `_PASSWORD`, optional
+  `SLACK_WEBHOOK_URL`) must be set as GitHub Actions secrets before the cron
+  goes live.
+
+**Next:** roadmap #2 — dashboard exhibits for the 5 payment-stage tables the
+fetch now covers (registered `off`, out of S5 scope).
+
+---
+
 ## 2026-05-19 — S4: live-data design spec (PR open)
 
 **Status:** S4 complete — spec written, [PR #51](https://github.com/purujit-grip/grip-analytics/pull/51)
