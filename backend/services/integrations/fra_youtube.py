@@ -346,6 +346,28 @@ def build_duration_buckets(video_rows) -> list[dict]:
     return out
 
 
+def build_upload_cadence(video_rows) -> list[dict]:
+    """Per channel: upload pacing — uploads per active month and the gaps
+    (in days) between consecutive uploads."""
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        snap = vids[0]["snapshot_date"]
+        dates = sorted(_parse_dt(v["published_at"]).date() for v in vids)
+        months = {(d.year, d.month) for d in dates}
+        gaps = [(dates[i] - dates[i - 1]).days for i in range(1, len(dates))]
+        out.append({
+            "channel_handle": handle,
+            "snapshot_date": snap,
+            "avg_uploads_per_month": round(safe_div(len(vids), len(months)), 2),
+            "avg_gap_days": round(safe_div(sum(gaps), len(gaps)), 1) if gaps else 0.0,
+            "median_gap_days": round(float(median(gaps)), 1) if gaps else 0.0,
+            "longest_gap_days": max(gaps) if gaps else 0,
+        })
+    return out
+
+
 def build_catalog_health(channel_rows, video_rows) -> list[dict]:
     """Recent (trailing 30d) vs all-time averages, freshness, subscriber efficiency."""
     out = []
