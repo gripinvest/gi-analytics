@@ -12,10 +12,10 @@ and [`roadmap.md`](../roadmap.md). Work in a dedicated worktree (standing mandat
 
 | # | Session | Depends on | Parallel-safe | Status |
 |---|---------|-----------|---------------|--------|
-| [S1](./S1-classic-dashboard-parity.md) | Classic dashboard — un-deprecate + session-outcome funnel parity + mobile-first | — | yes | ✅ done — [PR #49](https://github.com/purujit-grip/grip-analytics/pull/49) |
-| [S2](./S2-shared-ui-fixes.md) | Shared UI fixes — sign-out / theme-switcher overlap + UI-break audit | — | yes | ✅ done — [PR #50](https://github.com/purujit-grip/grip-analytics/pull/50) |
-| [S3](./S3-metabase-data-validation.md) | Validate Asset Search data points against Metabase | — | yes | ✅ done — [PR #52](https://github.com/purujit-grip/grip-analytics/pull/52) |
-| [S4](./S4-live-data-spec.md) | Asset Search live-data — design spec (Metabase fetch + daily cron + new tables) | — | yes | not started |
+| [S1](./S1-classic-dashboard-parity.md) | Classic dashboard — un-deprecate + session-outcome funnel parity + mobile-first | — | yes | ✅ merged — [PR #49](https://github.com/purujit-grip/grip-analytics/pull/49) |
+| [S2](./S2-shared-ui-fixes.md) | Shared UI fixes — sign-out / theme-switcher overlap + UI-break audit | — | yes | ✅ merged — [PR #50](https://github.com/purujit-grip/grip-analytics/pull/50) |
+| [S3](./S3-metabase-data-validation.md) | Validate Asset Search data points against Metabase | — | yes | ✅ merged — [PR #52](https://github.com/purujit-grip/grip-analytics/pull/52) |
+| [S4](./S4-live-data-spec.md) | Asset Search live-data — design spec (Metabase fetch + daily cron + new tables) | — | yes | ✅ done — [PR #51](https://github.com/purujit-grip/grip-analytics/pull/51) |
 | [S5](./S5-live-data-implementation.md) | Asset Search live-data — implementation | **S4** (benefits from S3) | no | not started |
 
 S1–S4 are independent and can run in any order or in parallel (separate
@@ -73,11 +73,15 @@ confirm the dependency is met before starting.
 
 As of 2026-05-19 — see the **Status** column in the table above:
 
-- **S1 done** — PR #49, classic dashboard un-deprecated + funnel parity.
-- **S2 done** — PR #50, shared UI fixes (chrome overlap + ≥44 px targets).
-- **S3 done** — PR #52, Metabase data-validation harness + report. F1
+- **S1 merged** — PR #49, classic dashboard un-deprecated + funnel parity.
+- **S2 merged** — PR #50, shared UI fixes (chrome overlap + ≥44 px targets).
+- **S3 merged** — PR #52, Metabase data-validation harness + report. F1
   (data-sources.md §0 W6 double-count) found & corrected; the credentialed
   Metabase run is pending by design.
-- **S4 / S5** — not started (S5 blocked on S4).
+- **S4 done** — [PR #51](https://github.com/purujit-grip/grip-analytics/pull/51),
+  live-data design spec (`specs/2026-05-19-asset-search-live-data-design.md`),
+  8-agent-reviewed. Open.
+- **S5** — not started; unblocked once S4 merges, still gated on Metabase
+  credentials + the spec's pre-S5 native-query-permission check.
 
 Update the table above and `session-log.md` as sessions land.
