@@ -1,4 +1,15 @@
-from services.integrations.fra_classify import classify_video
+from services.integrations.fra_classify import classify_video, classify_tag
+
+
+def test_classify_tag_types():
+    assert classify_tag("bond") == "product"
+    assert classify_tag("fd") == "product"
+    assert classify_tag("passive income") == "aspirational"
+    assert classify_tag("youtube shorts") == "platform"
+    assert classify_tag("grip") == "brand"
+    assert classify_tag("taxation") == "other"
+    assert classify_tag("") == "other"
+    assert classify_tag("  BOND  ") == "product"   # trimmed + lowercased
 
 
 def test_category_from_keywords():

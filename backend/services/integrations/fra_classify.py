@@ -29,6 +29,31 @@ _EMOJI = re.compile(
 )
 
 
+# Ordered: first matching tag type wins. "other" is the fallback.
+TAG_TYPE_RULES = [
+    ("platform", ["youtube", "shorts", "ytshort", "ytvideo"]),
+    ("brand", ["fixed returns academy", "grip", "finenjy"]),
+    ("product", ["bond", "debenture", "fixed income", "fixed return", "g-sec",
+                 "government bond", "corporate bond", "sdi", "debt mutual fund",
+                 "fd", "fixed deposit"]),
+    ("aspirational", ["passive income", "financial freedom", "financial independence",
+                      "wealth", "retirement", "money", "salary", "rich",
+                      "safe investment"]),
+    ("educational", ["how ", "explained", "guide", "basics", "what is", "tutorial"]),
+]
+
+
+def classify_tag(tag: str) -> str:
+    """Classify a single SEO tag into a coarse type for the SEO analysis."""
+    t = (tag or "").strip().lower()
+    if not t:
+        return "other"
+    for name, keywords in TAG_TYPE_RULES:
+        if any(k in t for k in keywords):
+            return name
+    return "other"
+
+
 def classify_video(title: str, tags: list[str]) -> dict:
     haystack = (title + " " + " ".join(tags or []) + " ").lower()
     category = "Other"
