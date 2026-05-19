@@ -19,9 +19,14 @@ import { runQuery } from "@/lib/api";
    { rows } or { error } entry on the hook's `data` object. */
 
 export const SQL = {
+  /* Recent overview history, latest first — rowsOf(...)[0] is the current
+     snapshot; the rest feed computeTrend's day/week deltas. Capped at 60 rows:
+     two months is ample for a week-over-week window and keeps the payload
+     bounded as the table accumulates daily snapshots. */
   overview: `
     SELECT * FROM fra_youtube__overview
-    WHERE snapshot_date = (SELECT max(snapshot_date) FROM fra_youtube__overview)
+    ORDER BY snapshot_date DESC
+    LIMIT 60
   `,
   distribution: `
     SELECT * FROM fra_youtube__distribution
@@ -96,6 +101,100 @@ export const SQL = {
 
 export const rowsOf = (data, key) => (data && data[key] && data[key].rows) || [];
 export const errOf = (data, key) => (data && data[key] && data[key].error) || null;
+
+/* ── snapshot-history trend ───────────────────────────────────────────────────
+   The "At a glance" deltas both dashboards show. The backend's overview.*_delta
+   columns only diff against the single prior snapshot; we instead read the full
+   overview history and compute TWO windows per core metric:
+
+   - `day`  — vs the immediately preceding snapshot ("vs yesterday").
+   - `week` — vs the most recent snapshot ≥7 days before the latest
+              ("vs last week" — the today-vs-same-day-last-week read).
+
+   Each window carries a per-metric delta map. `week` is null until the history
+   is at least a week deep — it then populates automatically. `computeTrend`
+   returns null when there is only one snapshot (nothing to compare yet). */
+
+/* Core metrics tracked for deltas. subscriber_efficiency is derived
+   (total_views ÷ subscribers); the rest are fra_youtube__overview columns. */
+export const TREND_FIELDS = [
+  "subscribers", "total_views", "video_count",
+  "avg_views", "median_views", "avg_duration_sec", "subscriber_efficiency",
+];
+
+const _dayMs = 86400000;
+const _dayOf = (s) => new Date(String(s ?? "").slice(0, 10)).getTime();
+const _num = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? null : Number(v));
+
+/* The seven tracked metrics for one overview row, subscriber_efficiency derived. */
+function _metricsOf(row) {
+  const subs = _num(row.subscribers);
+  const views = _num(row.total_views);
+  return {
+    subscribers: subs,
+    total_views: views,
+    video_count: _num(row.video_count),
+    avg_views: _num(row.avg_views),
+    median_views: _num(row.median_views),
+    avg_duration_sec: _num(row.avg_duration_sec),
+    subscriber_efficiency: subs && views != null ? views / subs : null,
+  };
+}
+
+function _windowLabel(spanDays, kind) {
+  if (kind === "day") return spanDays === 1 ? "vs yesterday" : `vs ${spanDays} days ago`;
+  return spanDays >= 6 && spanDays <= 8 ? "vs last week" : `vs ${spanDays} days ago`;
+}
+
+/* One comparison window — per-metric deltas of `latest` against `baseline`. */
+function _diffWindow(latest, baseline, kind) {
+  if (!baseline) return null;
+  const lm = _metricsOf(latest);
+  const bm = _metricsOf(baseline);
+  const deltas = {};
+  for (const f of TREND_FIELDS) {
+    deltas[f] = lm[f] != null && bm[f] != null ? lm[f] - bm[f] : null;
+  }
+  const spanDays = Math.max(
+    1, Math.round((_dayOf(latest.snapshot_date) - _dayOf(baseline.snapshot_date)) / _dayMs));
+  return {
+    baselineDate: String(baseline.snapshot_date).slice(0, 10),
+    spanDays,
+    label: _windowLabel(spanDays, kind),
+    deltas,
+  };
+}
+
+export function computeTrend(overviewRows) {
+  if (!overviewRows || overviewRows.length < 2) return null;
+
+  const rows = [...overviewRows].sort((a, b) =>
+    String(a.snapshot_date).localeCompare(String(b.snapshot_date)));
+  const latest = rows[rows.length - 1];
+  const latestDay = _dayOf(latest.snapshot_date);
+  if (Number.isNaN(latestDay)) return null;
+
+  // day window: the most recent snapshot on an EARLIER calendar day — a
+  // same-day re-crawl must not be diffed against itself and labelled "vs
+  // yesterday".
+  let prior = null;
+  for (let i = rows.length - 2; i >= 0; i--) {
+    const d = _dayOf(rows[i].snapshot_date);
+    if (!Number.isNaN(d) && d < latestDay) { prior = rows[i]; break; }
+  }
+  // week window: the most recent snapshot ≥7 days before the latest.
+  let weekAgo = null;
+  for (let i = rows.length - 2; i >= 0; i--) {
+    const d = _dayOf(rows[i].snapshot_date);
+    if (!Number.isNaN(d) && (latestDay - d) / _dayMs >= 7) { weekAgo = rows[i]; break; }
+  }
+
+  return {
+    asOf: String(latest.snapshot_date).slice(0, 10),
+    day: _diffWindow(latest, prior, "day"),
+    week: _diffWindow(latest, weekAgo, "week"),
+  };
+}
 
 /* ── data hook ────────────────────────────────────────────────────────────────
    Theme-agnostic: runs every SQL spec in parallel against the project and
