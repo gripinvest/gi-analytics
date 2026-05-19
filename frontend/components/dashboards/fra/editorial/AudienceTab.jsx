@@ -17,7 +17,7 @@ import {
   Cell, ReferenceLine,
 } from "recharts";
 import { errOf } from "@/lib/queries/fraYoutube";
-import { fmt, pct1 } from "../helpers";
+import { pct1 } from "../helpers";
 import {
   ED_INK, ED_INK_FAINT, ED_GOLD, ED_FOREST, ED_RUST, ED_RULE_FAINT,
   edAxisProps, edGridProps,
