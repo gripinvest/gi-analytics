@@ -256,6 +256,43 @@ Consequences:
 - The cost of no materialised layer — query latency growing with accumulated
   weeks — is a real trade-off, quantified and bounded in §17.
 
+### Data integrity — no duplication by construction
+
+A refetch must never duplicate or corrupt data: on an analytics surface a
+double-counted row is a silently wrong number, which is a critical failure.
+The design guarantees this through three mechanisms — it is a structural
+property, not a hope:
+
+1. **Whole-file atomic replace — never append or merge (D5).** Each daily run
+   queries the *complete* set of rows for a week and atomically rewrites that
+   week's CSV (temp file + `os.replace()`). There is no append step and no
+   row-merge step, so there is no code path by which a row can land in a file
+   twice — a refetch is idempotent (re-running yields a byte-identical file).
+   This is precisely why D5 drops `id`-keyed upsert: upsert is the *only*
+   mechanism that could double rows (a wrong or unstable merge key appends
+   instead of replacing). Removing it removes the failure mode entirely.
+2. **Non-overlapping week windows.** The fetch SQL uses a half-open interval
+   `timestamp >= week_start AND timestamp < week_end`; consecutive weeks abut
+   exactly. Every event belongs to exactly one week-file; the trailing 2-week
+   refetch (D3) rewrites two *distinct* files, never the same row's file twice.
+3. **`UNION ALL` over disjoint weeks.** `assetSearch.js` unions the per-week
+   tables; disjoint inputs that each carry no internal duplicate produce a
+   correct, duplicate-free whole.
+
+Guards that keep this true:
+- `feature_week.bounds()` has boundary unit tests (`test_feature_week.py`,
+  §16 Phase 1 — launch day, week rollovers); a bug producing overlapping
+  weeks is caught there and by the §14 validator's "every row's `timestamp`
+  is inside the week" check.
+- The §14 row-count sanity band (a >10× swing vs the prior week) catches a
+  doubled or empty result before cut-over and pages an alert.
+- **The DuckDB reload after a manual in-container refresh must be atomic from
+  a reader's perspective** — load into a fresh schema and swap it in, or hold
+  a brief reader lock — so a dashboard query landing mid-reload never sees a
+  half-loaded table. A Phase-3 build requirement (§16). The scheduled path has
+  no such risk: it commits to git, redeploys, and a fresh container rebuilds
+  DuckDB from scratch.
+
 ---
 
 ## 8. Components & files
@@ -449,8 +486,10 @@ flag); a non-empty error list blocks cut-over / pages an alert:
    wrap GC into `grip_connect.run()`; `_manifest.json`; `validate.py` checks.
    **Regression gate:** the existing GC fetch/refresh tests must still pass.
 3. **Phase 3 — endpoint.** `POST /api/projects/asset_search/refresh` end-to-end;
-   the `routers/refresh.py` one-line change; DuckDB reload; update the endpoint
-   test.
+   the `routers/refresh.py` one-line change; update the endpoint test. The
+   in-container DuckDB reload must be **atomic from a reader's perspective**
+   (load into a fresh schema and swap, or a brief reader lock) — a dashboard
+   query mid-reload must never see a half-loaded table (§7 Data integrity).
 4. **Phase 4 — frontend.** `project.json` `refreshable: true`; Refresh button /
    chip / "as of" + staleness warning on both dashboard variants; mobile audit.
 5. **Phase 5 — schedule.** `refresh-asset-search.yml` with failure alerting.
