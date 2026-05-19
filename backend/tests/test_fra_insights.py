@@ -59,3 +59,40 @@ def test_insights_returns_no_data_payload_when_no_snapshot(monkeypatch):
     assert body["weaknesses"] == []
     assert body["recommendations"] == []
     assert len(generate_calls) == 0   # _generate_insights must not have been called
+
+
+def test_recommendation_text_passes_strings_through():
+    s = "Lever: discovery | Metric: CTR | Action: refresh thumbnails"
+    assert mod._recommendation_text(s) == s
+
+
+def test_recommendation_text_formats_structured_object():
+    rec = {"lever": "discovery", "metric": "CTR 2.1%", "action": "A/B test titles"}
+    assert mod._recommendation_text(rec) == \
+        "Lever: discovery | Metric: CTR 2.1% | Action: A/B test titles"
+    # partial object — only the present keys are emitted
+    assert mod._recommendation_text({"action": "do x"}) == "Action: do x"
+
+
+def test_insights_endpoint_normalizes_object_recommendations(monkeypatch, tmp_path):
+    """Claude sometimes returns recommendations as {lever, metric, action}
+    objects; the endpoint must coerce them to strings so the UI never receives
+    a non-string child (React error #31)."""
+    def fake_generate(brief):
+        return {"verdict": "v", "strengths": [], "weaknesses": [],
+                "recommendations": [
+                    {"lever": "discovery", "metric": "CTR", "action": "fix thumbnails"},
+                    "Lever: cadence | Metric: uploads | Action: post weekly",
+                ]}
+
+    monkeypatch.setattr(mod, "_generate_insights", fake_generate)
+    monkeypatch.setattr(mod, "_latest_snapshot_date", lambda: "2026-05-18")
+    monkeypatch.setattr(mod, "_build_brief", lambda: {"overview": []})
+    monkeypatch.setattr(mod, "_INSIGHTS_DIR", tmp_path)
+    mod._CACHE.clear()
+
+    body = client.get("/api/projects/fra_youtube/insights").json()
+    recs = body["recommendations"]
+    assert all(isinstance(r, str) for r in recs)
+    assert recs[0] == "Lever: discovery | Metric: CTR | Action: fix thumbnails"
+    assert recs[1] == "Lever: cadence | Metric: uploads | Action: post weekly"

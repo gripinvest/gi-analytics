@@ -1052,6 +1052,25 @@ function AiInsightsCard({ state }) {
   );
 }
 
+// AI insight items are normally plain strings, but the LLM occasionally returns
+// a structured recommendation object ({lever, metric, action}). Coerce to text
+// so a stray object can never crash the render — React cannot render an object.
+function insightItemText(it) {
+  if (it == null) return "";
+  if (typeof it === "string") return it;
+  if (typeof it === "object") {
+    const parts = [
+      ["Lever", it.lever],
+      ["Metric", it.metric],
+      ["Action", it.action],
+    ].filter(([, v]) => v != null && v !== "");
+    return parts.length
+      ? parts.map(([k, v]) => `${k}: ${v}`).join(" | ")
+      : JSON.stringify(it);
+  }
+  return String(it);
+}
+
 function InsightColumn({ heading, mark, markClass, items }) {
   return (
     <div>
@@ -1063,7 +1082,7 @@ function InsightColumn({ heading, mark, markClass, items }) {
           {items.map((it, i) => (
             <li key={i} className="t-body-sm text-body flex gap-2">
               <span className={`shrink-0 ${markClass}`} aria-hidden>{mark}</span>
-              <span>{it}</span>
+              <span>{insightItemText(it)}</span>
             </li>
           ))}
         </ul>
