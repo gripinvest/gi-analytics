@@ -3,7 +3,7 @@
  * InsightsTab — Tab 6 of the FRA classic dashboard.
  *
  * The full automated read on the latest snapshot: the headline verdict and the
- * three-column strengths / weaknesses / recommendations grid. The condensed
+ * stacked strengths / weaknesses / recommendations groups. The condensed
  * verdict + top-3 lives on the Overview tab; this is the unabridged version.
  */
 
