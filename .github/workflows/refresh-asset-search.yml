@@ -1,0 +1,62 @@
+name: Refresh Asset Search data
+
+# Durable populator for the Asset Search live-data pipeline (spec §9 / D7).
+# Pulls the current + prior feature week from Metabase daily and commits the
+# canonical CSVs so accumulated history survives redeploys (Render's container
+# disk is ephemeral; git is the durable store).
+#
+# The daily/weekly fetch split (search events daily, heavy browse/conversion
+# tables on a feature-week rollover) lives inside services.integrations.refresh
+# — this workflow just runs it every day.
+#
+# Security note: the only ${{ }} interpolations are secrets passed via env:
+# and python-version. No untrusted github.event.* input reaches a run: step.
+
+on:
+  schedule:
+    - cron: "30 18 * * *"   # 00:00 IST daily (spec D7)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write          # required for the commit-back step to push
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r backend/requirements.txt
+      - name: Run refresh
+        working-directory: backend
+        env:
+          METABASE_URL: https://metabase.gripinvest.in
+          METABASE_API_KEY: ${{ secrets.METABASE_API_KEY }}
+          METABASE_EMAIL: ${{ secrets.METABASE_EMAIL }}
+          METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
+        run: python -m services.integrations.refresh asset_search
+      - name: Commit refreshed data if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backend/data/asset_search/
+          git diff --staged --quiet || git commit -m "chore: refresh Asset Search data"
+          git push
+      # Failure alerting (spec §15) — a silently-failed daily cron is the worst
+      # outcome for an "auto-fresh" dashboard. GitHub already emails the run on
+      # failure; this makes it loud in the Actions UI and pings Slack when a
+      # SLACK_WEBHOOK_URL secret is configured (skipped cleanly when it is not).
+      - name: Notify on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          echo "::error::Asset Search daily refresh failed — the dashboard will go stale until this is fixed."
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -sf -X POST -H 'Content-type: application/json' \
+              --data '{"text":"Asset Search daily refresh failed — see GitHub Actions."}' \
+              "$SLACK_WEBHOOK_URL" || true
+          fi
