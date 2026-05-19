@@ -1,3 +1,3 @@
-channel_handle,snapshot_date,videos_ge_1k,videos_ge_10k,videos_ge_100k,p10_views,p50_views,p90_views,gini,recent_video_count,breakout_1k_rate
-@fixedreturnsacademy,2026-05-18,62,6,0,191.4,591.0,2167.8,0.6647,18,0.3333
-@fixedreturnsacademy,2026-05-19,62,6,0,192.2,591.0,2167.8,0.6644,18,0.3333
+channel_handle,snapshot_date,videos_ge_1k,videos_ge_10k,videos_ge_100k,p10_views,p25_views,p50_views,p75_views,p90_views,p95_views,mean_median_ratio,top10pct_view_share,gini,recent_video_count,breakout_1k_rate
+@fixedreturnsacademy,2026-05-18,62,6,0,191.4,283.0,591.0,1134.5,2167.8,4948.5,2.47,0.594,0.6647,18,0.3333
+@fixedreturnsacademy,2026-05-19,62,6,0,192.2,283.0,591.0,1137.0,2167.8,4966.6,2.47,0.5942,0.6644,18,0.3333
