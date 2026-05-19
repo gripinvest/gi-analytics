@@ -14,7 +14,7 @@
 
 import * as React from "react";
 import {
-  ResponsiveContainer, ComposedChart, AreaChart, BarChart,
+  ResponsiveContainer, ComposedChart, BarChart,
   Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 import { errOf } from "@/lib/queries/fraYoutube";
