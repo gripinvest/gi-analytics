@@ -42,6 +42,13 @@ export default function FraYoutubeDashboard({ project }) {
   const insightsState = useFraInsights();
   const [activeTab, setActiveTab] = React.useState("overview");
 
+  /* On tab change, return the reader to the top of the report.
+     Declared before any early return — all hooks must run unconditionally. */
+  const onNavigate = React.useCallback((key) => {
+    setActiveTab(key);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
   /* row extraction — every key is { rows } | { error } */
   const overviewRows = rowsOf(data, "overview");
   const overview = overviewRows[0] || null;
@@ -142,12 +149,6 @@ export default function FraYoutubeDashboard({ project }) {
   }));
 
   const titleMax = titleRows.reduce((m, r) => Math.max(m, Number(r.avg_views) || 0), 0);
-
-  /* On tab change, return the reader to the top of the report. */
-  const onNavigate = React.useCallback((key) => {
-    setActiveTab(key);
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
 
   /* ── per-tab props ───────────────────────────────────────────────────────*/
   const tabProps = {
