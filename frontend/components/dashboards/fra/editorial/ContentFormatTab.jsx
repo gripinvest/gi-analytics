@@ -210,10 +210,11 @@ function _engRate(r) {
    engagement rate. Net-new in the restructure; reads video_snapshots directly
    via the topVideosByViews / topVideosByEngagement query specs. */
 function LeaderboardSection({ number, loading, viewsError, engError, topByViews, topByEngagement }) {
+  const rankCol = { key: "_rank", label: "#", align: "right", mono: true, render: (_row, i) => i + 1 };
   const titleCol = {
     key: "title", label: "Title",
     render: (r) => (
-      <span style={{ display: "inline-block", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ display: "inline-block", maxWidth: "min(220px, 46vw)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {r.title}
       </span>
     ),
@@ -235,6 +236,7 @@ function LeaderboardSection({ number, loading, viewsError, engError, topByViews,
             empty="No video data for the current snapshot."
             rows={topByViews}
             cols={[
+              rankCol,
               titleCol,
               { key: "category", label: "Category" },
               { key: "views", label: "Views", align: "right", mono: true, render: (r) => fmt(r.views) },
@@ -254,6 +256,7 @@ function LeaderboardSection({ number, loading, viewsError, engError, topByViews,
             empty="No video data for the current snapshot."
             rows={topByEngagement}
             cols={[
+              rankCol,
               titleCol,
               { key: "category", label: "Category" },
               { key: "views", label: "Views", align: "right", mono: true, render: (r) => fmt(r.views) },

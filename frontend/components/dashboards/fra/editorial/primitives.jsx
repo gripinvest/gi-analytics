@@ -319,7 +319,7 @@ export function LedgerTable({ cols, rows, loading, empty = "No data for the curr
                   className={c.mono ? "ed-num py-2" : "py-2"}
                   style={{ textAlign: c.align || "left", whiteSpace: "nowrap" }}
                 >
-                  {c.render ? c.render(row) : row[c.key]}
+                  {c.render ? c.render(row, i) : row[c.key]}
                 </td>
               ))}
             </tr>

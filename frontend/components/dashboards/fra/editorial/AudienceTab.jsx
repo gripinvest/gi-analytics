@@ -57,7 +57,7 @@ export function EngagementSection({ number, loading, data, engagementSeries, eng
             >
               <CartesianGrid stroke={ED_RULE_FAINT} strokeDasharray="0" horizontal={false} />
               <XAxis type="number" {...edAxisProps} tickFormatter={(v) => `${v > 0 ? "+" : ""}${v}`} />
-              <YAxis type="category" dataKey="bucket" {...edAxisProps} width={104} />
+              <YAxis type="category" dataKey="bucket" {...edAxisProps} width={104} tickFormatter={(v) => v && v.length > 16 ? `${v.slice(0, 16)}…` : v} />
               <Tooltip
                 cursor={{ fill: "rgba(27,24,24,0.05)" }}
                 content={

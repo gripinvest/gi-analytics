@@ -123,7 +123,7 @@ export function TitlesSeoSection({ number, loading, data, titleSeries, animProps
             >
               <CartesianGrid stroke={ED_RULE_FAINT} strokeDasharray="0" horizontal={false} />
               <XAxis type="number" {...edAxisProps} tickFormatter={compact} />
-              <YAxis type="category" dataKey="pattern" {...edAxisProps} width={130} />
+              <YAxis type="category" dataKey="pattern" {...edAxisProps} width={130} tickFormatter={(v) => v && v.length > 16 ? `${v.slice(0, 16)}…` : v} />
               <Tooltip cursor={{ fill: "rgba(27,24,24,0.05)" }} content={<EdTooltip valueFmt={(v) => fmt(v)} />} />
               <Bar dataKey="avgViews" name="Avg views" fill={ED_INK} maxBarSize={22} {...animProps}>
                 <LabelList
@@ -232,7 +232,7 @@ function TagAnalysisSection({ number, loading, error, tagRows, animProps }) {
             <BarChart layout="vertical" data={series} margin={{ top: 4, right: 28, bottom: 4, left: 8 }}>
               <CartesianGrid stroke={ED_RULE_FAINT} strokeDasharray="0" horizontal={false} />
               <XAxis type="number" {...edAxisProps} allowDecimals={false} />
-              <YAxis type="category" dataKey="tag" {...edAxisProps} width={130} />
+              <YAxis type="category" dataKey="tag" {...edAxisProps} width={130} tickFormatter={(v) => v && v.length > 16 ? `${v.slice(0, 16)}…` : v} />
               <Tooltip cursor={{ fill: "rgba(27,24,24,0.05)" }} content={<EdTooltip valueFmt={(v) => `${fmt(v)} videos`} />} />
               <Bar dataKey="frequency" name="Videos" maxBarSize={20} {...animProps}>
                 {series.map((d, i) => (

@@ -28,7 +28,7 @@ function TabConnect({ label, onClick }) {
       type="button"
       onClick={onClick}
       className="ed-section-link mt-5 inline-flex items-center gap-1.5"
-      style={{ minHeight: 36, background: "none", border: "none", cursor: "pointer" }}
+      style={{ minHeight: 44, background: "none", border: "none", cursor: "pointer" }}
     >
       {label} <span aria-hidden>→</span>
     </button>

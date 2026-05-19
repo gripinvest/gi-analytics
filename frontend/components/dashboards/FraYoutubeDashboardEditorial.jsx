@@ -42,7 +42,13 @@ function TabStrip({ active, onSelect }) {
   return (
     <nav
       className="mt-8 overflow-x-auto"
-      style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+      style={{
+        scrollbarWidth: "none",
+        msOverflowStyle: "none",
+        /* Fade the right edge so tabs that overflow at 375px are discoverable */
+        WebkitMaskImage: "linear-gradient(to right, #000 88%, transparent)",
+        maskImage: "linear-gradient(to right, #000 88%, transparent)",
+      }}
       aria-label="Report sections"
     >
       <div
