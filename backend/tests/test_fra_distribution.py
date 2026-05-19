@@ -14,6 +14,18 @@ def test_distribution_thresholds_and_concentration():
     assert 0 < r["gini"] < 1
 
 
+def test_distribution_full_percentile_ladder():
+    layer1 = build_layer1([(CHANNEL, VIDEOS)], snapshot_date="2026-05-18")
+    r = build_distribution(layer1["video_snapshots"])[0]
+    # views sorted: [100, 400, 1000, 3000, 8000]
+    assert r["p25_views"] == 400
+    assert r["p75_views"] == 3000
+    assert r["p95_views"] == 7000            # interpolated 3000 + 0.8*(8000-3000)
+    assert r["mean_median_ratio"] == 2.5     # mean 2500 / median 1000
+    # Top 10% of 5 videos rounds to 1 video (8000) → 8000 / 12500.
+    assert r["top10pct_view_share"] == 0.64
+
+
 def test_breakout_rate_uses_trailing_30d():
     layer1 = build_layer1([(CHANNEL, VIDEOS)], snapshot_date="2026-05-18")
     rows = build_distribution(layer1["video_snapshots"])

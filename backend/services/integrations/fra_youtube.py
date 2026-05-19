@@ -118,8 +118,16 @@ def build_distribution(video_rows) -> list[dict]:
             "videos_ge_10k": sum(1 for x in views if x >= 10000),
             "videos_ge_100k": sum(1 for x in views if x >= 100000),
             "p10_views": round(percentile(views, 10), 1),
+            "p25_views": round(percentile(views, 25), 1),
             "p50_views": round(percentile(views, 50), 1),
+            "p75_views": round(percentile(views, 75), 1),
             "p90_views": round(percentile(views, 90), 1),
+            "p95_views": round(percentile(views, 95), 1),
+            "mean_median_ratio": round(
+                safe_div(safe_div(sum(views), len(views)), median(views)), 2),
+            "top10pct_view_share": round(safe_div(
+                sum(sorted(views, reverse=True)[:max(1, len(views) // 10)]),
+                sum(views)), 4),
             "gini": round(gini(views), 4),
             "recent_video_count": len(recent),
             "breakout_1k_rate": round(safe_div(len(recent_breakouts), len(recent)), 4),
