@@ -15,3 +15,18 @@ def test_tag_analysis_counts_and_types():
     assert by_tag["taxation"]["tag_type"] == "other"
     # Ranked by (-frequency, tag) — all freq 1, so alphabetical.
     assert [r["tag"] for r in rows] == ["bond", "fd", "passive income", "taxation"]
+
+
+def test_tag_analysis_frequency_ranking_and_top_n():
+    # "bond" appears 3×, "fd" 2×, "alpha" 1×, "zebra" 1× — verifies
+    # frequency-descending sort, alphabetical tie-break, and top_n truncation.
+    video_rows = [
+        {"channel_handle": "@fra", "snapshot_date": "2026-05-18", "tags": "bond,fd"},
+        {"channel_handle": "@fra", "snapshot_date": "2026-05-18", "tags": "bond,alpha"},
+        {"channel_handle": "@fra", "snapshot_date": "2026-05-18", "tags": "bond,fd,zebra"},
+    ]
+    rows = build_tag_analysis(video_rows, top_n=2)
+    assert len(rows) == 2
+    assert rows[0]["tag"] == "bond" and rows[0]["frequency"] == 3
+    assert rows[1]["tag"] == "fd" and rows[1]["frequency"] == 2
+    # alpha and zebra (freq 1 each) are truncated by top_n=2
