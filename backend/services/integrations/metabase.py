@@ -73,15 +73,22 @@ class MetabaseClient:
         rows = [dict(zip(cols, r)) for r in data.get("rows", [])]
         return rows, cols
 
-    def run_sql(self, database_id: int, sql: str) -> tuple[list[dict], list[str]]:
+    def run_sql(self, database_id: int, sql: str,
+                raw_columns: bool = False) -> tuple[list[dict], list[str]]:
         """Run an ad-hoc native SQL query against `database_id` via /api/dataset;
         return (rows-as-dicts, column-names).
 
-        Used by validation/diagnostic scripts that need arbitrary SQL rather than
-        a saved card — the refresh pipeline still goes through fetch_card. A bad
-        query comes back HTTP 202 with a JSON `error`/`status: failed` body
-        (Metabase does not use a 4xx for SQL errors), so that case is checked
-        explicitly and surfaced as a MetabaseError."""
+        Used both by validation/diagnostic scripts and by the Asset Search
+        refresh pipeline (spec D1 — Asset Search fetches raw event rows by
+        native SQL, not saved cards). A bad query comes back HTTP 202 with a
+        JSON `error`/`status: failed` body (Metabase does not use a 4xx for SQL
+        errors), so that case is checked explicitly and surfaced as a
+        MetabaseError.
+
+        `raw_columns` — when True, column names are the raw DB column (`name`);
+        when False (default) the humanised `display_name` is preferred. The
+        fetch pipeline passes True so the CSV headers are the exact columns the
+        `assetSearch.js` builders reference."""
         resp = self._client.post(
             f"{self.base_url}/api/dataset",
             headers=self._auth_headers(),
@@ -95,8 +102,12 @@ class MetabaseClient:
         if body.get("status") == "failed" or body.get("error"):
             raise MetabaseError(f"Metabase SQL error: {body.get('error', 'unknown')}")
         data = body.get("data", {})
-        cols = [c.get("display_name") or c.get("name", f"col_{i}")
-                for i, c in enumerate(data.get("cols", []))]
+        if raw_columns:
+            cols = [c.get("name", f"col_{i}")
+                    for i, c in enumerate(data.get("cols", []))]
+        else:
+            cols = [c.get("display_name") or c.get("name", f"col_{i}")
+                    for i, c in enumerate(data.get("cols", []))]
         rows = [dict(zip(cols, r)) for r in data.get("rows", [])]
         return rows, cols
 
