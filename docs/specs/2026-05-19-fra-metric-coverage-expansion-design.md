@@ -32,7 +32,7 @@ New transforms in `backend/services/integrations/fra_youtube.py`, written as CSV
 | `avg_views` | mean `views` of those videos |
 | `engagement_rate_pct` | mean of `(likes + comments) / views * 100` over those videos |
 
-Bucket boundaries are min-inclusive, max-exclusive. Powers Content & Format's duration analysis and the engagement-by-duration read.
+Bucket boundaries are max-inclusive — a video falls in the first bucket whose ceiling it does not exceed (a 30 s video → `0–30s`); the last bucket is open-ended. Powers Content & Format's duration analysis and the engagement-by-duration read.
 
 ### 3.2 `fra_youtube__tag_analysis` (new)
 
