@@ -38,3 +38,45 @@ export const fmtMonth = (s) => {
     ? String(s ?? "")
     : `${d.toLocaleDateString("en-IN", { month: "short" })} '${m[1].slice(2)}`;
 };
+
+/**
+ * Parse a pipe-delimited recommendation string into structured label/value pairs.
+ *
+ * Input: "Lever: <lever> | Metric: <metric> | Action: <action>"
+ * Output: [{ label: "Lever", value: "<lever>" }, { label: "Metric", value: "<metric>" }, ...]
+ *
+ * Only the pipe-delimited recommendation format is treated as structured. A
+ * plain sentence (strengths/weaknesses) has no `|` — even if it contains a
+ * stray colon — and returns [{ label: null, value: text }] so callers render
+ * it plainly. Splitting on a colon alone would mis-label ordinary prose.
+ *
+ * Pure function — no React, no JSX.
+ *
+ * @param {string} text
+ * @returns {{ label: string|null, value: string }[]}
+ */
+export function parseRecommendation(text) {
+  const str = String(text ?? "").trim();
+  if (!str) return [{ label: null, value: str }];
+
+  // No pipe → a plain sentence. The structured form is defined by `|`.
+  if (!str.includes("|")) {
+    return [{ label: null, value: str }];
+  }
+
+  const segments = str.split("|");
+  const parts = segments.map((seg) => {
+    const trimmed = seg.trim();
+    const colonIdx = trimmed.indexOf(":");
+    if (colonIdx === -1) return { label: null, value: trimmed };
+    const label = trimmed.slice(0, colonIdx).trim();
+    const value = trimmed.slice(colonIdx + 1).trim();
+    return { label: label || null, value };
+  });
+
+  // If every segment produced a null label, treat as plain text
+  const hasAnyLabel = parts.some((p) => p.label !== null);
+  if (!hasAnyLabel) return [{ label: null, value: str }];
+
+  return parts;
+}
