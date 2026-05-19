@@ -12,7 +12,7 @@
 
 import * as React from "react";
 import { fetchFraInsights } from "@/lib/api";
-import { fmt } from "../helpers";
+import { fmt, parseRecommendation } from "../helpers";
 
 /* ── editorial palette (ink marks on paper, sparing accents) ─────────────────
    References the --ed-* CSS variables, so the charts follow whichever
@@ -404,18 +404,38 @@ export function InsightColumn({ heading, mark, markColor, items }) {
       <p className="ed-overline mb-3">{heading}</p>
       {items && items.length > 0 ? (
         <ul className="flex flex-col gap-3">
-          {items.map((it, i) => (
-            <li key={i} className="ed-prose flex gap-2.5" style={{ fontSize: 14 }}>
-              <span
-                className="ed-num shrink-0"
-                style={{ color: markColor, fontWeight: 700, lineHeight: 1.5 }}
-                aria-hidden
-              >
-                {mark}
-              </span>
-              <span>{insightItemText(it)}</span>
-            </li>
-          ))}
+          {items.map((it, i) => {
+            const text = insightItemText(it);
+            const parts = parseRecommendation(text);
+            const isStructured = parts.length > 1 || (parts.length === 1 && parts[0].label !== null);
+            return (
+              <li key={i} className="ed-prose flex gap-2.5" style={{ fontSize: 14 }}>
+                <span
+                  className="ed-num shrink-0"
+                  style={{ color: markColor, fontWeight: 700, lineHeight: 1.5 }}
+                  aria-hidden
+                >
+                  {mark}
+                </span>
+                {isStructured ? (
+                  <div className="flex flex-col gap-1">
+                    {parts.map((part, j) => (
+                      <div key={j}>
+                        {part.label && (
+                          <span className="ed-overline" style={{ color: ED_INK_MUTED, marginRight: "0.25rem" }}>
+                            {part.label}:
+                          </span>
+                        )}
+                        <span>{part.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <span>{parts[0]?.value ?? text}</span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="ed-prose-italic" style={{ color: ED_INK_FAINT, fontSize: 13 }}>
@@ -458,7 +478,7 @@ export function AiInsights({ state }) {
         <p className="ed-prose-italic" style={{ color: ED_INK_FAINT }}>No insights available yet.</p>
       )}
 
-      <div className="grid gap-x-10 gap-y-8 md:grid-cols-3">
+      <div className="flex flex-col gap-8">
         <InsightColumn
           heading="Strengths"
           mark="✓"
