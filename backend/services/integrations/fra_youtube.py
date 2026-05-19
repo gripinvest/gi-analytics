@@ -8,7 +8,7 @@ to comma strings so they survive CSV round-trips.
 """
 from collections import defaultdict
 from datetime import datetime, timedelta
-from services.integrations.fra_classify import classify_video
+from services.integrations.fra_classify import classify_video, classify_tag
 from services.integrations.fra_metrics import gini, median, percentile, safe_div
 
 # v1: FRA only. Add competitor handles here for the deferred comparison tab.
@@ -118,8 +118,16 @@ def build_distribution(video_rows) -> list[dict]:
             "videos_ge_10k": sum(1 for x in views if x >= 10000),
             "videos_ge_100k": sum(1 for x in views if x >= 100000),
             "p10_views": round(percentile(views, 10), 1),
+            "p25_views": round(percentile(views, 25), 1),
             "p50_views": round(percentile(views, 50), 1),
+            "p75_views": round(percentile(views, 75), 1),
             "p90_views": round(percentile(views, 90), 1),
+            "p95_views": round(percentile(views, 95), 1),
+            "mean_median_ratio": round(
+                safe_div(safe_div(sum(views), len(views)), median(views)), 2),
+            "top10pct_view_share": round(safe_div(
+                sum(sorted(views, reverse=True)[:max(1, len(views) // 10)]),
+                sum(views)), 4),
             "gini": round(gini(views), 4),
             "recent_video_count": len(recent),
             "breakout_1k_rate": round(safe_div(len(recent_breakouts), len(recent)), 4),
@@ -278,6 +286,104 @@ def build_title_patterns(video_rows) -> list[dict]:
     return out
 
 
+def build_tag_analysis(video_rows, top_n=30) -> list[dict]:
+    """Per channel: tag frequency across the library, ranked, capped at top N,
+    each with a keyword-classified tag_type. The `tags` field is a comma-joined
+    string from build_layer1; it is split and trimmed here."""
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        snap = vids[0]["snapshot_date"]
+        counts = defaultdict(int)
+        for v in vids:
+            seen = set()
+            for raw in str(v["tags"]).split(","):
+                tag = raw.strip().lower()
+                if tag and tag not in seen:
+                    seen.add(tag)
+                    counts[tag] += 1
+        ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:top_n]
+        for tag, freq in ranked:
+            out.append({
+                "channel_handle": handle,
+                "snapshot_date": snap,
+                "tag": tag,
+                "frequency": freq,
+                "tag_type": classify_tag(tag),
+            })
+    return out
+
+
+# Upper-bound-inclusive duration buckets (seconds). A video lands in the first
+# bucket whose ceiling it does not exceed; the last bucket is open-ended.
+_DURATION_BUCKETS = [
+    ("0–30s", 30), ("30–60s", 60), ("1–2m", 120), ("2–5m", 300),
+    ("5–10m", 600), ("10–20m", 1200), ("20m+", float("inf")),
+]
+
+
+def _duration_bucket_label(sec) -> str:
+    for label, ceiling in _DURATION_BUCKETS:
+        if sec <= ceiling:
+            return label
+    return _DURATION_BUCKETS[-1][0]
+
+
+def build_duration_buckets(video_rows) -> list[dict]:
+    """Per channel: video count, avg views, engagement rate per duration bucket.
+    Every bucket is emitted even when empty, so the chart axis is stable.
+
+    engagement_rate_pct is the MEAN of per-video ratios (spec §3.1):
+      mean of (likes + comments) / views * 100 over videos in the bucket.
+    A zero-view video contributes 0.0 via safe_div and IS counted in the
+    denominator. Empty buckets emit 0.0.
+    """
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        snap = vids[0]["snapshot_date"]
+        groups = defaultdict(list)
+        for v in vids:
+            groups[_duration_bucket_label(v["duration_sec"])].append(v)
+        for label, _ in _DURATION_BUCKETS:
+            group = groups.get(label, [])
+            views = sum(v["views"] for v in group)
+            ratios = [100 * safe_div(v["likes"] + v["comments"], v["views"]) for v in group]
+            out.append({
+                "channel_handle": handle,
+                "snapshot_date": snap,
+                "bucket": label,
+                "video_count": len(group),
+                "avg_views": round(safe_div(views, len(group)), 1),
+                "engagement_rate_pct": round(safe_div(sum(ratios), len(ratios)), 3),
+            })
+    return out
+
+
+def build_upload_cadence(video_rows) -> list[dict]:
+    """Per channel: upload pacing — uploads per active month and the gaps
+    (in days) between consecutive uploads."""
+    out = []
+    handles = sorted({v["channel_handle"] for v in video_rows})
+    for handle in handles:
+        vids = [v for v in video_rows if v["channel_handle"] == handle]
+        snap = vids[0]["snapshot_date"]
+        dates = sorted(_parse_dt(v["published_at"]).date() for v in vids)
+        months = {(d.year, d.month) for d in dates}
+        gaps = [(dates[i] - dates[i - 1]).days for i in range(1, len(dates))]
+        out.append({
+            "channel_handle": handle,
+            "snapshot_date": snap,
+            "avg_uploads_per_month": round(safe_div(len(vids), len(months)), 2),
+            "avg_gap_days": round(safe_div(sum(gaps), len(gaps)), 1) if gaps else 0.0,
+            "median_gap_days": round(float(median(gaps)), 1) if gaps else 0.0,
+            "longest_gap_days": max(gaps) if gaps else 0,
+        })
+    return out
+
+
 def build_catalog_health(channel_rows, video_rows) -> list[dict]:
     """Recent (trailing 30d) vs all-time averages, freshness, subscriber efficiency."""
     out = []
@@ -318,4 +424,7 @@ def build_layer2(layer1: dict, history: dict) -> dict:
         "posting_patterns": build_posting_patterns(video_rows),
         "title_patterns": build_title_patterns(video_rows),
         "catalog_health": build_catalog_health(channel_rows, video_rows),
+        "duration_buckets": build_duration_buckets(video_rows),
+        "tag_analysis": build_tag_analysis(video_rows),
+        "upload_cadence": build_upload_cadence(video_rows),
     }

@@ -1,4 +1,25 @@
-from services.integrations.fra_classify import classify_video
+from services.integrations.fra_classify import classify_video, classify_tag
+
+
+def test_classify_tag_types():
+    # Pre-existing assertions — must continue to pass unchanged.
+    assert classify_tag("bond") == "product"
+    assert classify_tag("fd") == "product"
+    assert classify_tag("passive income") == "aspirational"
+    assert classify_tag("youtube shorts") == "platform"
+    assert classify_tag("grip") == "brand"
+    assert classify_tag("taxation") == "other"
+    assert classify_tag("") == "other"
+    assert classify_tag("  BOND  ") == "product"   # trimmed + lowercased
+    # Fix 3a — whole-word match for short keywords: "fdic" must NOT match "fd".
+    assert classify_tag("fdic") != "product"
+    # Fix 3b — educational precedence over product: instructional framing wins.
+    assert classify_tag("how to invest in bonds") == "educational"
+    assert classify_tag("bond market explained") == "educational"
+    assert classify_tag("tutorial") == "educational"
+    # Verify pre-existing tags that should remain unaffected by educational reorder.
+    # None of these contain educational keywords (how-to/explained/guide/tutorial).
+    assert classify_tag("fd rates") == "product"       # "fd" whole-word in phrase
 
 
 def test_category_from_keywords():

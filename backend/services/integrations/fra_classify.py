@@ -6,6 +6,15 @@ fully covered by tests; tune the keyword lists here when categories drift.
 """
 import re
 
+def _keyword_matches(keyword: str, text: str) -> bool:
+    """Match keyword against text.
+    Short keywords (len ≤ 2) require whole-word match to avoid false positives
+    (e.g. "fd" matching "fdic"). Longer keywords use substring matching.
+    """
+    if len(keyword) <= 2:
+        return bool(re.search(rf"\b{re.escape(keyword)}\b", text))
+    return keyword in text
+
 # Ordered: first matching category wins.
 CATEGORY_RULES = [
     ("Income Strategy", ["passive income", "monthly income", "income strategy", "bond ladder"]),
@@ -27,6 +36,37 @@ _QUESTION_OPENERS = ("how", "why", "what", "is", "are", "can", "should", "does",
 _EMOJI = re.compile(
     "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF]"
 )
+
+
+# Ordered: first matching tag type wins. "other" is the fallback.
+# NOTE: educational comes before product so instructional framing (how-to /
+# explained / guide) wins even when a product noun is also present.
+TAG_TYPE_RULES = [
+    ("platform", ["youtube", "shorts", "ytshort", "ytvideo"]),
+    ("brand", ["fixed returns academy", "grip", "finenjy"]),
+    ("educational", ["how ", "explained", "guide", "basics", "what is", "tutorial"]),
+    ("product", ["bond", "debenture", "fixed income", "fixed return", "g-sec",
+                 "government bond", "corporate bond", "sdi", "debt mutual fund",
+                 "fd", "fixed deposit"]),
+    ("aspirational", ["passive income", "financial freedom", "financial independence",
+                      "wealth", "retirement", "money", "salary", "rich",
+                      "safe investment"]),
+]
+
+
+def classify_tag(tag: str) -> str:
+    """Classify a single SEO tag into a coarse type for the SEO analysis.
+
+    Short keywords (len ≤ 2) require whole-word match (see _keyword_matches)
+    to avoid false positives such as "fd" matching "fdic".
+    """
+    t = (tag or "").strip().lower()
+    if not t:
+        return "other"
+    for name, keywords in TAG_TYPE_RULES:
+        if any(_keyword_matches(k, t) for k in keywords):
+            return name
+    return "other"
 
 
 def classify_video(title: str, tags: list[str]) -> dict:
