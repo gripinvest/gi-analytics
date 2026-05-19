@@ -1,43 +1,75 @@
 "use client";
-// Design switcher pill — a two-mode toggle. Styled to fit both designs: a
-// paper pill with ink labels in editorial mode, a neutral pill in classic
-// mode. Placement (fixed, top-right) is owned by <PageChrome />, which lays
-// this pill out beside <SignOut /> so the two can never overlap.
+// Design switcher — two pills.
+//  · Design pill (always): Classic / Editorial.
+//  · Theme pill (editorial only): Sepia / Light — a colour-only variant of
+//    the editorial system. Hidden in classic mode, where it has no effect.
+// Styled to fit both designs: paper pill with ink labels in editorial mode,
+// a neutral pill in classic mode. Placement (fixed, top-right) is owned by
+// <PageChrome />, which lays this out beside <SignOut />.
 
 import * as React from "react";
 import { useDesign } from "@/lib/design";
 import { cn } from "@/lib/cn";
 
 export function DesignSwitcher({ className }) {
-  const { design, setDesign } = useDesign();
+  const { design, setDesign, edTheme, setEdTheme } = useDesign();
   const isEditorial = design === "editorial";
 
   return (
-    <div
-      className={cn(
-        "select-none",
-        "flex items-center gap-0.5 p-0.5 rounded-full",
-        "transition-colors duration-150",
-        isEditorial
-          ? "bg-[var(--ed-paper-deep)] border border-[var(--ed-rule)] shadow-[0_2px_6px_rgba(27,24,24,0.10)]"
-          : "bg-white/80 border border-border-default shadow-sm backdrop-blur-sm",
-        className,
+    <div className={cn("flex items-center gap-1.5 flex-wrap justify-end", className)}>
+      <Pill ariaLabel="Design" editorial={isEditorial}>
+        <PillButton
+          active={!isEditorial}
+          onClick={() => setDesign("classic")}
+          editorial={isEditorial}
+          label="Classic"
+        />
+        <PillButton
+          active={isEditorial}
+          onClick={() => setDesign("editorial")}
+          editorial={isEditorial}
+          label="Editorial"
+        />
+      </Pill>
+
+      {/* Theme pill — only meaningful inside editorial, so only shown there. */}
+      {isEditorial && (
+        <Pill ariaLabel="Editorial colour theme" editorial>
+          <PillButton
+            active={edTheme === "sepia"}
+            onClick={() => setEdTheme("sepia")}
+            editorial
+            label="Sepia"
+          />
+          <PillButton
+            active={edTheme === "light"}
+            onClick={() => setEdTheme("light")}
+            editorial
+            label="Light"
+          />
+        </Pill>
       )}
+    </div>
+  );
+}
+
+// The pill shell — a rounded radiogroup container. Editorial and classic get
+// different surfaces; the editorial one reads from --ed-* vars so it follows
+// whichever editorial theme is active.
+function Pill({ children, ariaLabel, editorial }) {
+  return (
+    <div
       role="radiogroup"
-      aria-label="Design"
+      aria-label={ariaLabel}
+      className={cn(
+        "select-none flex items-center gap-0.5 p-0.5 rounded-full",
+        "transition-colors duration-150",
+        editorial
+          ? "bg-[var(--ed-paper-deep)] border border-[var(--ed-rule)] shadow-[0_2px_6px_rgba(0,0,0,0.10)]"
+          : "bg-white/80 border border-border-default shadow-sm backdrop-blur-sm",
+      )}
     >
-      <PillButton
-        active={!isEditorial}
-        onClick={() => setDesign("classic")}
-        editorial={isEditorial}
-        label="Classic"
-      />
-      <PillButton
-        active={isEditorial}
-        onClick={() => setDesign("editorial")}
-        editorial={isEditorial}
-        label="Editorial"
-      />
+      {children}
     </div>
   );
 }

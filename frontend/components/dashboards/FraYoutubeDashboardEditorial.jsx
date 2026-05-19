@@ -28,16 +28,19 @@ import { fetchFraInsights } from "@/lib/api";
 import { useFraYoutube, rowsOf, errOf, computeTrend } from "@/lib/queries/fraYoutube";
 
 /* ── editorial palette (ink marks on paper, sparing accents) ─────────────────
-   Mirrors the --ed-* CSS vars; charts need literal hex, not var() lookups. */
-const ED_PAPER = "#F2EBDB";
-const ED_INK = "#1B1818";
-const ED_INK_SOFT = "#2C2926";
-const ED_INK_MUTED = "#5D5752";
-const ED_INK_FAINT = "#8A847D";
-const ED_RUST = "#A6242B";
-const ED_FOREST = "#3B5E3D";
-const ED_GOLD = "#B8870A";
-const ED_RULE_FAINT = "#C8BFA9";
+   References the --ed-* CSS variables, so the charts follow whichever
+   editorial theme is active (sepia / light). Recharts passes these straight
+   through to SVG fill/stroke, where var() resolves normally — this dashboard
+   always renders inside [data-design="editorial"], so the vars are in scope. */
+const ED_PAPER = "var(--ed-paper)";
+const ED_INK = "var(--ed-ink)";
+const ED_INK_SOFT = "var(--ed-ink-soft)";
+const ED_INK_MUTED = "var(--ed-ink-muted)";
+const ED_INK_FAINT = "var(--ed-ink-faint)";
+const ED_RUST = "var(--ed-rust)";
+const ED_FOREST = "var(--ed-forest)";
+const ED_GOLD = "var(--ed-gold)";
+const ED_RULE_FAINT = "var(--ed-rule-faint)";
 
 /* Restrained Recharts entrance: a short ease so figures settle rather than
    sweep. Disabled wholesale when the reader prefers reduced motion. */
