@@ -8,19 +8,11 @@
  */
 
 import * as React from "react";
-import {
-  ResponsiveContainer, ComposedChart, AreaChart, BarChart, ScatterChart,
-  Area, Bar, Line, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip,
-  Cell, ReferenceLine, LabelList,
-} from "recharts";
 import { errOf } from "@/lib/queries/fraYoutube";
-import { fmt, pct1, compact, fmtMonth } from "../helpers";
+import { fmt, compact } from "../helpers";
 import {
-  ED_PAPER, ED_INK, ED_INK_SOFT, ED_INK_MUTED, ED_INK_FAINT,
-  ED_RUST, ED_FOREST, ED_GOLD, ED_RULE_FAINT,
-  edAxisProps, edGridProps, edDeltaFmt,
-  useCountUp, RevealSection, EdTooltip, SectionHead, Figure,
-  DeltaTick, DualDeltaTick, Exhibit, LedgerTable, EmptyPlate, ErrorNote,
+  ED_INK_FAINT, ED_RUST, ED_GOLD, edDeltaFmt,
+  RevealSection, SectionHead, DualDeltaTick, Exhibit, ErrorNote,
   insightItemText,
 } from "./primitives";
 import { DiscoverySection, GrowthSection, CatalogHealthSection } from "./ReachGrowthTab";
