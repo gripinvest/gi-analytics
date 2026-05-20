@@ -6,6 +6,7 @@ import StatusVerdict from "./performance-grip/StatusVerdict";
 import HeroBand from "./performance-grip/HeroBand";
 import WindowToggle from "./performance-grip/WindowToggle";
 import MetricTrendGrid from "./performance-grip/MetricTrendGrid";
+import RouteDrilldown from "./performance-grip/RouteDrilldown";
 import { THRESHOLDS } from "@/lib/queries/performanceGrip";
 
 /* Editorial Lite — typography + palette only; no broadsheet masthead. See
@@ -52,6 +53,7 @@ export default function PerformanceGripDashboardEditorial() {
       <WindowToggle value={windowDays} onChange={setWindowDays} daysCollected={daysCollected} />
       <StatusVerdict rows={data?.trendlines?.rows ?? []} thresholds={THRESHOLDS} />
       <HeroBand heroRows={data?.hero?.rows ?? []} />
+      <RouteDrilldown routeRows={data?.routes?.rows ?? []} app={app} device={device} />
       <MetricTrendGrid rows={data?.trendlines?.rows ?? []} />
     </div>
   );
