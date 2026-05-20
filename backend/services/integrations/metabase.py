@@ -80,12 +80,16 @@ class MetabaseClient:
         """Run an ad-hoc native SQL query against `database_id` via /api/dataset;
         return (rows-as-dicts, column-names).
 
-        Used by validation/diagnostic scripts. NOTE: `/api/dataset` caps the
-        result at Metabase's default 2000 `max-results-bare-rows` — for a
-        full, untruncated fetch use `run_native_export` instead. A bad query
-        comes back HTTP 202 with a JSON `error`/`status: failed` body
-        (Metabase does not use a 4xx for SQL errors), so that case is checked
-        explicitly and surfaced as a MetabaseError.
+        Used by validation/diagnostic scripts and (paged) by the Asset Search
+        fetch pipeline. NOTE: `/api/dataset` caps the result at Metabase's
+        default 2000 `max-results-bare-rows`. The Asset Search fetch handles
+        this by walking the rows with `ORDER BY id LIMIT 2000 OFFSET n` — see
+        `asset_search._fetch_paginated`. (`run_native_export` is an
+        alternative one-shot path via the export endpoint, but it requires a
+        separate Metabase permission that the service account may not have.)
+        A bad query comes back HTTP 202 with a JSON `error`/`status: failed`
+        body (Metabase does not use 4xx for SQL errors), so that case is
+        checked explicitly and surfaced as a MetabaseError.
 
         `raw_columns` — when True, column names are the raw DB column (`name`);
         when False (default) the humanised `display_name` is preferred. The

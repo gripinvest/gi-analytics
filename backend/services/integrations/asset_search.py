@@ -6,8 +6,11 @@ and `assetSearch.js`'s `groupTables()` already expect.
 
 Design: `docs/projects/asset-search/specs/2026-05-19-asset-search-live-data-design.md`.
 Key decisions carried here:
-  · D1 — fetch by native SQL via `MetabaseClient.run_native_export` (the
-         uncapped export endpoint — `/api/dataset` truncates at 2000 rows).
+  · D1 — fetch by native SQL via `MetabaseClient.run_sql` (`/api/dataset`),
+         paginated with `ORDER BY id LIMIT 2000 OFFSET n` to step past the
+         endpoint's 2000-row default cap. The export endpoint would be a
+         one-shot alternative but it requires a separate Metabase permission
+         the service account does not always carry — pagination is portable.
   · D3 — each run fetches the current + prior feature week; older weeks frozen.
   · D5 — whole-week CSV is rewritten atomically; no row-level upsert.
   · D7 — search events fetched daily; heavy browse/conversion tables weekly.
@@ -33,6 +36,13 @@ DATABASE_ID = 8
 # Test users excluded from every query path — single-sourced here, mirroring
 # `frontend/lib/queries/assetSearch.js`'s TEST_USERS (spec D10).
 TEST_USERS = (3, 4, 207871, 207875, 207878, 207879)
+
+# /api/dataset caps results at Metabase's default `max-results-bare-rows` (2000),
+# so the fetch paginates: `ORDER BY id LIMIT PAGE_SIZE OFFSET n`. Matching the
+# cap keeps each call a single page and the row-count-equals-page-size signal a
+# reliable "more pages remain." MAX_PAGES guards against a runaway loop.
+PAGE_SIZE = 2000
+MAX_PAGES = 200          # 400k rows ceiling — well above any single feature week.
 
 
 @dataclass(frozen=True)
@@ -102,6 +112,29 @@ def _active_events(include_weekly: bool) -> list[Event]:
     return out
 
 
+def _fetch_paginated(client, source_table: str, start: date, end: date,
+                     has_user_id: bool, database_id: int) -> list[dict]:
+    """Fetch one (event, feature-week) by walking /api/dataset in pages.
+
+    Each page is `LIMIT PAGE_SIZE OFFSET n` ordered by `id` — Rudder's unique
+    message_id. Ordering by a unique key makes the page boundary deterministic:
+    no row can land on two pages or vanish between them. Stops the first time a
+    page comes back shorter than PAGE_SIZE (so the last page is also the
+    natural terminator). Raises MetabaseError if MAX_PAGES is hit, which is
+    sized well above any plausible feature-week volume."""
+    base = build_sql(source_table, start, end, has_user_id)
+    rows: list[dict] = []
+    for page in range(MAX_PAGES):
+        sql = f"{base}\nORDER BY id\nLIMIT {PAGE_SIZE} OFFSET {page * PAGE_SIZE}"
+        page_rows, _cols = client.run_sql(database_id, sql, raw_columns=True)
+        rows.extend(page_rows)
+        if len(page_rows) < PAGE_SIZE:
+            return rows
+    raise MetabaseError(
+        f"{source_table}: pagination exceeded MAX_PAGES={MAX_PAGES} "
+        f"({MAX_PAGES * PAGE_SIZE} rows) — window unexpectedly large")
+
+
 def build_layer1(client, weeks: list[int], *, include_weekly: bool = False,
                  database_id: int = DATABASE_ID,
                  log: list[str] | None = None) -> dict[str, list[dict]]:
@@ -109,7 +142,10 @@ def build_layer1(client, weeks: list[int], *, include_weekly: bool = False,
 
     Partial-success (spec §15): a per-(event, week) failure is logged and
     skipped — its CSV is left untouched (the last good copy stands) — and the
-    other events still land. Only a total failure raises.
+    other events still land. A total failure raises, with the per-event
+    reasons folded into the exception message so a cron run that fails 100%
+    does not bury its diagnostics (the log is built inside run() and never
+    printed when build_layer1 raises).
     """
     log = log if log is not None else []
     out: dict[str, list[dict]] = {}
@@ -120,12 +156,9 @@ def build_layer1(client, weeks: list[int], *, include_weekly: bool = False,
             attempts += 1
             start, end = feature_week.bounds(n)
             stem = f"{feature_week.label(n)}_{ev.stem}"
-            sql = build_sql(ev.source_table, start, end, ev.has_user_id)
             try:
-                # Export endpoint, not run_sql: a feature week of a busy table
-                # exceeds /api/dataset's 2000-row cap and would silently
-                # truncate (a week of `view_assets` is ~68k rows).
-                rows = client.run_native_export(database_id, sql)
+                rows = _fetch_paginated(client, ev.source_table, start, end,
+                                        ev.has_user_id, database_id)
             except (MetabaseError, Exception) as exc:  # noqa: BLE001 — log & continue
                 failures += 1
                 log.append(f"FAIL {stem}: {exc}")
@@ -133,7 +166,9 @@ def build_layer1(client, weeks: list[int], *, include_weekly: bool = False,
             out[stem] = rows
             log.append(f"ok   {stem}: {len(rows)} rows")
     if attempts and failures == attempts:
-        raise MetabaseError(f"every fetch failed ({failures}/{attempts}) — see log")
+        detail = "; ".join(l for l in log if l.startswith("FAIL"))
+        raise MetabaseError(
+            f"every fetch failed ({failures}/{attempts}): {detail}")
     return out
 
 

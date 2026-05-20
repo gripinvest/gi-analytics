@@ -1,5 +1,6 @@
 import csv
 import json
+import re
 from datetime import date
 
 import pytest
@@ -10,21 +11,26 @@ from services.integrations.metabase import MetabaseError
 
 class FakeClient:
     """Stands in for MetabaseClient — matches one query to a source table by
-    substring, returns canned rows. `fail_tables` raises instead."""
+    substring, returns canned rows. Honours `LIMIT/OFFSET` so pagination is
+    actually exercised; `fail_tables` raises instead."""
     def __init__(self, rows_by_table=None, fail_tables=()):
         self.rows_by_table = rows_by_table or {}
         self.fail_tables = set(fail_tables)
         self.queries: list[str] = []
 
-    def run_native_export(self, database_id, sql):
+    def run_sql(self, database_id, sql, raw_columns=False):
         self.queries.append(sql)
         for t in self.fail_tables:
             if f"client_web.{t}" in sql:
                 raise MetabaseError(f"boom {t}")
+        m = re.search(r"LIMIT (\d+) OFFSET (\d+)", sql)
+        limit, offset = (int(m.group(1)), int(m.group(2))) if m else (None, 0)
         for t, rows in self.rows_by_table.items():
             if f"client_web.{t}\n" in sql or f"client_web.{t} " in sql:
-                return [dict(r) for r in rows]
-        return []
+                page = rows[offset:offset + limit] if limit else rows
+                cols = list(rows[0].keys()) if rows else []
+                return [dict(r) for r in page], cols
+        return [], []
 
 
 # ── SQL template ────────────────────────────────────────────────────────────
@@ -99,6 +105,39 @@ def test_build_layer1_total_failure_raises():
     client = FakeClient(fail_tables=[e.source_table for e in a_s.EVENTS.values()])
     with pytest.raises(MetabaseError, match="every fetch failed"):
         a_s.build_layer1(client, weeks=[7], include_weekly=False)
+
+
+def test_build_layer1_total_failure_message_carries_per_event_detail():
+    # A cron run that fails 100% must not bury the actual reasons — they were
+    # being lost when the log printed only on success (a real diagnosability bug).
+    client = FakeClient(fail_tables=[e.source_table for e in a_s.EVENTS.values()])
+    with pytest.raises(MetabaseError) as exc:
+        a_s.build_layer1(client, weeks=[7], include_weekly=False)
+    msg = str(exc.value)
+    assert "FAIL W7" in msg and "asset_search_query" in msg
+
+
+def test_build_layer1_paginates_past_the_2000_row_cap():
+    # A feature week of asset_search_query is ~4.4k rows; pagination must
+    # walk past Metabase's 2000-row /api/dataset cap. With PAGE_SIZE=2000,
+    # 4500 rows → 3 pages (2000/2000/500) and every row returned.
+    big = [{"id": str(i), "timestamp": "2026-05-15"} for i in range(4500)]
+    client = FakeClient(rows_by_table={"asset_search_query": big})
+    layer1 = a_s.build_layer1(client, weeks=[7], include_weekly=False)
+    assert len(layer1["W7_may14-may20_asset_search_query"]) == 4500
+    pages = [q for q in client.queries if "asset_search_query" in q]
+    assert len(pages) >= 3
+    assert all("ORDER BY id" in q for q in pages)
+
+
+def test_build_layer1_stops_at_first_short_page():
+    # 1500 rows in one page (< PAGE_SIZE) → exactly one fetch, no extra call.
+    rows = [{"id": str(i)} for i in range(1500)]
+    client = FakeClient(rows_by_table={"asset_search_query": rows})
+    layer1 = a_s.build_layer1(client, weeks=[7], include_weekly=False)
+    assert len(layer1["W7_may14-may20_asset_search_query"]) == 1500
+    pages = [q for q in client.queries if "asset_search_query" in q]
+    assert len(pages) == 1
 
 
 # ── run() ───────────────────────────────────────────────────────────────────
