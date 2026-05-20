@@ -309,3 +309,19 @@ class TestValidateSince:
         now = datetime(2026, 5, 20, 14, tzinfo=IST)
         assert validate_since("", now=now) is None
         assert validate_since(None, now=now) is None
+
+
+class TestFacetCap:
+    def test_below_threshold_returns_ok(self):
+        from services.integrations.performance_grip import check_facet_cap
+        check_facet_cap(unique_count=300, app="x", hour="2026-05-19 14")
+
+    def test_at_or_above_threshold_raises(self):
+        # H10-fix: NerdGraph LIMIT MAX = 5000 (as of 2024). Warn zone 4500, fail 5000.
+        from services.integrations.performance_grip import (
+            check_facet_cap, FacetCapExceeded
+        )
+        with pytest.raises(FacetCapExceeded, match="facet cap"):
+            check_facet_cap(unique_count=4500, app="x", hour="2026-05-19 14")
+        with pytest.raises(FacetCapExceeded):
+            check_facet_cap(unique_count=5000, app="x", hour="2026-05-19 14")

@@ -274,6 +274,22 @@ def validate_since(value: str | None, *, now: datetime) -> datetime | None:
     return parsed
 
 
+class FacetCapExceeded(RuntimeError):
+    """uniqueCount(pageUrl) too close to NerdGraph's 5000-facet LIMIT MAX (H10)."""
+
+
+def check_facet_cap(unique_count: int, *, app: str, hour: str) -> None:
+    # NerdGraph's LIMIT MAX is 5000 (raised from 2000 in early 2024). Our queries
+    # use LIMIT MAX. We treat ≥4500 as the danger zone — the long tail is at
+    # risk of silent truncation before we hit the hard cap.
+    if unique_count >= 4500:
+        raise FacetCapExceeded(
+            f"{app} hour {hour}: uniqueCount(pageUrl) = {unique_count} — "
+            f"approaching NerdGraph's facet cap (LIMIT MAX = 5000). "
+            f"Likely truncating long tail."
+        )
+
+
 def latest_in_csv(csv_path: Path, app: str) -> datetime | None:
     """Return the latest (date, hour) for the given app, as an IST datetime."""
     if not csv_path.exists():
