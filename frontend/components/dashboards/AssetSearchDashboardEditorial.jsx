@@ -986,6 +986,11 @@ function IssuersSection({ rows, outcomeRows, keywordRows, weeks, lastWeek, loadi
   const [filter, setFilter] = React.useState("all");
   const [sortBy, setSortBy] = React.useState("volume");
   const [selected, setSelected] = React.useState(null);
+  // The all-keywords table can be long for some issuers; ship collapsed by
+  // default and let the user expand it. Resets when a different issuer is
+  // picked so the "collapsed by default" promise holds for every issuer.
+  const [keywordsExpanded, setKeywordsExpanded] = React.useState(false);
+  React.useEffect(() => setKeywordsExpanded(false), [selected]);
 
   // Group the per-(issuer, keyword) rows by issuer once, then look up by name.
   // Sort by searches desc so the "top 3" pick is a simple slice.
@@ -1021,7 +1026,10 @@ function IssuersSection({ rows, outcomeRows, keywordRows, weeks, lastWeek, loadi
   const shown = (filter === "all" ? issuers : issuers.filter((i) => i.category === filter))
     .slice()
     .sort(ISSUER_SORTS[sortBy].cmp);
-  const current = issuers.find((i) => i.name === selected) || shown[0] || issuers[0] || null;
+  // Detail panel stays hidden until the user explicitly picks an issuer
+  // — no auto-fallback to shown[0]/issuers[0]. The cards above are the index;
+  // the detail is the deep-dive, opened on demand.
+  const current = selected ? issuers.find((i) => i.name === selected) || null : null;
   const counts = ED_CAT_ORDER.reduce((m, c) => ({ ...m, [c]: issuers.filter((i) => i.category === c).length }), {});
   const totalSessions = issuers.reduce((a, i) => a + i.totSessions, 0);
   const issuerOutcomeSeries = current
@@ -1200,47 +1208,66 @@ function IssuersSection({ rows, outcomeRows, keywordRows, weeks, lastWeek, loadi
               the ZRR column quickly. */}
           {allKeywords.length > 0 && (
             <div className="mt-8">
-              <p className="ed-overline mb-2">KEYWORD BREAKDOWN — ALL MATCHED TERMS</p>
-              <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-                <table className="w-full" style={{ fontFamily: "var(--ed-mono)", fontSize: 13, borderCollapse: "collapse", minWidth: 380 }}>
-                  <thead>
-                    <tr style={{ borderTop: `1px solid ${ED_INK}`, borderBottom: `1px solid ${ED_INK}` }}>
-                      <th className="ed-caption text-left py-2">TERM</th>
-                      <th className="ed-caption text-right py-2">SEARCHES</th>
-                      <th className="ed-caption text-right py-2">SHARE</th>
-                      <th className="ed-caption text-right py-2">SESSIONS</th>
-                      <th className="ed-caption text-right py-2">ZRR</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allKeywords.map((k) => {
-                      const zrr = k.zrr_pct;
-                      const zrrColour = zrr == null ? ED_INK_MUTED : zrr > 50 ? ED_RUST : zrr > 30 ? ED_GOLD : ED_FOREST;
-                      const sharePct = totSearches ? Math.round((1000 * k.searches) / totSearches) / 10 : null;
-                      return (
-                        <tr key={k.term} style={{ borderBottom: `1px solid ${ED_RULE_FAINT}` }}>
-                          <td className="py-2" style={{ color: ED_INK }}>{k.term}</td>
-                          <td className="py-2 text-right ed-num" style={{ color: ED_INK }}>{nf.format(k.searches)}</td>
-                          <td className="py-2 text-right ed-num" style={{ color: ED_INK_MUTED }}>{sharePct == null ? "—" : `${sharePct}%`}</td>
-                          <td className="py-2 text-right ed-num" style={{ color: ED_INK_MUTED }}>{nf.format(k.sessions)}</td>
-                          <td className="py-2 text-right ed-num" style={{ color: zrrColour, fontWeight: 600 }}>
-                            {zrr == null ? "—" : `${zrr}%`}
-                          </td>
+              {/* Collapsed by default — a long-tail issuer's full term table can run
+                  past a screen and pushes the figures further down. The user
+                  opens it on demand; resets on issuer change (see effect above). */}
+              <button
+                type="button"
+                onClick={() => setKeywordsExpanded((s) => !s)}
+                aria-expanded={keywordsExpanded}
+                className="ed-overline w-full flex items-baseline justify-between gap-3 hover:opacity-80 transition-opacity"
+                style={{ minHeight: 44, textAlign: "left", padding: 0, background: "transparent", border: 0 }}
+              >
+                <span>KEYWORD BREAKDOWN — {allKeywords.length} MATCHED TERMS</span>
+                <span className="ed-caption" style={{ color: ED_INK_MUTED, fontSize: 11 }}>
+                  {keywordsExpanded ? "HIDE ▾" : "SHOW ▸"}
+                </span>
+              </button>
+              {keywordsExpanded && (
+                <>
+                  <div className="mt-2 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+                    <table className="w-full" style={{ fontFamily: "var(--ed-mono)", fontSize: 13, borderCollapse: "collapse", minWidth: 380 }}>
+                      <thead>
+                        <tr style={{ borderTop: `1px solid ${ED_INK}`, borderBottom: `1px solid ${ED_INK}` }}>
+                          <th className="ed-caption text-left py-2">TERM</th>
+                          <th className="ed-caption text-right py-2">SEARCHES</th>
+                          <th className="ed-caption text-right py-2">SHARE</th>
+                          <th className="ed-caption text-right py-2">SESSIONS</th>
+                          <th className="ed-caption text-right py-2">ZRR</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <p className="ed-prose-italic mt-3" style={{ fontSize: 12, color: ED_INK_MUTED }}>
-                Terms case-folded; minimum 3 occurrences. ZRR colour: green &lt; 30%, gold 30–50%, rust &gt; 50%.
-              </p>
+                      </thead>
+                      <tbody>
+                        {allKeywords.map((k) => {
+                          const zrr = k.zrr_pct;
+                          const zrrColour = zrr == null ? ED_INK_MUTED : zrr > 50 ? ED_RUST : zrr > 30 ? ED_GOLD : ED_FOREST;
+                          const sharePct = totSearches ? Math.round((1000 * k.searches) / totSearches) / 10 : null;
+                          return (
+                            <tr key={k.term} style={{ borderBottom: `1px solid ${ED_RULE_FAINT}` }}>
+                              <td className="py-2" style={{ color: ED_INK }}>{k.term}</td>
+                              <td className="py-2 text-right ed-num" style={{ color: ED_INK }}>{nf.format(k.searches)}</td>
+                              <td className="py-2 text-right ed-num" style={{ color: ED_INK_MUTED }}>{sharePct == null ? "—" : `${sharePct}%`}</td>
+                              <td className="py-2 text-right ed-num" style={{ color: ED_INK_MUTED }}>{nf.format(k.sessions)}</td>
+                              <td className="py-2 text-right ed-num" style={{ color: zrrColour, fontWeight: 600 }}>
+                                {zrr == null ? "—" : `${zrr}%`}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="ed-prose-italic mt-3" style={{ fontSize: 12, color: ED_INK_MUTED }}>
+                    Terms case-folded; minimum 3 occurrences. ZRR colour: green &lt; 30%, gold 30–50%, rust &gt; 50%.
+                  </p>
+                </>
+              )}
             </div>
           )}
 
-          {/* Two figures — same as before, side by side on desktop. */}
-          <div className="mt-10 grid gap-10 lg:grid-cols-[1.55fr_1fr]">
-            <div className="flex flex-col gap-8">
+          {/* Figures III·a + III·b side-by-side on desktop, then THE READ
+              and MATCHED ON full-width below — gives the prose room to breathe. */}
+          <div className="mt-10 flex flex-col gap-10">
+            <div className="grid gap-10 lg:grid-cols-2">
               <Figure
                 figNum={`III·a`}
                 title="Sessions and zero-result rate, by week"
@@ -1293,11 +1320,10 @@ function IssuersSection({ rows, outcomeRows, keywordRows, weeks, lastWeek, loadi
               </Figure>
             </div>
 
-            {/* Sidebar — the editorial read + matched-on keywords from the
-                curated ISSUER_MAP. */}
-            <aside className="flex flex-col gap-7">
-              <div>
-                <p className="ed-overline mb-2">THE READ</p>
+            {/* THE READ and MATCHED ON keywords from the curated ISSUER_MAP
+                — full-width below the figures (was a right-rail sidebar). */}
+            <div>
+              <p className="ed-overline mb-2">THE READ</p>
                 <p className="ed-prose" style={{ fontSize: 15, lineHeight: 1.55, color: ED_INK_SOFT_INLINE }}>
                   {current.note}
                 </p>
@@ -1324,7 +1350,6 @@ function IssuersSection({ rows, outcomeRows, keywordRows, weeks, lastWeek, loadi
                   SQL prefix rule: {current.prefixes.map((p) => `LOWER(query_text) LIKE '${p}%'`).join(" OR ")}
                 </p>
               </div>
-            </aside>
           </div>
 
           <hr className="ed-rule-thick mt-12" />

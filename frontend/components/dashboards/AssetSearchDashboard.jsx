@@ -720,7 +720,10 @@ function IssuersView({ rows, outcomeRows, weeks, lastWeek, loading, error }) {
   }, [selected]);
 
   const shown = filter === "all" ? issuers : issuers.filter((i) => i.category === filter);
-  const current = issuers.find((i) => i.name === selected) || shown[0] || issuers[0] || null;
+  // Detail panel stays hidden until the user explicitly picks an issuer card
+  // — no auto-fallback to shown[0]/issuers[0]. The cards above are the index;
+  // the detail is the deep-dive, opened on demand.
+  const current = selected ? issuers.find((i) => i.name === selected) || null : null;
 
   if (loading) {
     return (
