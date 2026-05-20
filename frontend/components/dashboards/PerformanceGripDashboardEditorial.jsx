@@ -2,6 +2,10 @@
 
 import * as React from "react";
 import { usePerformanceGrip } from "@/lib/queries/performanceGrip";
+import StatusVerdict from "./performance-grip/StatusVerdict";
+import HeroBand from "./performance-grip/HeroBand";
+import WindowToggle from "./performance-grip/WindowToggle";
+import { THRESHOLDS } from "@/lib/queries/performanceGrip";
 
 /* Editorial Lite — typography + palette only; no broadsheet masthead. See
    spec §6.5.1 and the M27 decision. */
@@ -44,9 +48,9 @@ export default function PerformanceGripDashboardEditorial() {
       {/* TODO Phase D: HeroBand */}
       {/* TODO Phase F: RouteDrilldown */}
       {/* TODO Phase E: MetricTrendGrid */}
-      <pre style={{ fontFamily: "monospace", fontSize: 11, padding: 16 }}>
-        {JSON.stringify({ app, device, windowDays, daysCollected }, null, 2)}
-      </pre>
+      <WindowToggle value={windowDays} onChange={setWindowDays} daysCollected={daysCollected} />
+      <StatusVerdict rows={data?.trendlines?.rows ?? []} thresholds={THRESHOLDS} />
+      <HeroBand heroRows={data?.hero?.rows ?? []} />
     </div>
   );
 }
