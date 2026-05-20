@@ -24,8 +24,10 @@ import csv
 import json
 import os
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+
+import httpx
 
 from . import feature_week
 from .metabase import MetabaseError
@@ -43,6 +45,13 @@ TEST_USERS = (3, 4, 207871, 207875, 207878, 207879)
 # reliable "more pages remain." MAX_PAGES guards against a runaway loop.
 PAGE_SIZE = 2000
 MAX_PAGES = 200          # 400k rows ceiling — well above any single feature week.
+
+# Feature weeks are IST-aligned (the spec defines them off Apr 2 2026 IST).
+# The GitHub Actions runner clock is UTC, so a cron firing at 18:30 UTC
+# (= 00:00 IST) sees yesterday's UTC date — without this, `is_rollover`
+# misfires on every feature-week boundary and the weekly heavy tables
+# (`assets_page_views`, `invest_now`) fetch one day late.
+IST = timezone(timedelta(hours=5, minutes=30))
 
 
 @dataclass(frozen=True)
@@ -159,7 +168,12 @@ def build_layer1(client, weeks: list[int], *, include_weekly: bool = False,
             try:
                 rows = _fetch_paginated(client, ev.source_table, start, end,
                                         ev.has_user_id, database_id)
-            except (MetabaseError, Exception) as exc:  # noqa: BLE001 — log & continue
+            except (MetabaseError, httpx.HTTPError) as exc:
+                # Narrowed from `except Exception` so programming bugs (KeyError,
+                # TypeError, etc.) propagate as a crash with a real traceback,
+                # rather than being silently logged as `FAIL` and mistaken for a
+                # Metabase outage. Network and Metabase-protocol errors still
+                # land here and the per-event partial-success continues.
                 failures += 1
                 log.append(f"FAIL {stem}: {exc}")
                 continue
@@ -217,7 +231,7 @@ def validate_data_dir(data_dir, *, today: date | None = None) -> list[str]:
     from .validate import (validate_asset_search_row_counts,
                            validate_asset_search_week)
     data_dir = Path(data_dir)
-    today = today or date.today()
+    today = today or datetime.now(IST).date()
     weeks = feature_week.current_and_prior(today)
     errors: list[str] = []
     counts: dict[str, dict[int, int]] = {}
@@ -253,7 +267,7 @@ def run(client, data_dir, *, today: date | None = None,
     failure raises so the caller marks the job errored.
     """
     data_dir = Path(data_dir)
-    today = today or date.today()
+    today = today or datetime.now(IST).date()
     log: list[str] = []
 
     weeks = feature_week.current_and_prior(today)
@@ -283,7 +297,11 @@ def run(client, data_dir, *, today: date | None = None,
     if manifest_path.exists():
         try:
             manifest = json.loads(manifest_path.read_text())
-        except (ValueError, OSError):
+        except (ValueError, OSError) as exc:
+            # Don't swallow silently — surface the corruption in the run log
+            # so a partial-write or disk error doesn't quietly wipe per-table
+            # `last_refreshed_at` history with no audit trail.
+            log.append(f"WARN _manifest.json unreadable, resetting: {exc}")
             manifest = {"refreshed_at": now, "tables": {}}
     manifest.setdefault("tables", {})
     # Advance the freshness clock only when this run actually wrote a CSV. A

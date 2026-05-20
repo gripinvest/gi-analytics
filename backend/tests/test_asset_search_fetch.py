@@ -167,7 +167,11 @@ def test_run_partial_failure_reports_partial(tmp_path):
     assert (tmp_path / "W7_may14-may20_asset_search_query.csv").exists()
 
 
-def test_run_before_first_live_week_is_a_noop(tmp_path):
+def test_run_in_frozen_weeks_only_is_a_noop(tmp_path):
+    # 1 May 2026 sits in W4 — well past launch (Apr 2) but before
+    # FIRST_LIVE_WEEK=7, so current_and_prior(...) yields the empty list and
+    # the runner returns early without writing the manifest. Guards against
+    # accidentally re-fetching frozen weeks.
     result = a_s.run(FakeClient(), tmp_path, today=date(2026, 5, 1))
     assert result["status"] == "ok"
     assert not (tmp_path / "_manifest.json").exists()

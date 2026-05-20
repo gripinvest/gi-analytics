@@ -20,6 +20,13 @@ on:
 permissions:
   contents: write          # required for the commit-back step to push
 
+# Serialize refresh runs so a workflow_dispatch trigger doesn't race a
+# scheduled run on `git push`. `cancel-in-progress: false` lets the running
+# refresh complete (mid-write cancellation would corrupt the CSV partway).
+concurrency:
+  group: refresh-asset-search
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: ubuntu-latest

@@ -79,39 +79,6 @@ def test_run_sql_before_login_raises():
         c.run_sql(8, "SELECT 1")
 
 
-def test_run_native_export_returns_uncapped_rows():
-    # The export endpoint returns a bare JSON array of row objects (keyed by
-    # the raw column names) and runs with no 2000-row cap.
-    def handler(request):
-        if request.url.path == "/api/session":
-            return httpx.Response(200, json={"id": "tok"})
-        assert request.url.path == "/api/dataset/json"
-        assert request.read()  # form body carries the native query
-        return httpx.Response(200, json=[
-            {"timestamp": "2026-05-15", "query_text": "navi"},
-            {"timestamp": "2026-05-16", "query_text": "rbi"},
-        ])
-    c = _client(handler)
-    c.login("e@x.com", "pw")
-    rows = c.run_native_export(8, "SELECT * FROM client_web.asset_search_query")
-    assert rows == [
-        {"timestamp": "2026-05-15", "query_text": "navi"},
-        {"timestamp": "2026-05-16", "query_text": "rbi"},
-    ]
-
-
-def test_run_native_export_surfaces_sql_error():
-    # A SQL error comes back as a JSON object (not the expected array).
-    def handler(request):
-        if request.url.path == "/api/session":
-            return httpx.Response(200, json={"id": "tok"})
-        return httpx.Response(200, json={"error": 'column "nope" does not exist'})
-    c = _client(handler)
-    c.login("e@x.com", "pw")
-    with pytest.raises(MetabaseError, match="does not exist"):
-        c.run_native_export(8, "SELECT nope")
-
-
 def test_api_key_auth_skips_login_and_sends_header():
     seen = {}
 

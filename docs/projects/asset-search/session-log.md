@@ -6,6 +6,92 @@ Read the top entry when starting a new session. Supersedes the old loose
 
 ---
 
+## 2026-05-20 — S5 post-merge iteration (live data on prod)
+
+**Status:** Live-data pipeline is on prod and serving correct data. W7
+fetched, validated, deployed. Asset Search dashboard reads live Metabase
+data through the daily cron + manual Refresh button.
+
+The journey from the original S5 merge to this state, in order:
+
+- [**#54 S5**](https://github.com/purujit-grip/grip-analytics/pull/54) merged
+  (2026-05-19). The full live-data pipeline — feature_week math, the fetch
+  module, per-project refresh registry, refresh endpoint, RefreshControl
+  hook/component, daily-cron workflow.
+- [**#60 export-endpoint attempt**](https://github.com/purujit-grip/grip-analytics/pull/60)
+  merged then proven broken. Tried `POST /api/dataset/json` to escape the
+  2000-row cap; Metabase v56 returned `200 OK / "You are not allowed to
+  perform this action"` for every fetch on this instance. Compounding bug:
+  `build_layer1`'s "every fetch failed" exception swallowed the per-event
+  reasons. First credentialed cron run committed truncated W7 (`ccfcdb8`).
+- [**#63 pagination fix**](https://github.com/purujit-grip/grip-analytics/pull/63)
+  — superseded #60. Stay on the proven `/api/dataset` and walk past 2000
+  with `ORDER BY id LIMIT 2000 OFFSET n`. `id` is Rudder's unique
+  message_id so every page boundary is deterministic.
+- [**#64 Conversion-tab tolerance**](https://github.com/purujit-grip/grip-analytics/pull/64)
+  — the daily/weekly cron-cadence split (spec D7) means
+  `invest_now_button_clicked` for a new week lands a few days after
+  `asset_search_initiated`, so the strict `length === length` gate hid the
+  whole Conversion tab on any non-rollover day. Replaced with the
+  intersection of the four core event weeks, lists kept pairwise aligned.
+- [**#65 stranded review fixes**](https://github.com/purujit-grip/grip-analytics/pull/65)
+  — pushed during the original PR #54 review but never made it onto main
+  (the squash captured the branch state before the review-fix commit). The
+  4 review-critical items: `--validate` CLI flag + `VALIDATORS` registry
+  wired into the cron workflow; >10× row-count swing band; 60 s
+  Refresh-button cooldown; `METABASE_API_KEY` honoured in the router; a
+  zero-row run no longer advances `_manifest.json:refreshed_at`.
+- **Re-run with `--validate`** — `validation: ok (asset_search)` logged
+  end-to-end. W7 query CSV: `2,000 → 4,450 rows`. Safety net is real.
+- [**#66 Issuer-tab UX**](https://github.com/purujit-grip/grip-analytics/pull/66)
+  — detail panel hidden until a card is clicked; KEYWORD BREAKDOWN table
+  collapsed by default (Editorial); figures III·a and III·b side-by-side
+  on desktop with THE READ + MATCHED ON full-width below.
+- [**#67 search-lift trend**](https://github.com/purujit-grip/grip-analytics/pull/67)
+  — new `weeklyCohortCvrByWeek` SQL builder + Search-lift-by-week chart
+  on both dashboards, reference lines at 1× (no lift) and 1.5× (target).
+- [**#68 lift-trend reconciliation**](https://github.com/purujit-grip/grip-analytics/pull/68)
+  — the initial #67 SQL used same-week conversion attribution, so the
+  trend was a strict lower bound on the cumulative (≤2.03× vs masthead's
+  2.3×). Rewrote to share the cumulative's window-level semantics so the
+  per-week values sit in the same neighbourhood as the headline.
+
+### State on `main`
+
+- Backend: paginated fetch, registry dispatch, validators wired into the
+  cron via `--validate`, API-key auth in router, IST timezone awareness
+  pending (cleanup PR — see below).
+- Frontend: RefreshControl with 60 s cooldown; both dashboards' useDashboard
+  gated on `[project.id, nonce]`; Conversion tab tolerant of cadence drift;
+  Issuer UX on demand; weekly lift trend.
+- Cron: daily 18:30 UTC (00:00 IST). Re-fetches current + prior live week.
+  Concurrency guard added in the cleanup PR below.
+
+### Live cleanup PR (this commit's source)
+
+A "Hardening + UX polish" PR batches review-pass follow-ups:
+- IST-aware `today` in `asset_search.run()` so `is_rollover` fires on the
+  right day.
+- `stale` flag re-evaluates against the wall clock on a timer.
+- "Refresh failed ⚠" chip auto-clears after 10 s.
+- `concurrency:` guard on the workflow.
+- `useDashboard` deps narrowed to `[project.id, nonce]`.
+- Dead `run_native_export` removed.
+- `build_layer1`'s catch tightened to MetabaseError + httpx.HTTPError.
+- `validate_asset_search_week` endswith anchor.
+- Manifest corruption surfaces a `WARN` line in the run log.
+
+Deferred: pageViewsOk UI signal, 409 conflict message refactor, Editorial
+masthead hardcoded copy. Each tracked for its own PR.
+
+### When resuming
+
+- Decide whether to ship the deferred UX items above, or move on to roadmap
+  items #2 (payment-stage tables onboarding), #3 (cross-day attribution),
+  or the incremental-fetch follow-up (3-day window, merge by `id`).
+
+---
+
 ## 2026-05-19 — S5: live-data implementation (PR open)
 
 **Status:** S5 complete — branch `worktree-feat+asset-search-live-data-impl`,
