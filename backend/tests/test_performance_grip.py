@@ -154,3 +154,48 @@ class TestParseQ3:
         rows = parse_q3_response(fixture)
         if rows:  # Q3 may legitimately return 0
             assert all("page_url" in r and "js_errors" in r for r in rows)
+
+
+class TestMergeRows:
+    BASE_Q1 = {
+        "page_url": "/a", "device": "mobile",
+        "lcp_p75": 2400, "lcp_p95": 3900,
+        "inp_p75": 180, "inp_p95": 420,
+        "cls_p75": 0.08, "cls_p95": 0.21,
+        "fcp_p75": 1100, "fcp_p95": 2200,
+        "ttfb_p75": 320, "ttfb_p95": 780,
+        "sample_count": 100,
+    }
+
+    def test_merge_joins_on_page_and_device(self):
+        from services.integrations.performance_grip import merge_rows
+        q1 = [self.BASE_Q1]
+        q2 = [{"page_url": "/a", "device": "mobile", "page_views": 50000}]
+        q3 = [{"page_url": "/a", "device": "mobile", "js_errors": 5}]
+        rows = merge_rows(q1, q2, q3, app="gi-client-static",
+                          date="2026-05-19", hour=14,
+                          fetched_at="2026-05-20T01:30:00+05:30")
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["app"] == "gi-client-static"
+        assert r["date"] == "2026-05-19"
+        assert r["hour"] == 14
+        assert r["page_url"] == "/a"
+        assert r["device"] == "mobile"
+        assert r["lcp_p75_ms"] == 2400
+        assert r["page_views"] == 50000
+        assert r["js_errors"] == 5
+
+    def test_no_q3_yields_zero_errors(self):
+        from services.integrations.performance_grip import merge_rows
+        rows = merge_rows([self.BASE_Q1],
+                          [{"page_url": "/a", "device": "mobile", "page_views": 50000}],
+                          [], app="x", date="2026-05-19", hour=14, fetched_at="x")
+        assert rows[0]["js_errors"] == 0
+
+    def test_drops_rows_with_no_q1(self):
+        from services.integrations.performance_grip import merge_rows
+        rows = merge_rows([],
+                          [{"page_url": "/x", "device": "mobile", "page_views": 1}],
+                          [], app="x", date="2026-05-19", hour=14, fetched_at="x")
+        assert rows == []
