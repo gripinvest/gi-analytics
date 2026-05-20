@@ -1,9 +1,11 @@
 """Unit tests for performance_grip.py."""
 import csv
+import csv as _csv
 import json
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 import pytest
 
@@ -325,3 +327,85 @@ class TestFacetCap:
             check_facet_cap(unique_count=4500, app="x", hour="2026-05-19 14")
         with pytest.raises(FacetCapExceeded):
             check_facet_cap(unique_count=5000, app="x", hour="2026-05-19 14")
+
+
+class TestRunOrchestrator:
+    """H23/H24/H26: real assertions on orchestrator behaviour; tests that
+    would fail if run() is broken in plausible ways."""
+
+    def _mock_client_with_fixtures(self):
+        """H8-fix: route on distinct substrings, not generic 'PageView' which
+        matches both Q1 (PageViewTiming) and Q2 (PageView)."""
+        q1 = json.loads((FIXTURES / "Q1_pageviewtiming_response.json").read_text())
+        q2 = json.loads((FIXTURES / "Q2_pageview_response.json").read_text())
+        q3 = json.loads((FIXTURES / "Q3_javascripterror_response.json").read_text())
+
+        class MockClient:
+            def nrql(self, query: str):
+                if "uniqueCount(" in query:
+                    return [{"uniqueCount": 100}]
+                if "FROM PageViewTiming" in query:
+                    return q1["results"]
+                if "FROM PageView " in query or query.rstrip().endswith("FROM PageView"):
+                    return q2["results"]
+                if "FROM JavaScriptError" in query:
+                    return q3["results"]
+                return []
+        return MockClient()
+
+    def test_run_succeeds_and_writes_expected_rows(self):
+        """H23-fix: assert status == 'ok' exactly, CSV has rows, sample row has
+        non-None LCP. Previous draft accepted status in (ok, partial) which is
+        vacuous."""
+        from services.integrations.performance_grip import run
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_dir = Path(tmpdir)
+            result = run(
+                client=self._mock_client_with_fixtures(),
+                data_dir=data_dir,
+                now=datetime(2026, 5, 20, 14, 30, tzinfo=IST),
+                since=None,
+            )
+
+            # Tight status assertion
+            assert result["status"] == "ok", f"expected 'ok', got {result['status']}; log: {result['log']}"
+
+            # CSV exists and has rows
+            csv_path = data_dir / "hourly_web_vitals.csv"
+            assert csv_path.exists()
+            with open(csv_path) as f:
+                rows = list(_csv.DictReader(f))
+            assert len(rows) > 0, "CSV is empty — run() didn't write anything"
+
+            # At least one row has the expected fields populated
+            assert any(r.get("lcp_p75_ms") not in ("", None) for r in rows), \
+                "No row has lcp_p75_ms set — parser likely broken"
+
+            # Log contains "rows committed" entries for at least one app
+            committed_lines = [l for l in result["log"] if "rows committed" in l or "rows" in l]
+            assert committed_lines, f"No 'rows' log lines; got {result['log']}"
+
+    def test_run_treats_auth_failure_as_fatal(self):
+        """H24-fix: a persistent 401 (the most likely production failure mode per
+        CA1) should stop the run, not silently log partial failures forever."""
+        from services.integrations.performance_grip import run
+        import httpx
+
+        class AuthFailClient:
+            def nrql(self, query):
+                raise httpx.HTTPStatusError(
+                    "401", request=MagicMock(),
+                    response=MagicMock(status_code=401),
+                )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run(
+                client=AuthFailClient(),
+                data_dir=Path(tmpdir),
+                now=datetime(2026, 5, 20, 14, 30, tzinfo=IST),
+                since=None,
+            )
+            assert result["status"] == "fail", \
+                f"persistent auth failure should yield 'fail', got {result['status']}"
+            assert any("401" in l or "FAILED" in l for l in result["log"])

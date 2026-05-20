@@ -308,3 +308,331 @@ def latest_in_csv(csv_path: Path, app: str) -> datetime | None:
             if latest is None or dt > latest:
                 latest = dt
     return latest
+
+
+APP_CONFIG = [
+    # (canonical slug, NR appName) — locked from Phase 0 task 0.2 (2026-05-21).
+    ("gi-client-static", "gi_client_static_prod"),
+    ("gi-client-web",   "gi_client_web_prod"),
+]
+
+
+# Phase 0 (2026-05-21) discovery established Path C — see spec §12 K2 row.
+# Web app has 4882 distinct URLs/24h (99% partner-webview UUIDs) saturating
+# NerdGraph's 5000-facet cap. We split each fetch into a "raw" query (named
+# URLs, excluding collapse+deprecated patterns) and N "collapse" queries (one
+# per pattern, aggregating across all matching URLs into a single row per device).
+#
+# Pattern config lives in: backend/data/performance_grip/route_patterns.csv
+# Schema: app, pattern, nrql_like, collapse_at_fetch, exclude, sort_priority, notes
+#
+# Load at run() start; pass collapse_likes + exclude_likes into the _raw builders.
+
+# H5-lite: validate app names at module load. NRQL doesn't support parameterised
+# queries; we mitigate injection risk by allowlisting safe characters at config
+# load rather than escaping at query construction time.
+_APP_NAME_OK = re.compile(r"^[A-Za-z0-9 \-_./]+$")
+for _slug, _nr_app in APP_CONFIG:
+    if not _APP_NAME_OK.match(_nr_app):
+        raise ValueError(
+            f"NR appName {_nr_app!r} contains characters outside [A-Za-z0-9 -_./]; "
+            f"NRQL injection risk. Edit APP_CONFIG to match a safer name."
+        )
+
+
+def load_route_patterns(csv_path: Path) -> dict:
+    """Load route_patterns.csv. Returns dict {app: {"collapse": [(label, nrql_like), ...],
+    "exclude": [nrql_like, ...]}}.
+
+    The wildcard app="*" applies to all apps.
+    Lines starting with # are comments.
+    """
+    out: dict = {}
+    if not csv_path.exists():
+        return out
+    with open(csv_path, newline="") as f:
+        reader = _csv.DictReader(
+            line for line in f if not line.startswith("#") and line.strip()
+        )
+        for row in reader:
+            app = row["app"]
+            apps = [a for a, _ in APP_CONFIG] if app == "*" else [app]
+            for a in apps:
+                bucket = out.setdefault(a, {"collapse": [], "exclude": []})
+                if row.get("exclude") == "1":
+                    if row.get("nrql_like"):
+                        bucket["exclude"].append(row["nrql_like"])
+                elif row.get("collapse_at_fetch") == "1":
+                    if row.get("nrql_like"):
+                        bucket["collapse"].append((row["pattern"], row["nrql_like"]))
+    return out
+
+
+def _q1_select() -> str:
+    """The SELECT clause is identical for all Q1 variants — only WHERE/FACET differ.
+    Per Phase 0 CA2: filter() wrappers required (timingName discriminator inflates count ~5x).
+    """
+    return (
+        "SELECT "
+        "filter(percentile(largestContentfulPaint, 75, 95), WHERE timingName='largestContentfulPaint') AS lcp, "
+        "filter(percentile(interactionToNextPaint,  75, 95), WHERE timingName='interactionToNextPaint') AS inp, "
+        "filter(percentile(cumulativeLayoutShift,   75, 95), WHERE timingName='cumulativeLayoutShift') AS cls, "
+        "filter(percentile(firstContentfulPaint,    75, 95), WHERE timingName='firstContentfulPaint') AS fcp, "
+        "filter(percentile(firstByte,               75, 95), WHERE timingName='firstByte') AS ttfb, "
+        "filter(count(*), WHERE timingName='largestContentfulPaint') AS sample_count "
+        "FROM PageViewTiming"
+    )
+
+
+def _nrql_q1_raw(nr_app: str, since: datetime, until: datetime,
+                  collapse_likes: list[str], exclude_likes: list[str]) -> str:
+    collapse_excl = " AND ".join([f"pageUrl NOT LIKE '{p}'" for p in collapse_likes])
+    dep_excl = " AND ".join([f"pageUrl NOT LIKE '{p}'" for p in exclude_likes])
+    extra = (f" AND {collapse_excl}" if collapse_likes else "") + (f" AND {dep_excl}" if exclude_likes else "")
+    return (
+        f"{_q1_select()} "
+        f"WHERE appName = '{nr_app}' "
+        "AND pageUrl IS NOT NULL AND deviceType IS NOT NULL"
+        f"{extra} "
+        f"SINCE '{since.strftime('%Y-%m-%d %H:%M:%S')}' "
+        f"UNTIL '{until.strftime('%Y-%m-%d %H:%M:%S')}' "
+        "WITH TIMEZONE 'Asia/Kolkata' "
+        "FACET pageUrl, deviceType LIMIT MAX"
+    )
+
+
+def _nrql_q1_collapse(nr_app: str, since: datetime, until: datetime,
+                       like_clause: str) -> str:
+    return (
+        f"{_q1_select()} "
+        f"WHERE appName = '{nr_app}' "
+        "AND deviceType IS NOT NULL "
+        f"AND pageUrl LIKE '{like_clause}' "
+        f"SINCE '{since.strftime('%Y-%m-%d %H:%M:%S')}' "
+        f"UNTIL '{until.strftime('%Y-%m-%d %H:%M:%S')}' "
+        "WITH TIMEZONE 'Asia/Kolkata' "
+        "FACET deviceType"
+    )
+
+
+def _nrql_q2_raw(nr_app: str, since: datetime, until: datetime,
+                  collapse_likes: list[str], exclude_likes: list[str]) -> str:
+    collapse_excl = " AND ".join([f"pageUrl NOT LIKE '{p}'" for p in collapse_likes])
+    dep_excl = " AND ".join([f"pageUrl NOT LIKE '{p}'" for p in exclude_likes])
+    extra = (f" AND {collapse_excl}" if collapse_likes else "") + (f" AND {dep_excl}" if exclude_likes else "")
+    return (
+        "SELECT count(*) AS page_views FROM PageView "
+        f"WHERE appName = '{nr_app}' "
+        "AND pageUrl IS NOT NULL AND deviceType IS NOT NULL"
+        f"{extra} "
+        f"SINCE '{since.strftime('%Y-%m-%d %H:%M:%S')}' "
+        f"UNTIL '{until.strftime('%Y-%m-%d %H:%M:%S')}' "
+        "WITH TIMEZONE 'Asia/Kolkata' "
+        "FACET pageUrl, deviceType LIMIT MAX"
+    )
+
+
+def _nrql_q2_collapse(nr_app: str, since: datetime, until: datetime,
+                      like_clause: str) -> str:
+    return (
+        "SELECT count(*) AS page_views FROM PageView "
+        f"WHERE appName = '{nr_app}' "
+        "AND deviceType IS NOT NULL "
+        f"AND pageUrl LIKE '{like_clause}' "
+        f"SINCE '{since.strftime('%Y-%m-%d %H:%M:%S')}' "
+        f"UNTIL '{until.strftime('%Y-%m-%d %H:%M:%S')}' "
+        "WITH TIMEZONE 'Asia/Kolkata' "
+        "FACET deviceType"
+    )
+
+
+def _nrql_q3_raw(nr_app: str, since: datetime, until: datetime,
+                  collapse_likes: list[str], exclude_likes: list[str]) -> str:
+    # M13 PII GUARDRAIL: never extend to message/stackTrace/customAttributes.
+    collapse_excl = " AND ".join([f"pageUrl NOT LIKE '{p}'" for p in collapse_likes])
+    dep_excl = " AND ".join([f"pageUrl NOT LIKE '{p}'" for p in exclude_likes])
+    extra = (f" AND {collapse_excl}" if collapse_likes else "") + (f" AND {dep_excl}" if exclude_likes else "")
+    return (
+        "SELECT count(*) AS js_errors FROM JavaScriptError "
+        f"WHERE appName = '{nr_app}' "
+        "AND pageUrl IS NOT NULL"
+        f"{extra} "
+        f"SINCE '{since.strftime('%Y-%m-%d %H:%M:%S')}' "
+        f"UNTIL '{until.strftime('%Y-%m-%d %H:%M:%S')}' "
+        "WITH TIMEZONE 'Asia/Kolkata' "
+        "FACET pageUrl, deviceType LIMIT MAX"
+    )
+
+
+def _nrql_q3_collapse(nr_app: str, since: datetime, until: datetime,
+                      like_clause: str) -> str:
+    return (
+        "SELECT count(*) AS js_errors FROM JavaScriptError "
+        f"WHERE appName = '{nr_app}' "
+        "AND deviceType IS NOT NULL "
+        f"AND pageUrl LIKE '{like_clause}' "
+        f"SINCE '{since.strftime('%Y-%m-%d %H:%M:%S')}' "
+        f"UNTIL '{until.strftime('%Y-%m-%d %H:%M:%S')}' "
+        "WITH TIMEZONE 'Asia/Kolkata' "
+        "FACET deviceType"
+    )
+
+
+def parse_collapse_response(nrql_response: list, *, label: str, metric_type: str) -> list[dict]:
+    """Parse a collapse-query response (FACET deviceType, no pageUrl) into rows
+    matching the raw-query shape, with page_url = pattern label.
+
+    metric_type: 'q1' (timings) | 'q2' (page_views) | 'q3' (js_errors)
+    """
+    out = []
+    for entry in nrql_response:
+        # When FACETing on a single dimension, NerdGraph returns it as a scalar
+        # "facet" key (not a list). Defensive handling for both shapes.
+        facet = entry.get("facet")
+        if isinstance(facet, list):
+            device = (facet[0] or "").lower() if facet else None
+        else:
+            device = (facet or "").lower() if facet else None
+        if not device:
+            continue
+
+        if metric_type == "q1":
+            row = {
+                "page_url": label,
+                "device": device,
+                "sample_count": entry.get("sample_count"),
+            }
+            for m in ["lcp", "inp", "cls", "fcp", "ttfb"]:
+                mobj = entry.get(m) or {}
+                row[f"{m}_p75"] = mobj.get("75")
+                row[f"{m}_p95"] = mobj.get("95")
+            out.append(row)
+        elif metric_type == "q2":
+            out.append({
+                "page_url": label,
+                "device": device,
+                "page_views": int(entry.get("page_views") or 0),
+            })
+        elif metric_type == "q3":
+            out.append({
+                "page_url": label,
+                "device": device,
+                "js_errors": int(entry.get("js_errors") or 0),
+            })
+    return out
+
+
+def run(
+    client,
+    data_dir: Path,
+    *,
+    now: datetime | None = None,
+    since: datetime | None = None,
+) -> dict:
+    """Orchestrate per-(app, hour) fetch loop with Path C split queries.
+
+    For each (app, hour) window:
+      1. Run "raw" Q1/Q2/Q3 — gets named-URL rows excluding collapse+excluded patterns
+      2. For each collapse pattern (from route_patterns.csv): run "collapse" Q1/Q2/Q3
+         — gets one aggregate row per device, page_url = pattern label
+      3. Merge all rows via merge_rows
+      4. Write per-(app, hour) atomically
+    """
+    now = now or datetime.now(IST)
+    csv_path = Path(data_dir) / "hourly_web_vitals.csv"
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load Path C pattern config (Phase 0 finding)
+    patterns_path = Path(data_dir) / "route_patterns.csv"
+    route_config = load_route_patterns(patterns_path)
+
+    log_lines: list[str] = []
+    successes = 0
+    failures = 0
+
+    for app_slug, nr_app in APP_CONFIG:
+        app_cfg = route_config.get(app_slug, {"collapse": [], "exclude": []})
+        collapse_patterns = app_cfg["collapse"]   # [(label, nrql_like), ...]
+        collapse_likes = [like for _, like in collapse_patterns]
+        exclude_likes = app_cfg["exclude"]
+
+        last = latest_in_csv(csv_path, app=app_slug)
+        windows = target_hours(latest_in_csv=last, now=now, since=since)
+        log_lines.append(
+            f"[{app_slug}] {len(windows)} hours, "
+            f"{len(collapse_patterns)} collapse patterns, "
+            f"{len(exclude_likes)} excluded"
+        )
+
+        for win_start, win_end in windows:
+            try:
+                # Raw queries (named URLs only)
+                q1r = client.nrql(_nrql_q1_raw(nr_app, win_start, win_end, collapse_likes, exclude_likes))
+                q2r = client.nrql(_nrql_q2_raw(nr_app, win_start, win_end, collapse_likes, exclude_likes))
+                q3r = client.nrql(_nrql_q3_raw(nr_app, win_start, win_end, collapse_likes, exclude_likes))
+
+                # Facet-cap check on the RAW query (post-exclusion count)
+                check_facet_cap(len(q1r), app=app_slug, hour=win_start.isoformat())
+
+                q1 = parse_q1_response({"results": q1r})
+                q2 = parse_q2_response({"results": q2r})
+                q3 = parse_q3_response({"results": q3r})
+
+                # Per-pattern collapse queries
+                for label, like_clause in collapse_patterns:
+                    c1 = client.nrql(_nrql_q1_collapse(nr_app, win_start, win_end, like_clause))
+                    c2 = client.nrql(_nrql_q2_collapse(nr_app, win_start, win_end, like_clause))
+                    c3 = client.nrql(_nrql_q3_collapse(nr_app, win_start, win_end, like_clause))
+                    q1.extend(parse_collapse_response(c1, label=label, metric_type="q1"))
+                    q2.extend(parse_collapse_response(c2, label=label, metric_type="q2"))
+                    q3.extend(parse_collapse_response(c3, label=label, metric_type="q3"))
+
+                if not q1 or not q2:
+                    log_lines.append(
+                        f"[{app_slug}] EMPTY {win_start.isoformat()}: Q1={len(q1)} Q2={len(q2)}"
+                    )
+                    failures += 1
+                    continue
+
+                merged = merge_rows(
+                    q1, q2, q3,
+                    app=app_slug,
+                    date=win_start.strftime("%Y-%m-%d"),
+                    hour=win_start.hour,
+                    fetched_at=datetime.now(IST).isoformat(),
+                )
+                append_hour_atomic(
+                    csv_path, merged,
+                    app=app_slug,
+                    date=win_start.strftime("%Y-%m-%d"),
+                    hour=win_start.hour,
+                )
+                successes += 1
+                log_lines.append(
+                    f"[{app_slug}] {win_start.isoformat()}: {len(merged)} rows"
+                )
+            except Exception as e:
+                failures += 1
+                log_lines.append(
+                    f"[{app_slug}] FAILED {win_start.isoformat()}: {type(e).__name__}: {e}"
+                )
+
+    status = "ok" if failures == 0 else ("partial" if successes > 0 else "fail")
+    return {
+        "status": status,
+        "log": log_lines,
+        "refreshed_at": datetime.now(IST).isoformat(),
+    }
+
+
+# Back-compat shims for the simpler test cases — production code uses the _raw/_collapse pair.
+def _nrql_q1(nr_app: str, since: datetime, until: datetime) -> str:
+    return _nrql_q1_raw(nr_app, since, until, collapse_likes=[], exclude_likes=[])
+
+
+def _nrql_q2(nr_app: str, since: datetime, until: datetime) -> str:
+    return _nrql_q2_raw(nr_app, since, until, collapse_likes=[], exclude_likes=[])
+
+
+def _nrql_q3(nr_app: str, since: datetime, until: datetime) -> str:
+    return _nrql_q3_raw(nr_app, since, until, collapse_likes=[], exclude_likes=[])
