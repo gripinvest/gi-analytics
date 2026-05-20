@@ -133,7 +133,8 @@ function useDashboard(project, nonce) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, nonce]);
 
-  return { ...state, weeks: grouped.weeks, lastWeek: grouped.lastWeek, convOk: conv.ok };
+  return { ...state, weeks: grouped.weeks, lastWeek: grouped.lastWeek,
+           convOk: conv.ok, pageViewsOk: conv.pageViewsOk };
 }
 
 /* ── small helpers ────────────────────────────────────────────────────────── */
@@ -166,7 +167,7 @@ function DeltaChip({ from, to, goodIsDown = true, suffix = "" }) {
 
 export default function AssetSearchDashboard({ project }) {
   const refreshState = useProjectRefresh(project);
-  const { loading, fatal, data, weeks, lastWeek, convOk } = useDashboard(project, refreshState.nonce);
+  const { loading, fatal, data, weeks, lastWeek, convOk, pageViewsOk } = useDashboard(project, refreshState.nonce);
 
   const health = rowsOf(data, "health");
   const funnel = rowsOf(data, "funnel");
@@ -448,7 +449,7 @@ export default function AssetSearchDashboard({ project }) {
         {/* ── CONVERSION ───────────────────────────────────────────────── */}
         {convOk && (
           <TabPanel value="conversion" className="mt-5">
-            <ConversionView data={data} loading={loading} weeks={weeks} lastWeek={lastWeek} />
+            <ConversionView data={data} loading={loading} weeks={weeks} lastWeek={lastWeek} pageViewsOk={pageViewsOk} />
           </TabPanel>
         )}
 
@@ -997,7 +998,7 @@ function ConversionImpactCard({ cohort, daily, label }) {
   );
 }
 
-function ConversionView({ data, loading, weeks, lastWeek }) {
+function ConversionView({ data, loading, weeks, lastWeek, pageViewsOk }) {
   const h = rowsOf(data, "conv_headline")[0] || {};
   const a = rowsOf(data, "conv_assetRate")[0] || {};
   const byWeek = rowsOf(data, "conv_byWeek");
@@ -1114,6 +1115,16 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
                 <>A non-searcher <span className="t-emphasis-sm">CVR</span> &mdash; and a true search lift &mdash; needs a total-visitor / page-view event, which isn't loaded. What <em>is</em> measurable here: search touches {pct1(searchPenetration)} of all converters, and {pct1(assetRate)} of result clicks become a same-day invest on that exact asset.</>
               )}
             </p>
+            {/* B6 — pageViewsOk signal. When the cron's daily/weekly cadence
+                leaves `assets_page_views` behind, the cohort lift silently
+                drops from the W1–lastWeek user-id window to the launch-week
+                anon-id fallback. Surface that switch so the analyst isn't
+                comparing two different metrics under one label. */}
+            {pageViewsOk === false && cohortLift != null && (
+              <p className="mt-2 t-body-xs text-tertiary italic">
+                Visitor data refreshes weekly — showing the launch-week cohort while the full-window <code className="font-mono">assets_page_views</code> catches up. Full-window numbers land at the next rollover.
+              </p>
+            )}
           </div>
         </div>
 

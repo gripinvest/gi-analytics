@@ -67,8 +67,27 @@ export function useProjectRefresh(project) {
   const handleRefresh = React.useCallback(async () => {
     setRefresh({ state: "running", error: null });
     try {
-      const { job_id } = await refreshProject(project.id);
-      if (!job_id) throw new Error("no job id returned");
+      // Whether the backend started a new job or returned an in-flight one
+      // (HTTP 409 → `alreadyRunning: true`), we poll the same `job_id` and
+      // the user sees a single "Refreshing… → Updated ✓" cycle — no
+      // distinct "already running" state (B7 design call).
+      const { job_id, alreadyRunning } = await refreshProject(project.id);
+      if (!job_id) {
+        if (alreadyRunning) {
+          // Race: the in-flight job finished between the backend's 409 and
+          // us reading the body. Treat the click as "refresh effectively
+          // just completed" — bump nonce, show the done chip. Optimistic
+          // but benign: the next refresh cycle reflects any real failure.
+          setNonce((n) => n + 1);
+          setAsOf(new Date().toISOString());
+          setRefresh({ state: "done", error: null });
+          setCooldownUntil(Date.now() + REFRESH_COOLDOWN_MS);
+          setTimeout(() => setRefresh({ state: "idle", error: null }), 3000);
+          setTimeout(() => setCooldownUntil(0), REFRESH_COOLDOWN_MS);
+          return;
+        }
+        throw new Error("no job id returned");
+      }
       let done = null;
       for (let i = 0; i < MAX_POLLS && !done; i++) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
