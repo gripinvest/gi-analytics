@@ -1831,9 +1831,9 @@ Append to `performance_grip.py`:
 
 ```python
 APP_CONFIG = [
-    # (canonical slug, NR appName) — REPLACE with values from Task 0.2.
-    ("gi-client-static", "GI Client Static"),
-    ("gi-client-web",   "GI Client Web"),
+    # (canonical slug, NR appName) — locked from Phase 0 task 0.2 (2026-05-21).
+    ("gi-client-static", "gi_client_static_prod"),
+    ("gi-client-web",   "gi_client_web_prod"),
 ]
 
 # H5-lite: validate app names at module load. NRQL doesn't support parameterised
@@ -1849,13 +1849,18 @@ for _slug, _nr_app in APP_CONFIG:
 
 
 def _nrql_q1(nr_app: str, since: datetime, until: datetime) -> str:
+    """Phase 0 CA2 finding: PageViewTiming events use a `timingName` discriminator.
+    Each event carries ONE timing value; count(*) without WHERE timingName='X'
+    inflates ~5x. Use filter()-wrapped form for both percentile() and count(*).
+    """
     return (
-        "SELECT percentile(largestContentfulPaint, 75, 95) AS lcp, "
-        "percentile(interactionToNextPaint,  75, 95) AS inp, "
-        "percentile(cumulativeLayoutShift,   75, 95) AS cls, "
-        "percentile(firstContentfulPaint,    75, 95) AS fcp, "
-        "percentile(firstByte,               75, 95) AS ttfb, "
-        "count(*) AS sample_count "
+        "SELECT "
+        "filter(percentile(largestContentfulPaint, 75, 95), WHERE timingName='largestContentfulPaint') AS lcp, "
+        "filter(percentile(interactionToNextPaint,  75, 95), WHERE timingName='interactionToNextPaint') AS inp, "
+        "filter(percentile(cumulativeLayoutShift,   75, 95), WHERE timingName='cumulativeLayoutShift') AS cls, "
+        "filter(percentile(firstContentfulPaint,    75, 95), WHERE timingName='firstContentfulPaint') AS fcp, "
+        "filter(percentile(firstByte,               75, 95), WHERE timingName='firstByte') AS ttfb, "
+        "filter(count(*), WHERE timingName='largestContentfulPaint') AS sample_count "
         "FROM PageViewTiming "
         f"WHERE appName = '{nr_app}' "
         "AND pageUrl IS NOT NULL AND deviceType IS NOT NULL "
