@@ -8,6 +8,8 @@ in the `Api-Key` header. See spec §5.4.
 """
 from __future__ import annotations
 import json
+import random
+import time
 
 
 class NewRelicError(Exception):
@@ -32,9 +34,10 @@ class NewRelicClient:
     def nrql(self, query: str) -> list[dict]:
         """Execute one NRQL query via NerdGraph. Returns facet rows.
 
-        Detects GraphQL-level errors (HTTP 200 with `errors` envelope) and
-        raises a clean exception with the error message instead of letting
-        the response-shape KeyError mask the real problem (H1).
+        Retries 3× on transient errors with backoff + ±25% jitter, capped at 30s.
+        Retryable: 5xx HTTP status, httpx.RequestError (timeouts, ConnectError —
+        common on cron-driven networks; H2).
+        4xx HTTP status: fail loud, no retry.
         """
         import httpx
 
@@ -43,19 +46,37 @@ class NewRelicClient:
             % (self.account_id, json.dumps(query))
         )
 
-        with httpx.Client(timeout=30.0) as http:
-            response = http.post(
-                self.endpoint,
-                headers={"API-Key": self.api_key, "Content-Type": "application/json"},
-                json={"query": graphql_query},
-            )
-            response.raise_for_status()
-            body = response.json()
+        backoff_seconds = [1.0, 4.0, 16.0]
 
-        # H1-fix: GraphQL errors arrive as HTTP 200 with body.errors set.
-        if body.get("errors"):
-            raise NewRelicError(f"NerdGraph errors: {body['errors']}")
-        nrql_block = body.get("data", {}).get("actor", {}).get("account", {}).get("nrql")
-        if nrql_block is None:
-            raise NewRelicError(f"NerdGraph returned null nrql block: {body}")
-        return nrql_block["results"]
+        with httpx.Client(timeout=30.0) as http:
+            for attempt in range(len(backoff_seconds) + 1):
+                retryable = False
+                try:
+                    response = http.post(
+                        self.endpoint,
+                        headers={"API-Key": self.api_key, "Content-Type": "application/json"},
+                        json={"query": graphql_query},
+                    )
+                    response.raise_for_status()
+                    body = response.json()
+                    # H1: handle GraphQL errors envelope (HTTP 200 + body.errors)
+                    if body.get("errors"):
+                        raise NewRelicError(f"NerdGraph errors: {body['errors']}")
+                    nrql_block = body.get("data", {}).get("actor", {}).get("account", {}).get("nrql")
+                    if nrql_block is None:
+                        raise NewRelicError(f"NerdGraph returned null nrql block: {body}")
+                    return nrql_block["results"]
+                except httpx.HTTPStatusError as e:
+                    status = e.response.status_code if e.response else 0
+                    retryable = status >= 500
+                    if not retryable or attempt >= len(backoff_seconds):
+                        raise
+                except httpx.RequestError:  # H2: timeouts, ConnectError, etc.
+                    retryable = True
+                    if attempt >= len(backoff_seconds):
+                        raise
+
+                if retryable:
+                    base = backoff_seconds[attempt]
+                    jitter = random.uniform(-0.25, 0.25) * base
+                    time.sleep(min(base + jitter, 30.0))

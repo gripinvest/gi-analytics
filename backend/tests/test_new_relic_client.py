@@ -62,3 +62,63 @@ def test_nrql_sends_correct_graphql_payload():
     assert captured["headers"]["API-Key"] == "my-secret-key"
     assert "account(id: 98765)" in captured["json"]["query"]
     assert "SELECT count(*) FROM PageViewTiming" in captured["json"]["query"]
+
+
+def test_nrql_retries_on_transient_5xx_with_correct_backoff():
+    """Verify retry actually waits between attempts.
+
+    Capture time.sleep calls; assert sleep durations approximate [1, 4]s
+    within ±25% jitter. A no-retry implementation has 0 sleep calls and
+    this test would fail.
+    """
+    client = NewRelicClient(api_key="x", account_id=1, region="US")
+    call_count = [0]
+
+    def flaky_post(*args, **kwargs):
+        import httpx
+        call_count[0] += 1
+        if call_count[0] < 3:
+            mock = MagicMock()
+            mock.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "503", request=MagicMock(), response=MagicMock(status_code=503))
+            return mock
+        mock = MagicMock()
+        mock.json.return_value = {"data": {"actor": {"account": {"nrql": {"results": [{"n": 1}]}}}}}
+        mock.status_code = 200
+        mock.raise_for_status = MagicMock()
+        return mock
+
+    sleep_calls: list[float] = []
+    with patch("httpx.Client.post", side_effect=flaky_post):
+        with patch("time.sleep", side_effect=lambda s: sleep_calls.append(s)):
+            rows = client.nrql("SELECT count(*) FROM PageView")
+
+    assert call_count[0] == 3
+    assert rows == [{"n": 1}]
+    # 2 sleeps for the 2 failed attempts before success
+    assert len(sleep_calls) == 2, f"expected 2 sleeps, got {len(sleep_calls)}: {sleep_calls}"
+    assert 0.75 <= sleep_calls[0] <= 1.25, f"first sleep {sleep_calls[0]} outside [0.75, 1.25]"
+    assert 3.0 <= sleep_calls[1] <= 5.0, f"second sleep {sleep_calls[1]} outside [3.0, 5.0]"
+
+
+def test_nrql_does_not_retry_on_4xx():
+    """4xx errors must fail loud immediately; no sleeps, no retries."""
+    import httpx
+    client = NewRelicClient(api_key="x", account_id=1, region="US")
+    call_count = [0]
+    sleep_calls: list[float] = []
+
+    def auth_fail(*args, **kwargs):
+        call_count[0] += 1
+        mock = MagicMock()
+        mock.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "401", request=MagicMock(), response=MagicMock(status_code=401))
+        return mock
+
+    with patch("httpx.Client.post", side_effect=auth_fail):
+        with patch("time.sleep", side_effect=lambda s: sleep_calls.append(s)):
+            with pytest.raises(httpx.HTTPStatusError):
+                client.nrql("SELECT count(*) FROM PageView")
+
+    assert call_count[0] == 1
+    assert sleep_calls == [], f"4xx must not retry; got sleeps {sleep_calls}"
