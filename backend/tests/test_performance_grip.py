@@ -5,7 +5,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import pytest
 
-from services.integrations.performance_grip import clean_url, target_hours
+from services.integrations.performance_grip import clean_url, parse_q1_response, target_hours
 
 FIXTURES = Path(__file__).parent / "fixtures" / "new_relic"
 
@@ -84,3 +84,54 @@ class TestTargetHours:
         assert len(result) == 2
         assert result[0][0] == datetime(2026, 5, 20, 0, tzinfo=IST)
         assert result[1][0] == datetime(2026, 5, 20, 1, tzinfo=IST)
+
+
+class TestParseQ1:
+    def test_extracts_rows_from_real_fixture_with_actual_values(self):
+        """CC2: assert actual values, not just key presence. A parser returning
+        all-None rows must FAIL this test."""
+        fixture = json.loads((FIXTURES / "Q1_pageviewtiming_response.json").read_text())
+
+        rows = parse_q1_response(fixture)
+
+        # Must produce rows
+        assert len(rows) > 0, "Parser returned no rows from fixture"
+
+        # Schema check
+        sample = rows[0]
+        assert "page_url" in sample and "device" in sample and "sample_count" in sample
+        for metric in ["lcp", "inp", "cls", "fcp", "ttfb"]:
+            assert f"{metric}_p75" in sample
+            assert f"{metric}_p95" in sample
+
+        # VALUE check — at least one row must have non-None LCP p75 (the canonical
+        # metric — if this is None across every row, the parser is wrong)
+        lcp_values = [r["lcp_p75"] for r in rows if r["lcp_p75"] is not None]
+        assert len(lcp_values) > 0, "Every row has lcp_p75 = None — parser shape is wrong"
+        assert all(isinstance(v, (int, float)) for v in lcp_values), \
+            "lcp_p75 must be numeric"
+
+        # Sample count sanity
+        sample_counts = [r["sample_count"] for r in rows if r["sample_count"] is not None]
+        assert any(c > 0 for c in sample_counts), "All sample_counts are zero or None"
+
+    def test_handles_null_percentiles_gracefully(self):
+        """A NR row with null INP (older Browser agent) parses to None, not crash.
+
+        SHAPE NOTE: the synthetic input below assumes nested {"75": v, "95": v}.
+        Verified against the real fixture in Step 1 — it uses the same shape.
+        """
+        synthetic = {
+            "results": [{
+                "facet": ["/test", "Mobile"],
+                "lcp": {"75": 2450, "95": 3920},
+                "inp": {"75": None, "95": None},
+                "cls": {"75": 0.08, "95": 0.21},
+                "fcp": {"75": 1100, "95": 2200},
+                "ttfb": {"75": 320, "95": 780},
+                "sample_count": 100,
+            }]
+        }
+        rows = parse_q1_response(synthetic)
+        assert rows[0]["inp_p75"] is None
+        assert rows[0]["lcp_p75"] == 2450
