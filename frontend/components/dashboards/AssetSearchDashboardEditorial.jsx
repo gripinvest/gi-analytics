@@ -848,8 +848,9 @@ function ConversionSection({ data, loading, weeks, lastWeek, lift, cohort }) {
         <Figure
           figNum="6"
           title="Search lift, by week"
-          caption={<>Searchers' same-day conversion rate <em>÷</em> non-searchers', per feature week. Above 1× means search helps; the dashed line at 1.5× is the target.</>}
+          caption={<>Same-week conversion rate of searchers <em>÷</em> same-week CVR of non-searchers, per feature week. Cross-week conversions (search W1, invest W2) sit outside this view, so the per-week ratio is a lower bound on the cumulative lift above. Reference lines at 1× (no lift) and 1.5× (target).</>}
           loading={loading}
+          error={errOf(data, "conv_cohortW_byWeek")}
           height={260}
         >
           <ResponsiveContainer width="100%" height="100%">
@@ -897,7 +898,7 @@ function ConversionSection({ data, loading, weeks, lastWeek, lift, cohort }) {
 
       {/* Top converting queries — a table set print-style. */}
       <div className="mt-12">
-        <p className="ed-caption mb-2">FIG. 7</p>
+        <p className="ed-caption mb-2">FIG. 8</p>
         <h3 className="ed-prose mb-3" style={{ fontSize: 16, fontWeight: 500, color: ED_INK }}>
           Top converting queries. <em style={{ color: ED_INK_MUTED }}>By searcher-level CVR; minimum 5 clickers per query.</em>
         </h3>
@@ -922,7 +923,7 @@ function ConversionSection({ data, loading, weeks, lastWeek, lift, cohort }) {
                   <td className="py-2 ed-num" style={{ fontFamily: "var(--ed-mono)", color: ED_INK }}>{r.query}</td>
                   <td className="py-2 text-right ed-num" style={{ color: ED_INK_MUTED }}>{nf.format(r.clickers)}</td>
                   <td className="py-2 text-right ed-num">{nf.format(r.converters)}</td>
-                  <td className="py-2 text-right ed-num" style={{ color: ED_FOREST, fontWeight: 600 }}>{r.cvr_pct}%</td>
+                  <td className="py-2 text-right ed-num" style={{ color: ED_FOREST, fontWeight: 600 }}>{r.rate_pct}%</td>
                 </tr>
               ))}
             </tbody>

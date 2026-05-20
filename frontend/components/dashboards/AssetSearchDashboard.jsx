@@ -1132,7 +1132,7 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
       {liftSeries.length > 0 && (
         <ChartCard
           title={<Metric k="searchLift">Search lift, by week</Metric>}
-          subtitle="Searchers' same-day conversion rate ÷ non-searchers', per feature week. The reference lines mark 1× (no lift) and the 1.5× target."
+          subtitle="Same-week conversion rate of searchers ÷ same-week CVR of non-searchers, per feature week. Cross-week conversions (search one week, invest the next) sit outside this view, so the per-week ratio is a lower bound on the cumulative lift. Reference lines: 1× (no lift) and 1.5× (target)."
           loading={loading} error={errOf(data, "conv_cohortW_byWeek")} height={260}
         >
           <ResponsiveContainer width="100%" height="100%">
