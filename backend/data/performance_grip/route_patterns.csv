@@ -1,0 +1,52 @@
+app,pattern,nrql_like,collapse_at_fetch,exclude,sort_priority,notes
+# Format:
+# - app: 'gi-client-static' | 'gi-client-web' | '*' (all apps)
+# - pattern: label used in CSV's page_url column for collapsed rows; informational for raw/exclude rows
+# - nrql_like: NRQL LIKE clause matching this pattern (e.g., '%/external-ui/%'). Used at fetch.
+# - collapse_at_fetch: 1 = aggregate at fetch (one row per device); 0 = raw URL storage
+# - exclude: 1 = excluded from fetch entirely (deprecated / not user-facing)
+# - sort_priority: dashboard sort order in route drill-down
+# - notes: 1-line context
+#
+# CSV semantics: a URL is matched against rows in priority order; first match wins.
+# Routes not matching any row are stored raw (default behaviour).
+
+# === gi-client-web — collapse patterns ===
+gi-client-web,/external-ui/[uuid],%/external-ui/%,1,0,10,Partner-webview entry URLs; per-session GUIDs from partners
+gi-client-web,/checkout/[uuid],%/checkout/%,1,0,20,Per-transaction checkout sessions
+gi-client-web,/assetdetails/[id],%/assetdetails/%,1,0,30,Asset detail catch-all (low traffic but high-cardinality)
+gi-client-web,/assetagreement/[id],%/assetagreement/%,1,0,31,Asset agreement flows
+
+# === gi-client-web — excluded (deprecated or not user-facing) ===
+gi-client-web,*,%/kyc/%,0,1,99,Deprecated KYC sub-pages
+gi-client-web,/kyc,%/kyc,0,1,99,Deprecated KYC entry (use /user-kyc instead)
+gi-client-web,/external/*,%/external/%,0,1,99,Deprecated external redirects
+gi-client-web,/vault,%/vault,0,1,99,Deprecated
+gi-client-web,/my-transactions,%/my-transactions,0,1,99,Deprecated (superseded by /transactions)
+gi-client-web,/account-inactive,%/account-inactive,0,1,99,Deprecated
+gi-client-web,/authenticate,%/authenticate,0,1,99,Deprecated (superseded by /login flow)
+gi-client-web,/referral-dashboard,%/referral-dashboard,0,1,99,Deprecated (superseded by /referral)
+
+# === gi-client-web — system routes (excluded) ===
+gi-client-web,/health,%/health,0,1,99,Health-check
+gi-client-web,/grip-icons,%/grip-icons,0,1,99,Dev tooling
+gi-client-web,/persona-results,%/persona-results,0,1,99,Internal tool
+gi-client-web,/qa-config-editor,%/qa-config-editor,0,1,99,QA utility
+
+# === gi-client-static — collapse patterns ===
+gi-client-static,/blog/[slug],%/blog/%,1,0,40,Blog posts (many slugs, aggregate-only)
+gi-client-static,/category/[slug],%/category/%,1,0,41,Blog category landing
+gi-client-static,/product-detail/[slug],%/product-detail/%,1,0,42,Product detail pages
+gi-client-static,/marketing/[url],%/marketing/%,1,0,43,Marketing variants (skip the few static ones for now)
+gi-client-static,/faq/[type]/...,%/faq/%,1,0,44,FAQ nested categories
+# Top-level [slug] catch-all is tricky — covers CMS-driven marketing pages
+# Approach: pattern matches anything that's not in the named-static list above
+# This is the LAST rule and acts as the catch-all
+# NOTE: NRQL LIKE doesn't support negative-only matching cleanly; this is handled
+# in code by ordering patterns and checking what doesn't match the previous patterns.
+gi-client-static,/[slug],,1,0,90,Top-level CMS catch-all — matches everything else; code handles via exclusion of all higher-priority patterns
+
+# === gi-client-static — system routes (excluded) ===
+gi-client-static,/health-static,%/health-static,0,1,99,Health-check
+gi-client-static,/sitemap*,%/sitemap%,0,1,99,XML sitemaps fetched by bots
+gi-client-static,/api/*,%/api/%,0,1,99,Backend routes

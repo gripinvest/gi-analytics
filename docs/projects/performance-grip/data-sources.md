@@ -208,6 +208,77 @@ print(json.dumps(r.json(), indent=2))
 "
 ```
 
+## Architecture: Path C (split-query fetch with pattern collapse)
+
+**Decision made 2026-05-21 after Phase 0 validation.** K2 (spec §12) flipped.
+
+### Why
+
+Initial K2 assumed ~200 URLs per app and stored raw URLs at fetch time, applying
+patterns in the dashboard layer. Phase 0 validation showed:
+
+| App | Distinct URLs / 24h | Facet cap usage |
+|---|---|---|
+| `gi_client_static_prod` | ~75 (mostly blog slugs) | 1.5% |
+| `gi_client_web_prod` | **4,882** | **98%** (4899/5000 — silent truncation territory) |
+
+99% of web facets are `/external-ui/[uuid]` — per-session partner-webview URLs
+with no per-URL meaning. Storing them raw saturates the cap with noise; the
+meaningful named routes (`/login`, `/portfolio`, `/checkout`) get pushed below
+the truncation line.
+
+### How
+
+**Split each fetch into two query types per `(app, hour, query)`:**
+
+1. **Raw query** — `FACET pageUrl, deviceType LIMIT MAX` with `WHERE` clauses
+   that EXCLUDE all collapse patterns AND all deprecated paths. Yields raw rows
+   for the ~30 named pages.
+2. **Per-pattern collapse query** — for each pattern in `route_patterns.csv`
+   with `collapse_at_fetch=1`: `WHERE pageUrl LIKE 'pattern' FACET deviceType`
+   (no pageUrl facet). Yields 1-3 rows (one per active device) using the pattern
+   label as `page_url`.
+
+**Validation result:** 19,438 samples captured (vs 19,415 if everything raw — the
+~0.1% delta is the excluded deprecated paths). Facet count per query: 30 raw +
+~12 collapse-aggregate rows ≈ 42 total rows / query (well below the 5000 cap).
+
+### Pattern list locked in `backend/data/performance_grip/route_patterns.csv`
+
+CSV schema:
+```
+app, pattern, nrql_like, collapse_at_fetch, exclude, sort_priority, notes
+```
+
+**Collapse-at-fetch patterns** (4 web + 5 static):
+- web: `/external-ui/[uuid]`, `/checkout/[uuid]`, `/assetdetails/[id]`, `/assetagreement/[id]`
+- static: `/blog/[slug]`, `/category/[slug]`, `/product-detail/[slug]`, `/marketing/[url]`, `/faq/[type]/...`
+- static: `/[slug]` — top-level CMS catch-all (matches anything not matched by higher-priority rules)
+
+**Excluded patterns** (not fetched at all):
+- web (deprecated): `/kyc/*`, `/kyc`, `/external/*`, `/vault`, `/my-transactions`, `/account-inactive`, `/authenticate`, `/referral-dashboard`
+- web (dev/system): `/health`, `/grip-icons`, `/persona-results`, `/qa-config-editor`
+- static (system): `/health-static`, `/sitemap*`, `/api/*`
+
+**Stored raw** (everything else — ~30 named pages, low cardinality each):
+- web: `/`, `/discover`, `/portfolio`, `/marketplace`, `/assets`, `/assets/bonds`, `/assets/corporate-fds`, `/assets/category/[name]`, `/login`, `/signup`, `/quick-start`, `/user-kyc`, `/profile`, `/profile/[slug]`, `/preferences`, `/transactions`, `/reward-history`, `/notifications`, `/referral`, `/confirmation`, `/order-confirmation`, `/order-failure`, `/gc-confirmation`, `/pg-confirmation`, `/payment-processing`, `/demat-processing`, `/obpp-processing`, `/rfq-payment-processing`, `/gci-payment-processing`, `/gci-postpayment-processing`, `/gci/esign`, `/activate-infinite`, `/assets/[...]` (catch-all kept raw per user decision)
+- static: `/`, `/home`, `/about-us`, `/legal`, `/transparency`, `/raise-capital`, `/channel-partner`, `/nse-sebi-integration`, `/corporate-bonds`, `/blog`, `/faq`, `/gc-redirection-fail`, `/marketing/sip-bonds`
+
+### Storage schema impact
+
+**Unchanged** — `page_url` column holds:
+- Raw URL (e.g., `https://www.gripinvest.in/portfolio`) for raw-query rows
+- Pattern label (e.g., `/external-ui/[uuid]`) for collapse-query rows
+
+Dashboard logic groups by `page_url` regardless. `route_patterns.csv` doubles as
+dashboard rendering config (sort_priority for the route drill-down).
+
+### Fixtures captured at production scale
+
+- `Q1_pageviewtiming_response_giweb_raw.json` (13 KB, 30 facets) — the raw query against web app, 24h, with full collapse+exclude WHERE clauses
+- `Q1_pageviewtiming_response_giweb_collapse_external-ui.json` (1 KB, 3 device rows) — example collapse-pattern response
+- `Q1_pageviewtiming_response.json` (25.8 KB) and other earlier fixtures — pre-Path-C captures, retained for reference but parser locks against the new raw + collapse shapes
+
 ## Open questions / next-step verifications (during Phase 1+)
 
 - TTFB values being ~0 — investigate why during dashboard development. May need to switch from `firstByte` to another timing field.

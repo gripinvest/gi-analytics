@@ -4,6 +4,86 @@ Append new dated entries at the top each session.
 
 ---
 
+## 2026-05-21 — Path C architecture decided + route_patterns.csv locked (Session 3 continued)
+
+**Where the project stands at session end:**
+
+Pre-execution validation surfaced a critical issue: web app has 4,882 unique
+URLs in 24h (99% partner-webview UUIDs), saturating NerdGraph's 5000-facet cap.
+The original K2 decision ("store raw URLs") would have silently truncated data.
+
+**K2 flipped to Path C.** Decision committed in spec §12 and validated against
+real production data.
+
+### Path C architecture (final)
+
+For each `(app, hour)` window, the fetcher runs:
+
+1. **Raw query** — `FACET pageUrl, deviceType LIMIT MAX` with `WHERE pageUrl
+   NOT LIKE` clauses excluding all collapse patterns AND all deprecated paths.
+   Yields ~30 raw rows for named pages.
+2. **N collapse queries** — one per pattern (4 for web, 5+1 for static). Each
+   `WHERE pageUrl LIKE 'pattern' FACET deviceType` (no pageUrl facet). Yields
+   1-3 rows per pattern (one per active device), with `page_url` set to the
+   pattern label.
+
+**Validation result on live web-app data:**
+- Coverage: 19,438 / 19,415 samples (~0.1% delta = excluded deprecated paths)
+- Facet count: 4899 → 30 raw + ~12 aggregate (99% headroom recovered)
+- Per-query latency: ~1.5s; 12-hour catch-up fits in 4-6 minutes
+
+### Pattern config locked
+
+[`backend/data/performance_grip/route_patterns.csv`](../backend/data/performance_grip/route_patterns.csv)
+is the single source of truth for both fetch logic (`collapse_at_fetch`,
+`exclude` columns) and dashboard rendering (`sort_priority`).
+
+**Excluded routes** (deprecated; not fetched at all):
+- web: `/kyc/*`, `/kyc`, `/external/*`, `/vault`, `/my-transactions`,
+  `/account-inactive`, `/authenticate`, `/referral-dashboard`,
+  `/health`, `/grip-icons`, `/persona-results`, `/qa-config-editor`
+- static: `/health-static`, `/sitemap*`, `/api/*`
+
+**Collapse-at-fetch patterns:**
+- web: `/external-ui/[uuid]`, `/checkout/[uuid]`, `/assetdetails/[id]`,
+  `/assetagreement/[id]`
+- static: `/blog/[slug]`, `/category/[slug]`, `/product-detail/[slug]`,
+  `/marketing/[url]`, `/faq/[type]/...`, `/[slug]` (top-level CMS catch-all)
+
+**Stored raw:** everything else (~30 named pages per app).
+
+### Plan changes applied
+
+- Task 2.10 NRQL builders split into `_nrql_q1_raw` / `_nrql_q1_collapse`
+  (and same for Q2, Q3). Back-compat shim `_nrql_q1` retained for older tests.
+- New helper `load_route_patterns(csv_path)` reads the CSV into the config dict
+  the orchestrator uses.
+- `run()` orchestrator updated to iterate collapse patterns per `(app, hour)`.
+- New helper `parse_collapse_response(rows, label, metric_type)` converts
+  single-FACET (deviceType-only) responses into the schema-matching row shape
+  with `page_url = label`.
+
+### Fixtures captured at production scale
+
+- `Q1_pageviewtiming_response_giweb_raw.json` — Path C raw query, 24h, web app
+- `Q1_pageviewtiming_response_giweb_collapse_external-ui.json` — example collapse-pattern response
+
+### Pick up next — Phase 1 (subagent execution is unblocked)
+
+Start a new Claude session and say:
+
+> "Resume Performance Grip subagent execution. Plan 1 at
+> `docs/projects/performance-grip/plans/2026-05-20-performance-grip-archive-plan.md`.
+> Phase 0 complete + Path C architecture locked. Dispatch implementer for
+> Task 1.1."
+
+The implementer follows the plan task-by-task. Phase 2 tasks (2.3, 2.4, 2.5,
+2.10) reflect the Path C split; the implementer must read
+`route_patterns.csv` at the start of `run()` and follow the split-query
+logic per spec §12.
+
+---
+
 ## 2026-05-21 — Phase 0 discovery COMPLETE (Session 3)
 
 **Where the project stands at session end:**
