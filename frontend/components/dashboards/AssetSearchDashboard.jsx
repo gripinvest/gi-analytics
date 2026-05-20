@@ -15,6 +15,7 @@ import * as React from "react";
 import {
   ResponsiveContainer, ComposedChart, BarChart, LineChart, AreaChart,
   Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Cell, LabelList, Legend,
+  ReferenceLine,
 } from "recharts";
 
 // Compact top-aligned legend props for multi-series charts. Centralised so
@@ -87,8 +88,9 @@ const COHORT_SPECS = {
   conv_daily:  (conv) => C.cohortDaily(conv),
 };
 const COHORT_W_SPECS = {
-  conv_cohortW:  (conv) => C.weeklyCohortCvr(conv),
-  conv_adoption: (conv) => C.weeklyAdoption(conv),
+  conv_cohortW:        (conv) => C.weeklyCohortCvr(conv),
+  conv_adoption:       (conv) => C.weeklyAdoption(conv),
+  conv_cohortW_byWeek: (conv) => C.weeklyCohortCvrByWeek(conv),
 };
 
 function useDashboard(project, nonce) {
@@ -1001,6 +1003,17 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
   const cohortNonCvr = cohort && Number(cohort.n_nonsearchers) ? (100 * Number(cohort.conv_nonsearchers)) / Number(cohort.n_nonsearchers) : null;
   const cohortLift = cohortSrchCvr != null && cohortNonCvr ? cohortSrchCvr / cohortNonCvr : null;
 
+  // Weekly cohort lift trend — same math as the cumulative `cohortLift` above
+  // but emitted per feature week so the dashboard shows the lift TREND, not
+  // only the W1–{lastWeek} average. Empty when pageViewsOk is false (the
+  // by-week query is gated on it in COHORT_W_SPECS).
+  const liftSeries = rowsOf(data, "conv_cohortW_byWeek").map((r) => ({
+    week: r.week,
+    lift: r.lift == null ? null : Number(r.lift),
+    "Searcher CVR": r.srch_cvr_pct == null ? null : Number(r.srch_cvr_pct),
+    "Non-searcher CVR": r.non_cvr_pct == null ? null : Number(r.non_cvr_pct),
+  }));
+
   const searchers = Number(h.searchers) || 0;
   const clickers = Number(h.clickers) || 0;
   const noclick = Math.max(0, searchers - clickers);
@@ -1111,6 +1124,38 @@ function ConversionView({ data, loading, weeks, lastWeek }) {
           <code className="font-mono">invest_now_button_clicked</code> is an <span className="t-emphasis-sm">intent</span> event, not a paid order; same-day attribution undercounts multi-day journeys, so the real searcher conversion sits between {pct1(searchersCvr)} and {pct1(everCvr)}.
         </p>
       </Card>
+
+      {/* Search lift, week by week — the cumulative cohortLift above is the
+          W1–{lastWeek} average; this chart shows the per-week ratio so the
+          trend behind the headline number is visible. Hidden when the
+          by-week cohort data is unavailable (pageViewsOk gates the SQL). */}
+      {liftSeries.length > 0 && (
+        <ChartCard
+          title={<Metric k="searchLift">Search lift, by week</Metric>}
+          subtitle="Searchers' same-day conversion rate ÷ non-searchers', per feature week. The reference lines mark 1× (no lift) and the 1.5× target."
+          loading={loading} error={errOf(data, "conv_cohortW_byWeek")} height={260}
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={liftSeries} margin={{ top: 28, right: 8, bottom: 0, left: -12 }}>
+              <CartesianGrid {...gridProps} />
+              <XAxis dataKey="week" {...axisProps} />
+              <YAxis {...axisProps} width={44}
+                domain={[0, (m) => Math.max(2.5, Math.ceil((m + 0.3) * 2) / 2)]}
+                tickFormatter={(v) => `${v}×`} />
+              <Tooltip cursor={{ fill: color.neutral[100] }}
+                content={<TooltipBox valueFmt={(v, p) => (p.dataKey === "lift" ? `${v}×` : `${v}%`)} />} />
+              <Legend {...legendProps} />
+              <ReferenceLine y={1.0} stroke={color.neutral[400]} strokeDasharray="3 3"
+                label={{ value: "no lift", position: "insideTopRight", fill: color.neutral[500], fontSize: 10 }} />
+              <ReferenceLine y={1.5} stroke={color.warning[500]} strokeDasharray="3 3"
+                label={{ value: "target 1.5×", position: "insideTopRight", fill: color.warning[700], fontSize: 10 }} />
+              <Line dataKey="lift" name="Search lift" stroke={color.teal[600]} strokeWidth={2.5}
+                dot={{ r: 3.5, fill: color.teal[600], strokeWidth: 0 }}
+                activeDot={{ r: 6, stroke: color.neutral[800], strokeWidth: 1 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_1.3fr]">
         <Card pad="md">

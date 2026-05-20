@@ -16,6 +16,7 @@ import Link from "next/link";
 import {
   ResponsiveContainer, ComposedChart, BarChart, LineChart, AreaChart,
   Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Cell, Legend,
+  ReferenceLine,
 } from "recharts";
 
 import { runQuery } from "@/lib/api";
@@ -55,8 +56,9 @@ const COHORT_SPECS = {
   conv_daily:  (conv) => C.cohortDaily(conv),
 };
 const COHORT_W_SPECS = {
-  conv_cohortW:  (conv) => C.weeklyCohortCvr(conv),
-  conv_adoption: (conv) => C.weeklyAdoption(conv),
+  conv_cohortW:        (conv) => C.weeklyCohortCvr(conv),
+  conv_adoption:       (conv) => C.weeklyAdoption(conv),
+  conv_cohortW_byWeek: (conv) => C.weeklyCohortCvrByWeek(conv),
 };
 
 function useDashboard(project, nonce) {
@@ -770,6 +772,16 @@ function ConversionSection({ data, loading, weeks, lastWeek, lift, cohort }) {
   }));
   const topQueries = rowsOf(data, "conv_queries").slice(0, 10);
 
+  // Weekly cohort lift series — same searcher vs non-searcher math as the
+  // cumulative lift block above, but emitted per feature week so the trend
+  // behind the headline figure is visible (rather than only the average).
+  const liftSeries = rowsOf(data, "conv_cohortW_byWeek").map((r) => ({
+    week: r.week,
+    lift: r.lift == null ? null : Number(r.lift),
+    "Searcher CVR": r.srch_cvr_pct == null ? null : Number(r.srch_cvr_pct),
+    "Non-searcher CVR": r.non_cvr_pct == null ? null : Number(r.non_cvr_pct),
+  }));
+
   return (
     <section className="ed-set">
       <SectionHead
@@ -828,8 +840,41 @@ function ConversionSection({ data, loading, weeks, lastWeek, lift, cohort }) {
         </div>
       )}
 
+      {/* Lift trend — the cumulative figure above (~2.3×) is the W1–{lastWeek}
+          average; this exhibit shows the per-week ratio so the analyst can see
+          whether the lift is steady, climbing, or eroding. Reference lines at
+          1.0× (no lift) and 1.5× (target, per CONV_METRIC_DEFS.searchLift). */}
+      {liftSeries.length > 0 && (
+        <Figure
+          figNum="6"
+          title="Search lift, by week"
+          caption={<>Searchers' same-day conversion rate <em>÷</em> non-searchers', per feature week. Above 1× means search helps; the dashed line at 1.5× is the target.</>}
+          loading={loading}
+          height={260}
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={liftSeries} margin={{ top: 30, right: 8, bottom: 0, left: -10 }}>
+              <CartesianGrid {...edGridProps} />
+              <XAxis dataKey="week" {...edAxisProps} />
+              <YAxis {...edAxisProps} width={42} domain={[0, (m) => Math.max(2.5, Math.ceil((m + 0.3) * 2) / 2)]}
+                tickFormatter={(v) => `${v}×`} />
+              <Tooltip cursor={{ fill: "rgba(27,24,24,0.04)" }}
+                content={<EdTooltip valueFmt={(v, p) => (p.dataKey === "lift" ? `${v}×` : `${v}%`)} />} />
+              <Legend {...edLegendProps} />
+              <ReferenceLine y={1.0} stroke={ED_INK_MUTED} strokeDasharray="3 3"
+                label={{ value: "no lift", position: "insideTopRight", fill: ED_INK_MUTED, fontSize: 10 }} />
+              <ReferenceLine y={1.5} stroke={ED_GOLD} strokeDasharray="3 3"
+                label={{ value: "target 1.5×", position: "insideTopRight", fill: ED_GOLD, fontSize: 10 }} />
+              <Line dataKey="lift" name="Search lift" stroke={ED_FOREST} strokeWidth={2.5}
+                dot={{ r: 3.5, fill: ED_FOREST, strokeWidth: 0 }}
+                activeDot={{ r: 6, stroke: ED_INK, strokeWidth: 1 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </Figure>
+      )}
+
       <Figure
-        figNum="6"
+        figNum="7"
         title="Same-day conversion rate, by week"
         caption="Of users who searched in a given week, the share that hit Invest Now / Quick Checkout that same day."
         loading={loading}

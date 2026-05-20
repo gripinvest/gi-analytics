@@ -268,6 +268,50 @@ SELECT
   (SELECT COUNT(*) FROM (SELECT uid FROM nons INTERSECT SELECT uid FROM inv)) AS conv_nonsearchers`;
 }
 
+/* ── 7b. weekly cohort lift, ONE ROW PER WEEK ─────────────────────────────── */
+// Same searcher / non-searcher / lift logic as weeklyCohortCvr(), but emitted
+// per feature week so the dashboard can plot the lift trend instead of only
+// the cumulative figure. Visitor base = pageViews ∪ initiated, keyed on
+// (week, user_id) so a user counted in W1 and W2 contributes to both weeks.
+// Returns: week, n_searchers, conv_searchers, n_nonsearchers, conv_nonsearchers,
+//          srch_cvr_pct, non_cvr_pct, lift.
+export function weeklyCohortCvrByWeek(conv) {
+  const { pageViews, initiated, investNow, quickCheckout } = conv;
+  return `WITH
+  pv  AS (SELECT DISTINCT week, ${UID()} AS uid FROM (${unionW(pageViews, "user_id")}) _r WHERE ${NOTEST}),
+  ini AS (SELECT DISTINCT week, ${UID()} AS uid FROM (${unionW(initiated, "user_id")}) _r WHERE ${NOTEST}),
+  inv AS (SELECT DISTINCT week, ${UID()} AS uid FROM (${unionW([...investNow, ...quickCheckout], "user_id")}) _r WHERE ${NOTEST}),
+  vis AS (SELECT week, uid FROM pv UNION SELECT week, uid FROM ini),
+  cohort AS (
+    SELECT v.week, v.uid,
+      (CASE WHEN i.uid IS NOT NULL THEN 1 ELSE 0 END) AS is_searcher,
+      (CASE WHEN x.uid IS NOT NULL THEN 1 ELSE 0 END) AS converted
+    FROM vis v
+    LEFT JOIN ini i ON v.week = i.week AND v.uid = i.uid
+    LEFT JOIN inv x ON v.week = x.week AND v.uid = x.uid
+  )
+SELECT
+  week,
+  COUNT(*) FILTER (WHERE is_searcher = 1)                              AS n_searchers,
+  COUNT(*) FILTER (WHERE is_searcher = 1 AND converted = 1)            AS conv_searchers,
+  COUNT(*) FILTER (WHERE is_searcher = 0)                              AS n_nonsearchers,
+  COUNT(*) FILTER (WHERE is_searcher = 0 AND converted = 1)            AS conv_nonsearchers,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE is_searcher = 1 AND converted = 1)
+        / NULLIF(COUNT(*) FILTER (WHERE is_searcher = 1), 0), 2)       AS srch_cvr_pct,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE is_searcher = 0 AND converted = 1)
+        / NULLIF(COUNT(*) FILTER (WHERE is_searcher = 0), 0), 2)       AS non_cvr_pct,
+  ROUND(
+    (1.0 * COUNT(*) FILTER (WHERE is_searcher = 1 AND converted = 1)
+       / NULLIF(COUNT(*) FILTER (WHERE is_searcher = 1), 0))
+    / NULLIF(
+      1.0 * COUNT(*) FILTER (WHERE is_searcher = 0 AND converted = 1)
+       / NULLIF(COUNT(*) FILTER (WHERE is_searcher = 0), 0), 0),
+    2)                                                                  AS lift
+FROM cohort
+GROUP BY week
+ORDER BY week`;
+}
+
 // Info-tooltip definitions for the conversion metrics (mirrors METRIC_DEFS shape).
 export const CONV_METRIC_DEFS = {
   adoption: { title: "Search adoption", live: true,
