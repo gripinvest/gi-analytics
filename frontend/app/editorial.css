@@ -295,7 +295,11 @@ body[data-design="editorial"],
 }
 .ed-footnote-ref:hover { color: var(--ed-rust); }
 
-/* Tabs/sections nav for the editorial dashboard. */
+/* Tabs/sections nav for the editorial dashboard.
+   `min-height: 44px` + flex centring brings the tap target up to the
+   mobile-first 44 px standard (was ~33 px = 17 font + 8+8 padding) without
+   changing visual weight; padding stays the same so the active-tab
+   colour/weight shift still lines up against the rule above the nav. */
 .ed-section-link {
   font-family: var(--ed-display);
   font-style: italic;
@@ -304,6 +308,9 @@ body[data-design="editorial"],
   color: var(--ed-ink-muted);
   letter-spacing: -0.005em;
   padding: 8px 0;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   border: 0;
   background: transparent;
   cursor: pointer;
