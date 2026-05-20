@@ -268,48 +268,66 @@ SELECT
   (SELECT COUNT(*) FROM (SELECT uid FROM nons INTERSECT SELECT uid FROM inv)) AS conv_nonsearchers`;
 }
 
-/* ── 7b. weekly cohort lift, ONE ROW PER WEEK ─────────────────────────────── */
-// Same searcher / non-searcher / lift logic as weeklyCohortCvr(), but emitted
-// per feature week so the dashboard can plot the lift trend instead of only
-// the cumulative figure. Visitor base = pageViews ∪ initiated, keyed on
-// (week, user_id) so a user counted in W1 and W2 contributes to both weeks.
+/* ── 7b. weekly cohort lift trend, reconciled with the cumulative ────────── */
+// Per-feature-week lift that uses the SAME semantic as the cumulative
+// weeklyCohortCvr() above — so the trend points sit in the same neighbourhood
+// as the masthead figure (typically ~2.3×) and the chart can be read directly
+// against it. The earlier same-week-attribution version was a strict lower
+// bound: cross-week journeys (search W1 → invest W2) were dropped from both
+// weeks. This version uses:
+//   - Per-week searcher cohort  (a user who searched in W1 *and* W2 is in
+//     both weeks' cohorts — their single conversion credits each week).
+//   - Window-level conversion check  (`inv` is the window-wide set of
+//     converters; a searcher's conversion can happen any time in the window,
+//     same as the cumulative).
+//   - Window-level non-searcher baseline  (one constant ratio applied to
+//     every week, so "lift" is "this week's searchers vs the always-the-same
+//     baseline of people who never searched in the window").
+//
 // Returns: week, n_searchers, conv_searchers, n_nonsearchers, conv_nonsearchers,
 //          srch_cvr_pct, non_cvr_pct, lift.
 export function weeklyCohortCvrByWeek(conv) {
   const { pageViews, initiated, investNow, quickCheckout } = conv;
   return `WITH
-  pv  AS (SELECT DISTINCT week, ${UID()} AS uid FROM (${unionW(pageViews, "user_id")}) _r WHERE ${NOTEST}),
-  ini AS (SELECT DISTINCT week, ${UID()} AS uid FROM (${unionW(initiated, "user_id")}) _r WHERE ${NOTEST}),
-  inv AS (SELECT DISTINCT week, ${UID()} AS uid FROM (${unionW([...investNow, ...quickCheckout], "user_id")}) _r WHERE ${NOTEST}),
-  vis AS (SELECT week, uid FROM pv UNION SELECT week, uid FROM ini),
+  -- Window-level distinct sets (identical to weeklyCohortCvr()).
+  pv  AS (${searchUsers(pageViews)}),
+  ini AS (${searchUsers(initiated)}),
+  inv AS (${searchUsers([...investNow, ...quickCheckout])}),
+  -- Per-(week, uid) searcher set.
+  ini_w AS (SELECT DISTINCT week, ${UID()} AS uid FROM (${unionW(initiated, "user_id")}) _r WHERE ${NOTEST}),
   cohort AS (
-    SELECT v.week, v.uid,
-      (CASE WHEN i.uid IS NOT NULL THEN 1 ELSE 0 END) AS is_searcher,
+    SELECT i.week, i.uid,
       (CASE WHEN x.uid IS NOT NULL THEN 1 ELSE 0 END) AS converted
-    FROM vis v
-    LEFT JOIN ini i ON v.week = i.week AND v.uid = i.uid
-    LEFT JOIN inv x ON v.week = x.week AND v.uid = x.uid
+    FROM ini_w i
+    LEFT JOIN inv x ON i.uid = x.uid
+  ),
+  per_week AS (
+    SELECT week, COUNT(*) AS n, SUM(converted) AS c FROM cohort GROUP BY week
+  ),
+  -- Window-level non-searcher baseline: visited but never searched in the
+  -- window; their CVR is computed against the inv set (window-level converters).
+  nons      AS (SELECT uid FROM pv EXCEPT SELECT uid FROM ini),
+  nons_conv AS (SELECT n.uid FROM nons n INNER JOIN inv x ON n.uid = x.uid),
+  baseline  AS (
+    SELECT
+      (SELECT COUNT(*) FROM nons)       AS n_non,
+      (SELECT COUNT(*) FROM nons_conv)  AS conv_non
   )
 SELECT
-  week,
-  COUNT(*) FILTER (WHERE is_searcher = 1)                              AS n_searchers,
-  COUNT(*) FILTER (WHERE is_searcher = 1 AND converted = 1)            AS conv_searchers,
-  COUNT(*) FILTER (WHERE is_searcher = 0)                              AS n_nonsearchers,
-  COUNT(*) FILTER (WHERE is_searcher = 0 AND converted = 1)            AS conv_nonsearchers,
-  ROUND(100.0 * COUNT(*) FILTER (WHERE is_searcher = 1 AND converted = 1)
-        / NULLIF(COUNT(*) FILTER (WHERE is_searcher = 1), 0), 2)       AS srch_cvr_pct,
-  ROUND(100.0 * COUNT(*) FILTER (WHERE is_searcher = 0 AND converted = 1)
-        / NULLIF(COUNT(*) FILTER (WHERE is_searcher = 0), 0), 2)       AS non_cvr_pct,
+  p.week,
+  p.n                                                          AS n_searchers,
+  p.c                                                          AS conv_searchers,
+  b.n_non                                                      AS n_nonsearchers,
+  b.conv_non                                                   AS conv_nonsearchers,
+  ROUND(100.0 * p.c / NULLIF(p.n, 0), 2)                       AS srch_cvr_pct,
+  ROUND(100.0 * b.conv_non / NULLIF(b.n_non, 0), 2)            AS non_cvr_pct,
   ROUND(
-    (1.0 * COUNT(*) FILTER (WHERE is_searcher = 1 AND converted = 1)
-       / NULLIF(COUNT(*) FILTER (WHERE is_searcher = 1), 0))
-    / NULLIF(
-      1.0 * COUNT(*) FILTER (WHERE is_searcher = 0 AND converted = 1)
-       / NULLIF(COUNT(*) FILTER (WHERE is_searcher = 0), 0), 0),
-    2)                                                                  AS lift
-FROM cohort
-GROUP BY week
-ORDER BY week`;
+    (1.0 * p.c / NULLIF(p.n, 0))
+    / NULLIF(1.0 * b.conv_non / NULLIF(b.n_non, 0), 0),
+    2)                                                          AS lift
+FROM per_week p
+CROSS JOIN baseline b
+ORDER BY p.week`;
 }
 
 // Info-tooltip definitions for the conversion metrics (mirrors METRIC_DEFS shape).

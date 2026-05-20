@@ -848,7 +848,7 @@ function ConversionSection({ data, loading, weeks, lastWeek, lift, cohort }) {
         <Figure
           figNum="6"
           title="Search lift, by week"
-          caption={<>Same-week conversion rate of searchers <em>÷</em> same-week CVR of non-searchers, per feature week. Cross-week conversions (search W1, invest W2) sit outside this view, so the per-week ratio is a lower bound on the cumulative lift above. Reference lines at 1× (no lift) and 1.5× (target).</>}
+          caption={<>Conversion rate of each week's searcher cohort <em>÷</em> the window-wide non-searcher baseline — same definition as the cumulative lift above, just sliced per feature week. A user who searched in multiple weeks counts in each week's cohort. Reference lines at 1× (no lift) and 1.5× (target).</>}
           loading={loading}
           error={errOf(data, "conv_cohortW_byWeek")}
           height={260}
