@@ -8,7 +8,11 @@ merges idempotently into hourly_web_vitals.csv.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 
 
 def clean_url(raw_url: str) -> str:
@@ -31,3 +35,35 @@ def clean_url(raw_url: str) -> str:
     if path != "/" and path.endswith("/"):
         path = path.rstrip("/")
     return path
+
+
+def target_hours(
+    latest_in_csv: datetime | None,
+    now: datetime,
+    since: datetime | None,
+) -> list[tuple[datetime, datetime]]:
+    """Compute the (start, end) IST hour-buckets to fetch.
+
+    Each entry is [start, start + 1h). The latest *closed* hour is the
+    upper bound: at now=14:30, the latest closed hour is [13:00, 14:00).
+    """
+    # Floor `now` to the hour, then go back one more to get the latest closed hour.
+    floor = now.replace(minute=0, second=0, microsecond=0)
+    latest_closed = floor - timedelta(hours=1)
+
+    if since is not None:
+        first = since
+    elif latest_in_csv is not None:
+        first = latest_in_csv + timedelta(hours=1)
+    else:
+        first = latest_closed  # cold start: just the last hour
+
+    if first > latest_closed:
+        return []
+
+    result = []
+    cursor = first
+    while cursor <= latest_closed:
+        result.append((cursor, cursor + timedelta(hours=1)))
+        cursor += timedelta(hours=1)
+    return result
