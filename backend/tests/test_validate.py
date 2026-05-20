@@ -1,6 +1,7 @@
 from datetime import date
 
 from services.integrations.validate import (
+    validate_asset_search_row_counts,
     validate_asset_search_week,
     validate_north_star,
 )
@@ -60,3 +61,24 @@ def test_asset_search_week_flags_zero_rows():
     assert validate_asset_search_week(
         "W7_may14-may20_asset_search_query", [], *_W7) == [
         "W7_may14-may20_asset_search_query: zero rows"]
+
+
+# ── row-count sanity band (spec §14) ────────────────────────────────────────
+
+def test_row_count_band_passes_on_stable_counts():
+    assert validate_asset_search_row_counts("query", {7: 1000, 8: 1100}) == []
+
+
+def test_row_count_band_flags_a_large_swing():
+    errors = validate_asset_search_row_counts("query", {7: 100, 8: 5000})
+    assert errors and "swing" in errors[0]
+
+
+def test_row_count_band_flags_a_collapse():
+    errors = validate_asset_search_row_counts("query", {7: 5000, 8: 100})
+    assert errors and "swing" in errors[0]
+
+
+def test_row_count_band_skips_zero_weeks():
+    # a zero week is the per-week check's job — the band must not divide by it.
+    assert validate_asset_search_row_counts("query", {7: 0, 8: 5000}) == []

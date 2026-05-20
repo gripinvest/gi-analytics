@@ -37,7 +37,10 @@ jobs:
           METABASE_API_KEY: ${{ secrets.METABASE_API_KEY }}
           METABASE_EMAIL: ${{ secrets.METABASE_EMAIL }}
           METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
-        run: python -m services.integrations.refresh asset_search
+        # --validate runs the §14 post-fetch checks and exits non-zero on a
+        # suspect fetch, so the commit step below is skipped and the failure
+        # alert fires — bad data never gets committed.
+        run: python -m services.integrations.refresh asset_search --validate
       - name: Commit refreshed data if changed
         run: |
           git config user.name  "github-actions[bot]"
