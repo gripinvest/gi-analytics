@@ -181,6 +181,13 @@ FACET pageUrl, deviceType
 LIMIT 500
 
 -- Q3: JS errors per page (deviceType may be sparse — verify in discovery)
+-- Q3 GUARDRAIL (M13): only count(*) is projected. Do NOT extend this query to
+-- SELECT message / stackTrace / customAttributes — JavaScriptError event bodies
+-- carry stack traces, breadcrumbs, and customAttributes that often contain
+-- userId, email, auth tokens. Those landing in CSVs would create a far worse
+-- PII surface than the path-segments accepted under the §12 raw-URL decision.
+-- A unit test asserts the final CSV has no columns named *message*, *stack*,
+-- *email*, or *_id (excluding the schema dimensions).
 SELECT count(*) AS js_errors
 FROM JavaScriptError
 WHERE appName = 'GI Client Static'
@@ -282,6 +289,15 @@ only those. Re-running an hour-window overwrites cleanly:
 `concurrency: { group: refresh-performance-grip, cancel-in-progress: false }`
 in §5.2 so only one run executes at a time. Manual `workflow_dispatch`
 backfills queue behind the scheduled run rather than racing it.
+
+**Crash recovery (H11).** The append loop commits each successful
+`(app, hour)` to the CSV before moving to the next. A crash mid-loop leaves
+a clean prefix — the CSV is always in a consistent state. Rerun (or the next
+scheduled run) resumes naturally because step 2 (target-window computation)
+detects which hours are already done. **Buffering the whole backfill in
+memory and writing a single atomic temp-swap at the end was considered and
+rejected** — a 7-day initial backfill crashing at hour 167 of 168 would
+lose all progress.
 
 This makes manual reruns and twice-daily scheduling safe: rerunning an
 already-fetched hour produces identical output (idempotent).
@@ -414,11 +430,14 @@ jobs:
       NEW_RELIC_REGION:       US
       SINCE:                  ${{ inputs.since }}   # passed via env, not interpolated into shell
     steps:
-      - uses: actions/checkout@<sha>     # pin to commit SHA (H7), Dependabot bumps
+      - uses: actions/checkout@<sha>     # pin to commit SHA, Dependabot bumps
       - uses: actions/setup-python@<sha> # pin to commit SHA
         with: { python-version: "3.12" }
-      - name: Install deps
-        run: pip install -r backend/requirements.txt
+      - name: Install deps (hash-verified)
+        # Backed by backend/requirements.lock generated from backend/requirements.in
+        # via `pip-compile --generate-hashes`. Dependabot keeps the lock in sync.
+        # Daily runtime cost is zero; one-time setup adds the pip-compile workflow.
+        run: pip install --require-hashes -r backend/requirements.lock
       - name: Run refresh
         working-directory: backend
         # SINCE is read from env and validated against ^\d{4}-\d{2}-\d{2}$ in Python.
@@ -472,7 +491,7 @@ belong in secrets:
 
 | Name | Location | Sensitivity | Notes |
 |---|---|---|---|
-| `NEW_RELIC_USER_API_KEY` | Repo **secret** | High | Use a User API Key tied to a **dedicated service-account user with a read-only NerdGraph role** (or an Insights Query Key if available — see §10 discovery item). Avoid using an engineer's personal key. **Rotate every 90 days.** |
+| `NEW_RELIC_QUERY_KEY` (preferred) **OR** `NEW_RELIC_USER_API_KEY` (fallback) | Repo **secret** | High | **Preferred path: Insights Query Key** — read-only scope, query-only, no UI/mutation surface. Use this if our NR plan tier exposes it. **Fallback only if not available:** a User API Key tied to a dedicated service-account user with a read-only custom NerdGraph role (never an engineer's personal key). Discovery (§10) confirms which is available; spec mandates Insights Query Key when both are options. **Rotate every 90 days.** |
 | `NEW_RELIC_ACCOUNT_ID` | Repo **variable** (`vars.NEW_RELIC_ACCOUNT_ID`) | Low | Numeric account ID; not a credential. Repo variable, not secret, so it's visible in workflow runs for debugging. |
 | `NEW_RELIC_REGION` | `env:` literal in workflow | None | `"US"` or `"EU"` — public infrastructure choice; no need to hide. |
 
@@ -763,15 +782,62 @@ implementation-detail notes:
 
 ### 6.5 Device toggle (page-level, not per-chart)
 
-A single page-level segmented control: `[ All | Mobile | Desktop ]` in the
-hero section. Filters every chart and the drill-down table. Tablet rolled
-into "All" only (web traffic is mobile/desktop-dominated; tablet noise
-isn't worth a fourth toggle state in v1).
+A single page-level filter chip: `[ All | Mobile | Desktop ]`. Filters every
+chart and the drill-down table. Tablet rolled into "All" only (web traffic
+is mobile/desktop-dominated; tablet noise isn't worth a fourth toggle state
+in v1).
+
+**Default state: Mobile.** Grip Invest's audience is mostly mobile (Indian
+fintech traffic profile); defaulting to "All" softens the mobile story by
+mixing in the typically-faster desktop cohort. Mobile-first default also
+matches the platform-wide mobile-first design mandate.
+
+**Visual treatment (H17).** The device toggle and the app switcher (§6.1)
+are visually differentiated so users don't confuse navigation (app switcher
+— changes which app's data is shown) with filter (device toggle — narrows
+the view of the same data):
+
+- **App switcher**: underline-style tabs across the top, larger text, the
+  primary nav element. Active tab has a solid underline.
+- **Device toggle**: rounded filter chip below the tabs, smaller text,
+  secondary visual weight. Active state has a filled background.
+
+Convention adopted from Material Design / iOS HIG (tabs = nav,
+chips = filter). Both controls live in the sticky header region (which
+collapses on scroll past the status verdict — see §6.1).
 
 Per-chart device split was considered and rejected: putting 4 lines on each
 chart (p75-mobile, p95-mobile, p75-desktop, p95-desktop, plus threshold bands)
 makes each card unreadable at a glance. Pulling device to a page-level filter
 keeps each chart at constant cognitive load regardless of scope.
+
+### 6.5.1 Implementation notes (carried from review findings)
+
+Concrete dashboard-implementation details that don't fit elsewhere:
+
+- **Editorial styling decision: "Editorial Lite"** (M27). Performance Grip
+  adopts the typography (Fraunces / Newsreader / IBM Plex Mono) and the
+  Editorial palette tokens, but **not** the full "Grip Weekly." broadsheet
+  masthead with VOL / NO / dateline. Performance Grip is a data instrument
+  presented in Editorial voice, not a periodical. Section dividers and
+  numbered headings are in scope; broadsheet conceit is not.
+- **`--ed-grain` paper-noise overlay** (M28): explicitly **disabled inside
+  chart wrappers** (`MetricTrendCard`, route-row sparkline). The grain
+  degrades band-vs-data luminance contrast — fine on body paper, harmful
+  on a 5–10% threshold band behind a thin line. Keep grain on the
+  surrounding paper, not on chart surfaces.
+- **iOS Safari sticky-header jump** (M22): the address-bar collapse on
+  scroll causes naive `position: sticky` headers to jump 60px. Use
+  `top: env(safe-area-inset-top)` and `min-h-dvh` (not `100vh`) — matches
+  the platform mobile-first conventions.
+- **Drill-down row expansion shows all 5 metric sparklines** (M5), not just
+  LCP. If a route's LCP is fine but INP is regressing, leadership shouldn't
+  have to scroll back up to the trendline grid to see it. Five small
+  inline sparklines on row-expand, each with their respective
+  threshold-band reference.
+- **Per-metric unit lock** (already in §6.2): LCP/FCP in seconds, INP/TTFB
+  in milliseconds, CLS dimensionless. Never cross units within a single
+  metric column — defeats tabular numerals.
 
 ### 6.6 Out of scope (v1 dashboard)
 
@@ -953,3 +1019,11 @@ considered for each (so future readers can re-litigate if context changes):
 | **JS errors shown as a hero number only; not in status verdict; 6th card deferred to v1.5** | Full integration (verdict + hero + 6th card); or invisible | Compromise position: surface the number for informational context without complicating the verdict (which stays Web-Vitals-only). 6th card adds layout cost and a non-standard threshold (no Google equivalent); ship if/when leadership asks. |
 | **Window toggle `[ 7d \| 14d \| 1M \| 3M ]` with auto-promote stopping at 30d; data-age caption in header** | Cold-start banner alone; or toggle with auto-promote to 3M; or toggle with no auto-promote | The toggle replaces cold-start handling entirely — it's the deterministic, always-present mechanism. Auto-promote stops at 30d so 90d remains a deliberate retrospective view (not a quietly-default-shifted state). Caption gives context without an apologetic banner. |
 | **"Other pages" row stays in table with WoW bucket-size delta**; not elevated to verdict | Elevate to verdict at >30% threshold; or drop from view; or current spec (no WoW) | Engineering signal stays visible; doesn't pollute the leadership verdict. WoW delta gives the patterns-file-staleness signal without an admin pane. |
+| **NR Insights Query Key required (User API Key fallback only)** | User API Key as default | Smaller scope (read-only, no UI/mutation surface); honours least-privilege. Discovery confirms NR plan tier; if Insights Query Key unavailable, fallback is a service-account User Key with read-only custom role (never an engineer's personal key). |
+| **`pip install --require-hashes` with generated `requirements.lock`** | Plain `pip install -r requirements.txt` | The daily cron + secret-bearing + write-to-main context makes the workflow a worthwhile supply-chain target. Dependabot keeps the lock fresh; runtime cost is zero. **First project in this repo to adopt this pattern**; others can follow as a platform-wide cleanup. |
+| **Per-(app, hour) atomic write** during backfill | Staged temp-CSV swap at end; or no crash recovery | Consistent with the H4 per-(app, hour) all-or-nothing rule. Crash leaves a clean prefix; rerun resumes naturally. 7-day backfill crashing near completion doesn't lose all progress. |
+| **App switcher (tabs) and device toggle (filter chip) visually differentiated** | Both as similar segmented controls | Tabs = navigation (change data scope), chips = filter (narrow view of same data). Convention from Material Design / iOS HIG. Modest extra style cost; clearer mental model. |
+| **Device toggle defaults to Mobile** | Defaults to All | Indian fintech traffic profile is mostly-mobile. "All" softens the mobile story by mixing in desktop. Aligns with the platform-wide mobile-first design mandate. |
+| **"Editorial Lite" — typography only, no broadsheet masthead** | Full "Grip Weekly. on Performance" masthead with VOL/NO/dateline | Performance Grip is a data instrument in Editorial voice, not a periodical. Section dividers and numbered headings in scope; broadsheet conceit out. |
+| **Drill-down row expansion shows all 5 metric sparklines** | LCP-only sparkline | If a route's LCP is fine but INP is regressing, the user shouldn't have to scroll back to the trendline grid to discover it. All 5 mini sparklines on row expand. |
+| **JavaScriptError query restricted to `count(*)` — never event-body fields** | Project message/stackTrace/customAttributes for richer error display | Event bodies carry userId / email / auth tokens. The §12 raw-URL PII risk is bounded by path segments; extending Q3 to event bodies would create a far worse exposure. Documented as a NRQL comment + unit-test assertion. |
