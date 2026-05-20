@@ -116,6 +116,37 @@ const weightedPct = (rows, num, den) => {
   return Math.round((1000 * sum(rows, num)) / d) / 10;
 };
 
+/* Feature-week date math, presentation layer only. The data pipeline derives
+   bounds from the CSV table names (spec §6); this helper exists so the
+   masthead / lede / footnotes can read off real week numbers instead of
+   carrying hardcoded strings that drift the moment a new week lands. */
+const LAUNCH = new Date(Date.UTC(2026, 3, 2));   // Apr 2 2026 — spec D2
+const ONE_DAY_MS = 86400 * 1000;
+const _MONTH_TITLE = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const _MONTH_UPPER = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+const _NUM_WORD = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven",
+                   "Eight", "Nine", "Ten", "Eleven", "Twelve"];
+const weekNumberOf = (label) => {                // "W7" / "W7_…" → 7
+  const m = String(label || "").match(/^W(\d+)/);
+  return m ? Number(m[1]) : null;
+};
+const featureWeekRange = (n) => {
+  if (!n || n < 1) return null;
+  const start = new Date(LAUNCH.getTime() + (n - 1) * 7 * ONE_DAY_MS);
+  const end   = new Date(start.getTime() + 6 * ONE_DAY_MS);  // inclusive last day
+  return { start, end };
+};
+const fmtMonthDayTitle = (d) => `${_MONTH_TITLE[d.getUTCMonth()]} ${d.getUTCDate()}`;
+const fmtMonthDayUpper = (d) => `${_MONTH_UPPER[d.getUTCMonth()]} ${d.getUTCDate()}`;
+// Compact week-range string: "Apr 2–8" within a month; "Apr 30–May 6" across.
+const fmtWeekDates = (n) => {
+  const r = featureWeekRange(n); if (!r) return "";
+  return r.start.getUTCMonth() === r.end.getUTCMonth()
+    ? `${fmtMonthDayTitle(r.start)}–${r.end.getUTCDate()}`
+    : `${fmtMonthDayTitle(r.start)}–${fmtMonthDayTitle(r.end)}`;
+};
+const wordOrNum = (n) => (n >= 0 && n < _NUM_WORD.length ? _NUM_WORD[n] : String(n));
+
 /* ── editorial chart styling ───────────────────────────────────────────────────
    Colours reference the --ed-* CSS variables rather than literal hex, so the
    charts follow whichever editorial theme is active (sepia / light). Recharts
@@ -300,6 +331,26 @@ export default function AssetSearchDashboardEditorial({ project }) {
   const refreshState = useProjectRefresh(project);
   const { loading, fatal, data, weeks, lastWeek, convOk } = useDashboard(project, refreshState.nonce);
 
+  // ── masthead derivations — keep the editorial copy honest against live data
+  // The masthead used to carry hardcoded dates ("APR 2 – MAY 13, 2026"),
+  // hardcoded counts ("Six weeks in"), and a hardcoded glossary line that
+  // listed W1–W6 by name. Each of those drifted the moment a new week landed
+  // and the dashboard reported one set of facts in the prose alongside a
+  // different set in the charts. Derive them from the live week list.
+  const firstWeekN = weekNumberOf(weeks[0]) || 1;
+  const lastWeekN  = weekNumberOf(lastWeek) || firstWeekN;
+  const firstRange = featureWeekRange(firstWeekN);
+  const lastRange  = featureWeekRange(lastWeekN);
+  const nWeeks     = weeks.length;
+  const issueNo    = String(Math.max(nWeeks, 1)).padStart(2, "0");
+  const reportingPeriod = firstRange && lastRange
+    ? `${fmtMonthDayUpper(firstRange.start)} – ${fmtMonthDayUpper(lastRange.end)}, ${lastRange.end.getUTCFullYear()}`
+    : "";
+  const weekGlossary = weeks
+    .map((w) => `${w} ${fmtWeekDates(weekNumberOf(w))}`)
+    .join(" · ");
+  const nWeeksWord = wordOrNum(nWeeks);                       // "Six" / "Seven" / …
+
   // ── headline numbers ─────────────────────────────────────────────────────
   const health = rowsOf(data, "health");
   const funnel = rowsOf(data, "funnel");
@@ -414,8 +465,8 @@ export default function AssetSearchDashboardEditorial({ project }) {
         <hr className="ed-rule-double mt-5" />
         <p className="ed-dateline mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
           <span>VOL. I</span><span>·</span>
-          <span>NO. 06</span><span>·</span>
-          <span>REPORTING PERIOD · APR 2 – MAY 13, 2026</span><span>·</span>
+          <span>NO. {issueNo}</span><span>·</span>
+          <span>REPORTING PERIOD · {reportingPeriod}</span><span>·</span>
           <span>{weeks[0]}–{lastWeek}</span><span>·</span>
           <span>{nf.format(totalQueries)} QUERIES INDEXED</span>
           {/* Global page-loading hint. Sits in the masthead so the user always
@@ -436,12 +487,13 @@ export default function AssetSearchDashboardEditorial({ project }) {
         <RefreshControl project={project} state={refreshState} variant="editorial" />
 
         {/* Week glossary — feature weeks are counted from the Apr 2 2026 launch,
-            NOT ISO calendar weeks. All six weeks are now complete (W6 = May 7–13). */}
+            NOT ISO calendar weeks. The list below is derived from the live
+            week set so it stays honest as new weeks land. */}
         <p className="ed-caption mt-4" style={{ lineHeight: 1.8 }}>
           FEATURE WEEKS — COUNTED FROM THE APR 2, 2026 LAUNCH
         </p>
         <p className="ed-prose-italic mt-1" style={{ fontSize: "12px", color: "var(--ed-ink-faint)", lineHeight: 1.7 }}>
-          W1 Apr 2–8 · W2 Apr 9–15 · W3 Apr 16–22 · W4 Apr 23–29 · W5 Apr 30–May 6 · W6 May 7–13
+          {weekGlossary}
         </p>
       </header>
 
@@ -450,13 +502,13 @@ export default function AssetSearchDashboardEditorial({ project }) {
         <div>
           <p className="ed-overline mb-4">FROM THE EDITOR</p>
           <h2 className="ed-headline mb-5" style={{ fontSize: "clamp(32px, 5vw, 52px)" }}>
-            Six weeks in, search converts.<br/>
+            {nWeeksWord} weeks in, search converts.<br/>
             <em style={{ fontFamily: "var(--ed-display)", fontVariationSettings: "'opsz' 96, 'SOFT' 80, 'WONK' 1" }}>
               The trouble is who isn't searching.
             </em>
           </h2>
           <p className="ed-lede ed-dropcap" style={{ maxWidth: "56ch" }}>
-            Six weeks after launch, search behaves as we hoped — visitors who use it convert at
+            {nWeeksWord} weeks after launch, search behaves as we hoped — visitors who use it convert at
             roughly <Term n={1}>twice</Term> the rate of those who don't. The unhappy footnote
             is that the share of visitors who reach for it has slipped, week on week, from
             {" "}{pct(adoptionFirst)} in launch week to {pct(adoptionLast)} this week. The lift is real;
@@ -1701,8 +1753,7 @@ function FootnotesBlock() {
           {CONV_METRIC_DEFS.searchLift.body}
         </Footnote>
         <Footnote n={2} term="Window">
-          The six-week window is W1 (Apr 2–8) through W6 (May 7–13), 2026 — all six are
-          complete feature weeks counted from the Apr 2 launch.
+          The {nWeeks}-week reporting window is W1 ({fmtWeekDates(1)}) through W{lastWeekN} ({fmtWeekDates(lastWeekN)}), {lastRange ? lastRange.end.getUTCFullYear() : 2026} — feature weeks counted from the Apr 2 launch.
         </Footnote>
         <Footnote n={3} term="Adoption">
           {CONV_METRIC_DEFS.adoption.body}
