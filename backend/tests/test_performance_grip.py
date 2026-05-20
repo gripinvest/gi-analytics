@@ -276,3 +276,36 @@ class TestLatestInCsv:
                                    app="gi-client-static", date="2026-05-19", hour=h)
             result = latest_in_csv(csv_path, app="gi-client-static")
             assert result == datetime(2026, 5, 19, 13, tzinfo=IST)
+
+
+class TestValidateSince:
+    def test_valid_within_window(self):
+        from services.integrations.performance_grip import validate_since
+        now = datetime(2026, 5, 20, 14, tzinfo=IST)
+        assert validate_since("2026-05-16", now=now) == datetime(2026, 5, 16, 0, tzinfo=IST)
+
+    def test_malformed_raises(self):
+        from services.integrations.performance_grip import validate_since
+        now = datetime(2026, 5, 20, 14, tzinfo=IST)
+        with pytest.raises(ValueError, match="YYYY-MM-DD"):
+            validate_since("not-a-date", now=now)
+        with pytest.raises(ValueError, match="YYYY-MM-DD"):
+            validate_since("2026-13-99", now=now)
+
+    def test_future_raises(self):
+        from services.integrations.performance_grip import validate_since
+        now = datetime(2026, 5, 20, 14, tzinfo=IST)
+        with pytest.raises(ValueError, match="future"):
+            validate_since("2026-05-25", now=now)
+
+    def test_outside_retention_raises(self):
+        from services.integrations.performance_grip import validate_since
+        now = datetime(2026, 5, 20, 14, tzinfo=IST)
+        with pytest.raises(ValueError, match="retention"):
+            validate_since("2026-05-11", now=now)  # 9 days ago
+
+    def test_empty_returns_none(self):
+        from services.integrations.performance_grip import validate_since
+        now = datetime(2026, 5, 20, 14, tzinfo=IST)
+        assert validate_since("", now=now) is None
+        assert validate_since(None, now=now) is None

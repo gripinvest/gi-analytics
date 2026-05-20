@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import csv as _csv
 import os
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")
+
+_SINCE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 CSV_COLUMNS = [
     "date", "hour", "app", "page_url", "device",
@@ -247,6 +250,28 @@ def append_hour_atomic(
         for row in combined:
             writer.writerow(row)
     os.replace(tmp, csv_path)
+
+
+def validate_since(value: str | None, *, now: datetime) -> datetime | None:
+    """Validate the --since input. Returns IST midnight datetime or None.
+
+    Rejects: malformed, future, or older than 8 days (NR retention).
+    """
+    if not value:
+        return None
+    if not _SINCE_RE.match(value):
+        raise ValueError(f"--since must be YYYY-MM-DD, got {value!r}")
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=IST)
+    except ValueError as e:
+        raise ValueError(f"--since must be YYYY-MM-DD: {e}")
+    if parsed.date() > now.date():
+        raise ValueError(f"--since cannot be in the future ({value} > {now.date()})")
+    if (now - parsed).days > 8:
+        raise ValueError(
+            f"--since {value} is outside NR's 8-day retention window; data is gone."
+        )
+    return parsed
 
 
 def latest_in_csv(csv_path: Path, app: str) -> datetime | None:
