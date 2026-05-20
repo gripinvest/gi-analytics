@@ -122,3 +122,28 @@ def test_nrql_does_not_retry_on_4xx():
 
     assert call_count[0] == 1
     assert sleep_calls == [], f"4xx must not retry; got sleeps {sleep_calls}"
+
+
+def test_auth_failure_does_not_leak_api_key():
+    """Pin that the API key never appears in any exception's str() form.
+
+    httpx doesn't leak request headers in HTTPStatusError by default, so this
+    test currently passes against the implementation. It exists to fail loud
+    if anyone later adds custom exception messages that include credentials.
+    """
+    import httpx
+    client = NewRelicClient(api_key="super-secret-key-12345", account_id=1, region="US")
+
+    def auth_fail(*args, **kwargs):
+        mock = MagicMock()
+        mock.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "401", request=MagicMock(), response=MagicMock(status_code=401))
+        return mock
+
+    with patch("httpx.Client.post", side_effect=auth_fail):
+        with patch("time.sleep"):
+            with pytest.raises(httpx.HTTPStatusError) as exc_info:
+                client.nrql("SELECT count(*) FROM PageView")
+
+    assert "super-secret-key-12345" not in str(exc_info.value)
+    assert "super-secret-key-12345" not in repr(exc_info.value)
