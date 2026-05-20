@@ -103,3 +103,45 @@ def parse_q1_response(nrql_response: dict) -> list[dict]:
             row[f"{m}_p95"] = mobj.get("95")
         out.append(row)
     return out
+
+
+def parse_q2_response(nrql_response: dict) -> list[dict]:
+    """Parse Q2 (PageView count) response."""
+    out = []
+    for entry in nrql_response.get("results", []):
+        facet = entry.get("facet") or []
+        # H6-fix: guard against single-element facet (matches Q3's defensive pattern)
+        if len(facet) < 2:
+            continue
+        page_url = clean_url(facet[0]) if facet[0] else None
+        device = (facet[1] or "").lower()
+        if page_url is None or not device:
+            continue
+        out.append({
+            "page_url": page_url,
+            "device": device,
+            "page_views": int(entry.get("page_views") or 0),
+        })
+    return out
+
+
+def parse_q3_response(nrql_response: dict) -> list[dict]:
+    """Parse Q3 (JavaScriptError count) response.
+
+    M13 GUARDRAIL: only `count` is projected. Do NOT extend Q3 to event-body
+    fields (message, stackTrace, customAttributes) — they carry user IDs and
+    auth tokens.
+    """
+    out = []
+    for entry in nrql_response.get("results", []):
+        facet = entry.get("facet", [None, None])
+        page_url = clean_url(facet[0]) if facet[0] else None
+        device = (facet[1] or "").lower() if len(facet) > 1 and facet[1] else None
+        if page_url is None:
+            continue
+        out.append({
+            "page_url": page_url,
+            "device": device,  # may be None — handled in merge_rows
+            "js_errors": int(entry.get("js_errors") or 0),
+        })
+    return out

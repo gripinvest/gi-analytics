@@ -135,3 +135,22 @@ class TestParseQ1:
         rows = parse_q1_response(synthetic)
         assert rows[0]["inp_p75"] is None
         assert rows[0]["lcp_p75"] == 2450
+
+
+class TestParseQ2:
+    def test_extracts_page_view_counts(self):
+        fixture = json.loads((FIXTURES / "Q2_pageview_response.json").read_text())
+        from services.integrations.performance_grip import parse_q2_response
+        rows = parse_q2_response(fixture)
+        assert len(rows) > 0
+        assert all("page_url" in r and "device" in r and "page_views" in r for r in rows)
+        assert all(isinstance(r["page_views"], int) and r["page_views"] >= 0 for r in rows)
+
+
+class TestParseQ3:
+    def test_extracts_js_error_counts(self):
+        fixture = json.loads((FIXTURES / "Q3_javascripterror_response.json").read_text())
+        from services.integrations.performance_grip import parse_q3_response
+        rows = parse_q3_response(fixture)
+        if rows:  # Q3 may legitimately return 0
+            assert all("page_url" in r and "js_errors" in r for r in rows)
