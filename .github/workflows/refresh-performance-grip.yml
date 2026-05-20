@@ -1,0 +1,93 @@
+name: Refresh Performance Grip data
+
+# Daily archive of NR Web Vitals (gi-client-static, gi-client-web). Twice-daily
+# because NR's 8-day retention makes missed days unrecoverable.
+# Spec: docs/projects/performance-grip/specs/2026-05-20-performance-grip-design.md
+#
+# Security: SINCE flows from workflow_dispatch input via env: only — never
+# interpolated into a run: shell line. Validated against ^\d{4}-\d{2}-\d{2}$
+# by validate_since() in Python before any fetch (CB-class injection prevention).
+
+on:
+  schedule:
+    - cron: "30 19 * * *"   # 01:00 IST — previous day complete
+    - cron: "30  7 * * *"   # 13:00 IST — intra-day + drift safety
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "Backfill from date (YYYY-MM-DD). Omit for normal fetch."
+        required: false
+        type: string
+
+concurrency:
+  # Serialises same-workflow runs. Note: only 1 run can be queued behind 1 running
+  # run (3rd trigger is discarded by GH Actions) — safe because idempotent merge
+  # means a dropped trigger is recovered by the next scheduled run.
+  group: refresh-performance-grip
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    # CB3-fix: gate the whole job, not just the commit step. Avoids burning
+    # NR API quota when triggered from a non-main branch.
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # H19-fix: backfill runs need more time than steady-state. workflow_dispatch
+    # with since= is the only path that hits hundreds of NRQL calls.
+    timeout-minutes: ${{ inputs.since != '' && 60 || 20 }}
+    env:
+      # Single User API Key — Insights Query Keys do not work with NerdGraph.
+      NEW_RELIC_API_KEY:    ${{ secrets.NEW_RELIC_API_KEY }}
+      NEW_RELIC_ACCOUNT_ID: ${{ vars.NEW_RELIC_ACCOUNT_ID }}
+      NEW_RELIC_REGION:     US
+      SINCE:                ${{ inputs.since }}
+    steps:
+      # SHAs pinned to commit (not tag) per CB4-fix. Dependabot will bump.
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332     # actions/checkout v4.1.7
+      - uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d   # actions/setup-python v5.1.0
+        with:
+          python-version: "3.12"
+      - name: Preflight — verify secrets present
+        # Fails fast with a clear message if a secret is missing or misspelt;
+        # otherwise the failure surfaces deep in the Python stack as an opaque error.
+        run: |
+          python3 -c "import os, sys
+          key, acct = os.getenv('NEW_RELIC_API_KEY'), os.getenv('NEW_RELIC_ACCOUNT_ID')
+          assert key, 'NEW_RELIC_API_KEY missing — check repo secret'
+          assert acct, 'NEW_RELIC_ACCOUNT_ID missing — check repo variable'
+          print(f'Auth config OK; account={acct[:3]}***')"
+      - name: Install deps (hash-verified)
+        run: pip install --require-hashes -r backend/requirements.lock
+      - name: Run refresh
+        working-directory: backend
+        run: python -m services.integrations.refresh performance_grip
+      - name: Commit refreshed data if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # CD1-fix: retry the pull-and-push loop. Sibling refresh workflows
+          # (asset-search, grip-connect, fra-youtube) push to main concurrently;
+          # a single pull --rebase + push can lose the race.
+          for i in 1 2 3; do
+            git pull --rebase --autostash
+            git add backend/data/performance_grip/
+            git diff --staged --quiet && break
+            git commit -m "chore: refresh Performance Grip data"
+            git push && break || sleep $((i * 10))
+          done
+      - name: Notify on failure
+        # H13-fix: copies the asset-search pattern. Slack curl is gated on
+        # SLACK_WEBHOOK_URL — stays disabled (K1) until configured.
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          echo "::error::Performance Grip refresh failed — every day this stays broken, we permanently lose a day of Web Vitals history."
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -sf -X POST -H 'Content-type: application/json' \
+              --data '{"text":"Performance Grip refresh failed — see GitHub Actions."}' \
+              "$SLACK_WEBHOOK_URL" || true
+          fi

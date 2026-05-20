@@ -1,0 +1,1523 @@
+{
+  "metadata": {
+    "facets": [
+      "pageUrl",
+      "deviceType"
+    ],
+    "messages": null
+  },
+  "results": [
+    {
+      "facet": [
+        "https://www.gripinvest.in/corporate-bonds",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.001,
+        "95": 0.001
+      },
+      "fcp": {
+        "75": 20.884,
+        "95": 20.884
+      },
+      "inp": {
+        "75": 0.04,
+        "95": 0.04
+      },
+      "lcp": {
+        "75": 21.1,
+        "95": 21.1
+      },
+      "sample_count": 2,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/german-silver-vs-silver",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 6.624,
+        "95": 6.624
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 6.788,
+        "95": 6.788
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www-gripinvest-in.translate.goog/blog/gold-crash",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.173,
+        "95": 0.173
+      },
+      "fcp": {
+        "75": 4.208,
+        "95": 4.208
+      },
+      "inp": {
+        "75": 0.088,
+        "95": 0.088
+      },
+      "lcp": {
+        "75": 6.488,
+        "95": 6.488
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/business-lessons-from-barbarians-at-the-gate-grip-invest",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.004,
+        "95": 0.004
+      },
+      "fcp": {
+        "75": 4.812,
+        "95": 4.812
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 5.496,
+        "95": 5.496
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/company-profile-piramal-enterprises-financial-growth",
+        "Unknown"
+      ],
+      "cls": {
+        "75": 0.953,
+        "95": 0.953
+      },
+      "fcp": {
+        "75": 4.987,
+        "95": 4.987
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 4.987,
+        "95": 4.987
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/best-index-funds",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.003,
+        "95": 0.003
+      },
+      "fcp": {
+        "75": 4.112,
+        "95": 4.112
+      },
+      "inp": {
+        "75": 0.048,
+        "95": 0.048
+      },
+      "lcp": {
+        "75": 4.86,
+        "95": 4.86
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/sell-anytime",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.006,
+        "95": 0.006
+      },
+      "fcp": {
+        "75": 3.234375,
+        "95": 12.764
+      },
+      "inp": {
+        "75": 0.57421875,
+        "95": 0.928
+      },
+      "lcp": {
+        "75": 4.59375,
+        "95": 12.764
+      },
+      "sample_count": 5,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/10-largest-economies-world",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.007,
+        "95": 0.007
+      },
+      "fcp": {
+        "75": 3.976,
+        "95": 3.976
+      },
+      "inp": {
+        "75": 0.368,
+        "95": 0.368
+      },
+      "lcp": {
+        "75": 4.332,
+        "95": 4.332
+      },
+      "sample_count": 2,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www-gripinvest-in.translate.goog/blog/recession-in-india",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.026,
+        "95": 0.026
+      },
+      "fcp": {
+        "75": 3.496,
+        "95": 3.496
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 3.628,
+        "95": 3.628
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/best-mutual-funds-to-invest",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 3.128,
+        "95": 3.128
+      },
+      "inp": {
+        "75": 0.112,
+        "95": 0.112
+      },
+      "lcp": {
+        "75": 3.4453125,
+        "95": 5.1
+      },
+      "sample_count": 4,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www-gripinvest-in.translate.goog/blog/how-to-earn-1000-per-day-without-investment-online",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.027,
+        "95": 0.027
+      },
+      "fcp": {
+        "75": 3.108,
+        "95": 3.108
+      },
+      "inp": {
+        "75": 0.16,
+        "95": 0.16
+      },
+      "lcp": {
+        "75": 3.292,
+        "95": 3.292
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/best-sip-for-short-term",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.005,
+        "95": 0.005
+      },
+      "fcp": {
+        "75": 3.012,
+        "95": 3.012
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 3.228,
+        "95": 3.228
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/bank-of-india-fixed-deposit-rates",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 3.048,
+        "95": 3.048
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 3.104,
+        "95": 3.104
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/how-to-make-1-crore-in-5-years",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.003,
+        "95": 0.003
+      },
+      "fcp": {
+        "75": 2.264,
+        "95": 2.264
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 2.732,
+        "95": 2.732
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/corporate-fds",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.00099945068359375,
+        "95": 0.006
+      },
+      "fcp": {
+        "75": 1.654296875,
+        "95": 1.812
+      },
+      "inp": {
+        "75": 0.1357421875,
+        "95": 0.264
+      },
+      "lcp": {
+        "75": 2.6015625,
+        "95": 3.636
+      },
+      "sample_count": 6,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.015,
+        "95": 0.015
+      },
+      "fcp": {
+        "75": 1.6396484375,
+        "95": 1.756
+      },
+      "inp": {
+        "75": 0.136,
+        "95": 0.136
+      },
+      "lcp": {
+        "75": 2.508,
+        "95": 2.508
+      },
+      "sample_count": 3,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/gold-crash",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 2.308,
+        "95": 2.308
+      },
+      "inp": {
+        "75": 0.048,
+        "95": 0.048
+      },
+      "lcp": {
+        "75": 2.448,
+        "95": 2.448
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/mutual-fund-scheme-changes",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.917,
+        "95": 1.917
+      },
+      "inp": {
+        "75": 0.048,
+        "95": 0.048
+      },
+      "lcp": {
+        "75": 2.443,
+        "95": 2.443
+      },
+      "sample_count": 2,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/peer-to-peer-lending-for-investors",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 2.148,
+        "95": 2.148
+      },
+      "inp": {
+        "75": 0.08,
+        "95": 0.08
+      },
+      "lcp": {
+        "75": 2.34,
+        "95": 2.34
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/how-to-earn-1000-per-day-without-investment-online",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.021240234375,
+        "95": 0.0986328125
+      },
+      "fcp": {
+        "75": 2.46875,
+        "95": 7.1875
+      },
+      "inp": {
+        "75": 0.240234375,
+        "95": 0.5859375
+      },
+      "lcp": {
+        "75": 2.328125,
+        "95": 4.96875
+      },
+      "sample_count": 60,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/marketing/notify-me1",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.043,
+        "95": 0.043
+      },
+      "fcp": {
+        "75": 1.9140625,
+        "95": 7.444
+      },
+      "inp": {
+        "75": 0.088,
+        "95": 0.088
+      },
+      "lcp": {
+        "75": 2.328125,
+        "95": 7.368
+      },
+      "sample_count": 4,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/aadhaar-pvc-card-order-online",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 2.03,
+        "95": 2.03
+      },
+      "inp": {
+        "75": 0.056,
+        "95": 0.056
+      },
+      "lcp": {
+        "75": 2.323,
+        "95": 2.323
+      },
+      "sample_count": 3,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/corporate-bonds",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 1.077,
+        "95": 1.077
+      },
+      "fcp": {
+        "75": 1.30078125,
+        "95": 2.272
+      },
+      "inp": {
+        "75": 0.112,
+        "95": 0.112
+      },
+      "lcp": {
+        "75": 2.272,
+        "95": 2.272
+      },
+      "sample_count": 3,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0049896240234375,
+        "95": 0.012969970703125
+      },
+      "fcp": {
+        "75": 1.7265625,
+        "95": 4.65625
+      },
+      "inp": {
+        "75": 0.134765625,
+        "95": 2.09375
+      },
+      "lcp": {
+        "75": 2.015625,
+        "95": 3.859375
+      },
+      "sample_count": 38,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/how-to-earn-money-from-home",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.048,
+        "95": 0.048
+      },
+      "fcp": {
+        "75": 1.892,
+        "95": 1.892
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.992,
+        "95": 1.992
+      },
+      "sample_count": 2,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/silver-price-prediction",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.031,
+        "95": 0.031
+      },
+      "fcp": {
+        "75": 1.73828125,
+        "95": 1.792
+      },
+      "inp": {
+        "75": 0.176,
+        "95": 0.176
+      },
+      "lcp": {
+        "75": 1.97265625,
+        "95": 2.068
+      },
+      "sample_count": 6,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/how-to-earn-1000-per-day-without-investment-online",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.006,
+        "95": 0.006
+      },
+      "fcp": {
+        "75": 1.6044921875,
+        "95": 1.876
+      },
+      "inp": {
+        "75": 0.064,
+        "95": 0.064
+      },
+      "lcp": {
+        "75": 1.94,
+        "95": 1.94
+      },
+      "sample_count": 3,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/bond-convexity",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.002,
+        "95": 0.002
+      },
+      "fcp": {
+        "75": 1.456,
+        "95": 1.456
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.772,
+        "95": 1.772
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/guinness-world-record-india",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.578,
+        "95": 1.578
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.706,
+        "95": 1.706
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/hdfc-multicap-fund",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.001,
+        "95": 0.001
+      },
+      "fcp": {
+        "75": 1.044,
+        "95": 1.044
+      },
+      "inp": {
+        "75": 0.088,
+        "95": 0.088
+      },
+      "lcp": {
+        "75": 1.62,
+        "95": 1.62
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/highly-safe-bonds",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.456,
+        "95": 1.456
+      },
+      "inp": {
+        "75": 0.016,
+        "95": 0.016
+      },
+      "lcp": {
+        "75": 1.572,
+        "95": 1.572
+      },
+      "sample_count": 2,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/faq/grip-basics/help-&-support",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.002,
+        "95": 0.002
+      },
+      "fcp": {
+        "75": 1.532,
+        "95": 1.532
+      },
+      "inp": {
+        "75": 0.184,
+        "95": 0.184
+      },
+      "lcp": {
+        "75": 1.532,
+        "95": 1.532
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/leasex",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 0.876,
+        "95": 0.876
+      },
+      "inp": {
+        "75": 0.072,
+        "95": 0.072
+      },
+      "lcp": {
+        "75": 1.532,
+        "95": 1.532
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/1-crore-fd-interest-per-month",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.004,
+        "95": 0.004
+      },
+      "fcp": {
+        "75": 1.504,
+        "95": 1.504
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.524,
+        "95": 1.524
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/demand-pull-and-cost-push-inflation",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.373,
+        "95": 1.373
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.507,
+        "95": 1.507
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/radhakishan-damani",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.003,
+        "95": 0.003
+      },
+      "fcp": {
+        "75": 1.364,
+        "95": 1.364
+      },
+      "inp": {
+        "75": 1.088,
+        "95": 1.088
+      },
+      "lcp": {
+        "75": 1.496,
+        "95": 1.496
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/aadhaar-bank-seeding",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.272,
+        "95": 1.272
+      },
+      "inp": {
+        "75": 0.16,
+        "95": 0.16
+      },
+      "lcp": {
+        "75": 1.408,
+        "95": 1.408
+      },
+      "sample_count": 2,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/best-liquid-funds",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.031,
+        "95": 0.031
+      },
+      "fcp": {
+        "75": 1.22,
+        "95": 1.22
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.336,
+        "95": 1.336
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/best-sif-funds-india",
+        "Tablet"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.304,
+        "95": 1.304
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.326,
+        "95": 1.326
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/counterfeit-indian-currency-dhurandhar-movie-story",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.1,
+        "95": 1.1
+      },
+      "inp": {
+        "75": 0.512,
+        "95": 0.512
+      },
+      "lcp": {
+        "75": 1.324,
+        "95": 1.324
+      },
+      "sample_count": 2,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/india-post-office-fixed-deposit",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.282,
+        "95": 1.282
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.282,
+        "95": 1.282
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/kvb-fd-interest-rates",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.232,
+        "95": 1.232
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.276,
+        "95": 1.276
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/what-happens-if-indians-stop-buying-gold-for-a-year",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.044,
+        "95": 1.044
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.228,
+        "95": 1.228
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/best-arbitrage-funds",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.004,
+        "95": 0.004
+      },
+      "fcp": {
+        "75": 1.036,
+        "95": 1.036
+      },
+      "inp": {
+        "75": 0.064,
+        "95": 0.064
+      },
+      "lcp": {
+        "75": 1.116,
+        "95": 1.116
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/sebi-nism-certification-aif-compliance-officers",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.08,
+        "95": 1.08
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.116,
+        "95": 1.116
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/best-index-funds",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.096,
+        "95": 1.096
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.112,
+        "95": 1.112
+      },
+      "sample_count": 2,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/fastest-growing-sectors-in-India",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.04,
+        "95": 1.04
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.092,
+        "95": 1.092
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/lic-premium-payment-online",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 1.004,
+        "95": 1.004
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.068,
+        "95": 1.068
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/how-to-earn-money-from-home",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.004,
+        "95": 0.004
+      },
+      "fcp": {
+        "75": 0.94,
+        "95": 0.94
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 1.024,
+        "95": 1.024
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/best-sif-funds-india",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 0.856,
+        "95": 0.856
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 0.952,
+        "95": 0.952
+      },
+      "sample_count": 2,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/gold-price-prediction",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 0.74,
+        "95": 0.74
+      },
+      "inp": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "lcp": {
+        "75": 0.796,
+        "95": 0.796
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/taxation-on-bonds",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.001,
+        "95": 0.001
+      },
+      "fcp": {
+        "75": 0.588,
+        "95": 0.588
+      },
+      "inp": {
+        "75": 0.016,
+        "95": 0.016
+      },
+      "lcp": {
+        "75": 0.672,
+        "95": 0.672
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/blog/company-profile-moneyview-loans",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 0.547,
+        "95": 0.547
+      },
+      "inp": {
+        "75": 0.048,
+        "95": 0.048
+      },
+      "lcp": {
+        "75": 0.586,
+        "95": 0.586
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/faq/asset-types/about-securitised-debt-instruments",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 0.556,
+        "95": 0.556
+      },
+      "inp": {
+        "75": 0.096,
+        "95": 0.096
+      },
+      "lcp": {
+        "75": 0.556,
+        "95": 0.556
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/faq/asset-types/about-securitised-debt-instruments",
+        "Mobile"
+      ],
+      "cls": {
+        "75": 0.0,
+        "95": 0.0
+      },
+      "fcp": {
+        "75": 0.516,
+        "95": 0.516
+      },
+      "inp": {
+        "75": 0.152,
+        "95": 0.152
+      },
+      "lcp": {
+        "75": 0.516,
+        "95": 0.516
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    },
+    {
+      "facet": [
+        "https://www.gripinvest.in/",
+        "Desktop"
+      ],
+      "cls": {
+        "75": 0.032,
+        "95": 0.032
+      },
+      "fcp": {
+        "75": 1.764,
+        "95": 1.764
+      },
+      "inp": {
+        "75": 0.048,
+        "95": 0.048
+      },
+      "lcp": {
+        "75": 0.372,
+        "95": 0.372
+      },
+      "sample_count": 1,
+      "ttfb": {
+        "75": 0.0,
+        "95": 0.0
+      }
+    }
+  ]
+}
