@@ -506,10 +506,27 @@ class of "accidentally committed `.env`" failures.
 └──────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────┐
+│  Data: 12 days collected · viewing last 7d                       │
+│  Window: [ 7d | 14d | 1M | 3M ]                                  │
+└──────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────┐
 │  Week of May 12–18                                               │
 │  p75 LCP  2.40s ← 2.52s  (-0.12s, −5%)   ✓ Good                  │
 │  p75 INP   180ms ← 168ms  (+12ms, +7%)   ⚠ Watch                 │
+│  JS errors / 1K page views:  3.2  (was 2.8 last week, +14%)      │
 │  Page views (7d): 423K        Device:  [ All | Mobile | Desktop] │
+└──────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────┐
+│  Routes — Top 5 by week-over-week LCP regression       [show 15] │
+│  /checkout                  8K views   LCP 2.6s → 3.1s  (+0.5s)  │
+│  /assets/[id]              47K         LCP 2.6s → 2.8s  (+0.2s)  │
+│  /kyc/[step]                3K         LCP 2.4s → 2.5s  (+0.1s)  │
+│  /                         52K         LCP 2.1s → 2.1s  ( 0.0s)  │
+│  /portfolio                 9K         LCP 2.0s → 2.0s  ( 0.0s)  │
+│  ────────────────────────────────────────────────────────────    │
+│  Other pages               38K views  (+12% WoW bucket size)     │
 └──────────────────────────────────────────────────────────────────┘
 
 ═══ Core Web Vitals ═══════════════════════════════════════════════
@@ -584,12 +601,67 @@ prior)** — full ISO weeks, not trailing-rolling. The arithmetic is shown
 inline: `p75 LCP this week 2.40s ← last week 2.52s (−0.12s, −5%)`. The
 direction-of-good is metric-aware:
 
-- LCP / INP / CLS / FCP / TTFB — **lower is better** (`↓` = green, `↑` = rust)
-- Page views — **higher is better** (`↑` = green, `↓` = rust)
+- LCP / INP / CLS / FCP / TTFB — **lower is better** (`↓` = forest, `↑` = rust)
+- Page views — **higher is better** (`↑` = forest, `↓` = rust)
+- JS errors / 1K page views — **lower is better** (`↓` = forest, `↑` = rust)
 
 Color and arrow are never used alone — the change value (`+0.12s`) and the
 percent are always shown together with the arrow + color. (Reuses the
 existing `DeltaInline` / `goodIsDown` pattern from `AssetSearchDashboardEditorial`.)
+
+**JS errors line.** The hero shows `JS errors / 1K page views` as a single
+number with its week-over-week delta. This is **not** part of the status
+verdict logic in §6.1.1 — the verdict is Web-Vitals-only. JS errors are
+shown for informational context. A 6th trendline card for JS errors is
+deferred to v1.5 if leadership asks for the deeper view.
+
+### 6.1.3 Time-window toggle — replaces cold-start banner (H18)
+
+A page-level segmented control selects the visualisation window for all
+trendlines and the hero band:
+
+```
+[ 7d | 14d | 1M | 3M ]
+```
+
+**Default** auto-promotes as data accumulates:
+
+| Data collected (`MAX(date) − MIN(date)` in CSV) | Default window |
+|---|---|
+| Days 1–13 | 7d |
+| Days 14–29 | 14d |
+| Days 30+ | **30d (1M)** ← terminal default |
+
+The **90d window does not auto-promote** — it remains an opt-in retrospective
+view the user explicitly picks (for quarterly review etc).
+
+A small header caption is always visible:
+
+```
+Data: {N} days collected · viewing last {window}
+```
+
+This replaces the earlier cold-start banner entirely. The caption gives
+context without the apologetic tone of a banner; the toggle gives the user
+agency. Window state persists in the URL (`?window=14d`).
+
+### 6.1.4 Route drill-down — promoted up, regression-first sort (H12)
+
+The route table is **the dashboard's most leadership-actionable artifact** —
+it answers the question NR can't ("which page got worse this week?"). It
+therefore sits **directly under the status verdict**, above the trendline
+grid.
+
+- **Top 5 expanded by default.** A `[show 15]` expander reveals the full
+  top 15. Beyond that, the "Other pages" footer row aggregates everything
+  outside the table (with its WoW bucket-size change shown — see H19).
+- **Default sort: week-over-week p75 LCP delta, descending.** Biggest
+  regressions float to the top.
+- **Sort toggle**: secondary controls for page-views and other metrics'
+  WoW deltas.
+- **Click a row** → expands to the 30-day per-route LCP trendline
+  (sparkline with the same Editorial-token threshold band as the main
+  trendline cards).
 
 ### 6.2 The trendline atom (`MetricTrendCard.jsx`)
 
@@ -656,36 +728,38 @@ the spread band, `<Line>` for p75. Disable Area animation after initial mount
 (`isAnimationActive={false}` post-load) to avoid SVG-path morph jank on device
 toggle.
 
-### 6.3 Cold-start handling
+### 6.3 Cold-start handling — folded into the window toggle
 
-Three banner states keyed off `MIN(date)` in the loaded data:
+**The dedicated cold-start banner has been removed.** Its job is now done
+by two existing elements working together (see §6.1.3):
 
-| Data age | Banner text |
-|---|---|
-| 1–7 days | `"{N} days collected since launch ({date}). Trendlines will fill in over the coming weeks."` |
-| 8–20 days | `"{N} days collected. Week-over-week comparisons become meaningful from day 21."` |
-| 21+ days | (no banner) |
+- The **header caption** — `Data: {N} days collected · viewing last {window}` —
+  always visible, gives the "this is week N" context without an apologetic tone.
+- The **auto-promoting default** on the window toggle — defaults to the
+  shortest window that has data, growing automatically to 7d → 14d → 30d.
+  Trendlines are never thin-but-empty in their default state.
 
-Trigger is derived, not stored. Removing the banner is automatic.
+The banner-and-trigger machinery is gone; the toggle and caption are
+deterministic and always present, regardless of data age.
 
-### 6.4 Route drill-down
+### 6.4 Route drill-down — see §6.1.4
 
-Below the trendline grid: a collapsible table.
+This section's design has been promoted into the page-IA itself — the table
+now sits **above** the trendline grid, directly under the status verdict.
+See §6.1.4 for the IA position and sort behaviour. This section retains the
+implementation-detail notes:
 
-- **Top 15 routes by 7-day page views**, descending.
-- Columns: route pattern, page views (7d), p75 of each metric, week-over-week
-  LCP delta (the canonical regression-spotting column).
-- Route labels resolved via `route_patterns.csv`:
-  - File format: `pattern_regex,label,sort_priority`
-  - Lookup: first match wins (priority-ordered).
-- The bottom row is **"Other pages"** (not "Unmatched" — leadership-readable).
-  Its definition: every URL not in the top 15 patterns by 7-day page views,
-  rolled together. Includes both *unmatched* URLs (no pattern hit) and *matched
-  patterns that fell outside the top 15*. Its page-view count is itself a
-  health signal — if it grows large relative to the top 15, either traffic
-  is dispersing or the patterns file needs updating.
-- Click a row → expand to show that route's own 30-day LCP-p75 sparkline.
-- Default collapsed; opens with a `▾` affordance.
+- **`route_patterns.csv`** file format: `pattern_regex,label,sort_priority`.
+  Lookup is first-match-wins, priority-ordered.
+- Default collapsed past Top 5; `[show 15]` reveals the full top 15
+  expander. The "Other pages" footer row is always present and aggregates
+  every URL not matched by a top-15 pattern.
+- The "Other pages" row shows its **week-over-week bucket-size change**
+  (e.g., `+12% WoW`) — engineering signal that traffic is dispersing or the
+  patterns file needs updating. Not a leadership-verdict input.
+- Expand affordance: Lucide `ChevronDown` SVG icon, not a Unicode glyph.
+- Click a row → expands to a 30-day per-route LCP-p75 sparkline with the
+  same Editorial-token threshold band as the main trendline cards.
 
 ### 6.5 Device toggle (page-level, not per-chart)
 
@@ -875,3 +949,7 @@ considered for each (so future readers can re-litigate if context changes):
 | **Week-over-week (ISO weeks) as the locked comparison window** | Trailing 7-day vs prior 7-day; or vs yesterday | Dashboard cadence is weekly review; comparisons should match. Ambiguous "↓ 0.12s" with undefined window was a CRITICAL finding (C7). |
 | **Y-axis fixed scale anchored to thresholds**, not auto-scaled | Auto-scaled with headroom | Auto-scale + absolute thresholds fight each other (LCP 2.3s zoomed tight visually screams "near the cliff" at 2.5s boundary). Fixed scale makes threshold position stable across weeks, supports leadership-comprehension over data-zoom precision. |
 | **NR alternatives priced and rejected** before commitment | Build without pricing | The whole project's premise (NR's 8-day retention isn't enough) is checked. NR Data Plus / equivalent SKUs evaluated and rejected on cost; CrUX unsuitable for post-login data; Cloudflare RUM not in current edge setup. |
+| **Route drill-down promoted above trendline grid; default Top 5; sort by week-over-week p75 LCP delta** | Bury below grid; Top 15 by page views | The drill-down's WoW LCP column answers the question NR can't ("which page got worse?") and is the dashboard's single most leadership-actionable surface. Promoting it up + regression-first sort matches the actual leadership question. |
+| **JS errors shown as a hero number only; not in status verdict; 6th card deferred to v1.5** | Full integration (verdict + hero + 6th card); or invisible | Compromise position: surface the number for informational context without complicating the verdict (which stays Web-Vitals-only). 6th card adds layout cost and a non-standard threshold (no Google equivalent); ship if/when leadership asks. |
+| **Window toggle `[ 7d \| 14d \| 1M \| 3M ]` with auto-promote stopping at 30d; data-age caption in header** | Cold-start banner alone; or toggle with auto-promote to 3M; or toggle with no auto-promote | The toggle replaces cold-start handling entirely — it's the deterministic, always-present mechanism. Auto-promote stops at 30d so 90d remains a deliberate retrospective view (not a quietly-default-shifted state). Caption gives context without an apologetic banner. |
+| **"Other pages" row stays in table with WoW bucket-size delta**; not elevated to verdict | Elevate to verdict at >30% threshold; or drop from view; or current spec (no WoW) | Engineering signal stays visible; doesn't pollute the leadership verdict. WoW delta gives the patterns-file-staleness signal without an admin pane. |
