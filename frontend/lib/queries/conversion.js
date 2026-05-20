@@ -49,23 +49,47 @@ export function conversionTables(tableNames = []) {
   const pick = (suffix) =>
     tableNames.filter((t) => t.endsWith(suffix) && wk(t) != null).sort((a, b) => wk(a) - wk(b));
   const one = (suffix) => tableNames.find((t) => t.endsWith(suffix)) || null;
-  const investNow = pick("_invest_now_button_clicked");
-  const quickCheckout = pick("_quick_checkout_invest_clicked");
-  const initiated = pick("_asset_search_initiated");
-  const resultClicked = pick("_asset_search_result_clicked");
+
+  const investNowAll = pick("_invest_now_button_clicked");
+  const quickCheckoutAll = pick("_quick_checkout_invest_clicked");
+  const initiatedAll = pick("_asset_search_initiated");
+  const resultClickedAll = pick("_asset_search_result_clicked");
+
+  // The Conversion exhibits need each week to carry all four core tables, in
+  // pairwise alignment by week. The cron's daily-vs-weekly cadence (spec D7)
+  // means a new feature week's `invest_now_button_clicked` lands a few days
+  // after its `asset_search_initiated`, so on a non-rollover day the per-event
+  // lists transiently diverge. Intersect to the weeks that actually have all
+  // four — instead of hiding the whole tab whenever any one week is
+  // incomplete, as the previous strict-equality gate did.
+  const wkSet = (list) => new Set(list.map(wk));
+  const sets = [investNowAll, quickCheckoutAll, initiatedAll, resultClickedAll].map(wkSet);
+  const coreCommon = new Set([...sets[0]].filter((n) => sets.every((s) => s.has(n))));
+  const keep = (list) => list.filter((t) => coreCommon.has(wk(t)));
+
+  const investNow = keep(investNowAll);
+  const quickCheckout = keep(quickCheckoutAll);
+  const initiated = keep(initiatedAll);
+  const resultClicked = keep(resultClickedAll);
   const weeks = initiated.map((t) => weekTag(t));
-  const ok = investNow.length > 0 && initiated.length > 0 && investNow.length === initiated.length;
+  const ok = coreCommon.size > 0;
+
   // From the deep launch-week export (asset-search/): a pre-computed visitor cohort
   // (anonymous_id × is_searcher × clicked_search_result × converted) and a daily funnel
   // — covers only Apr 2–9.
   const cohort = one("_14_conversion_cohort_summary");
   const dailyFunnel = one("_10_daily_funnel_summary");
   const cohortOk = !!cohort;
-  // Weekly assets-page-views (W1–W6): the visitor population per week. With these we can
-  // build the searcher-vs-non-searcher cohort over the full window, not just launch week.
-  const pageViews = pick("_assets_page_views");
+
+  // Weekly assets-page-views: the full-window cohort additionally needs this
+  // table aligned with the core 4. If pageViews is missing for any week the
+  // core 4 cover, fall back to the launch-week cohort rather than misalign
+  // the SQL by index.
+  const pageViews = keep(pick("_assets_page_views"));
   const pageViewsOk = pageViews.length > 0 && pageViews.length === initiated.length;
-  return { investNow, quickCheckout, initiated, resultClicked, weeks, ok, cohort, dailyFunnel, cohortOk, pageViews, pageViewsOk };
+
+  return { investNow, quickCheckout, initiated, resultClicked, weeks, ok,
+           cohort, dailyFunnel, cohortOk, pageViews, pageViewsOk };
 }
 
 /** UNION ALL `SELECT <cols> FROM <t>` across tables; <cols> is raw column SQL. */
