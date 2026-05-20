@@ -21,9 +21,18 @@
 
 ---
 
-## Phase 0 — Discovery NRQL (HARD GATE before any code)
+## Phase 0 — Discovery NRQL (HARD GATE for 0.3 + 0.7; rest can run parallel with Phase 1)
 
 Per spec §11: no fetch code lands until real NerdGraph response fixtures are committed. This phase is manual investigation against the live NR account, producing fixtures + locked-in facts.
+
+**Hard gates** (must complete before Phase 1 starts):
+- **Task 0.3** — Q1 fixture + percentile response shape decision (Task 2.3's parser locks against this)
+- **Task 0.7** — hourly bucketing strategy (TIMESERIES vs per-hour determines the Task 2.10 fetch loop structure)
+
+**Can run in parallel with Phase 1** (must complete before Task 2.10 ships):
+- Tasks 0.1, 0.2, 0.4, 0.5, 0.6, 0.8 — these capture details that the orchestrator needs but don't block client/parser code.
+
+This split saves ~1 day of wall-clock vs strictly serial Phase 0.
 
 ### Task 0.1: Confirm NR User API Key + service-account migration
 
@@ -190,7 +199,7 @@ git commit -m "docs(performance-grip): NR appName canonical values discovered"
 {
   actor {
     account(id: <ACCOUNT_ID>) {
-      nrql(query: "SELECT percentile(largestContentfulPaint, 75, 95) AS lcp, percentile(interactionToNextPaint, 75, 95) AS inp, percentile(cumulativeLayoutShift, 75, 95) AS cls, percentile(firstContentfulPaint, 75, 95) AS fcp, percentile(firstByte, 75, 95) AS ttfb, count(*) AS sample_count FROM PageViewTiming WHERE appName = '<CANONICAL>' AND pageUrl IS NOT NULL AND deviceType IS NOT NULL SINCE 2 hours ago UNTIL 1 hour ago FACET pageUrl, deviceType LIMIT 500") {
+      nrql(query: "SELECT percentile(largestContentfulPaint, 75, 95) AS lcp, percentile(interactionToNextPaint, 75, 95) AS inp, percentile(cumulativeLayoutShift, 75, 95) AS cls, percentile(firstContentfulPaint, 75, 95) AS fcp, percentile(firstByte, 75, 95) AS ttfb, count(*) AS sample_count FROM PageViewTiming WHERE appName = '<CANONICAL>' AND pageUrl IS NOT NULL AND deviceType IS NOT NULL SINCE 2 hours ago UNTIL 1 hour ago FACET pageUrl, deviceType LIMIT MAX") {
         results
         metadata { facets }
       }
@@ -206,7 +215,7 @@ git commit -m "docs(performance-grip): NR appName canonical values discovered"
 {
   actor {
     account(id: 4002804) {
-      nrql(query: "SELECT filter(percentile(largestContentfulPaint, 75, 95), WHERE timingName='largestContentfulPaint') AS lcp, filter(percentile(interactionToNextPaint, 75, 95), WHERE timingName='interactionToNextPaint') AS inp, filter(percentile(cumulativeLayoutShift, 75, 95), WHERE timingName='cumulativeLayoutShift') AS cls, filter(percentile(firstContentfulPaint, 75, 95), WHERE timingName='firstContentfulPaint') AS fcp, filter(percentile(firstByte, 75, 95), WHERE timingName='firstByte') AS ttfb, filter(count(*), WHERE timingName='largestContentfulPaint') AS sample_count FROM PageViewTiming WHERE appName = '<CANONICAL>' AND pageUrl IS NOT NULL AND deviceType IS NOT NULL SINCE 2 hours ago UNTIL 1 hour ago FACET pageUrl, deviceType LIMIT 500") {
+      nrql(query: "SELECT filter(percentile(largestContentfulPaint, 75, 95), WHERE timingName='largestContentfulPaint') AS lcp, filter(percentile(interactionToNextPaint, 75, 95), WHERE timingName='interactionToNextPaint') AS inp, filter(percentile(cumulativeLayoutShift, 75, 95), WHERE timingName='cumulativeLayoutShift') AS cls, filter(percentile(firstContentfulPaint, 75, 95), WHERE timingName='firstContentfulPaint') AS fcp, filter(percentile(firstByte, 75, 95), WHERE timingName='firstByte') AS ttfb, filter(count(*), WHERE timingName='largestContentfulPaint') AS sample_count FROM PageViewTiming WHERE appName = '<CANONICAL>' AND pageUrl IS NOT NULL AND deviceType IS NOT NULL SINCE 2 hours ago UNTIL 1 hour ago FACET pageUrl, deviceType LIMIT MAX") {
         results
       }
     }
@@ -246,7 +255,7 @@ git commit -m "fixtures(performance-grip): Q1 PageViewTiming NerdGraph response 
 SELECT count(*) AS page_views FROM PageView
 WHERE appName = '<CANONICAL>' AND pageUrl IS NOT NULL AND deviceType IS NOT NULL
 SINCE 2 hours ago UNTIL 1 hour ago
-FACET pageUrl, deviceType LIMIT 500
+FACET pageUrl, deviceType LIMIT MAX
 ```
 
 - [ ] **Step 2: Save to** `backend/tests/fixtures/new_relic/Q2_pageview_response.json`.
@@ -268,7 +277,7 @@ git commit -m "fixtures(performance-grip): Q2 PageView NerdGraph response captur
 ```
 SELECT count(*) AS js_errors FROM JavaScriptError
 WHERE appName = '<CANONICAL>' AND pageUrl IS NOT NULL
-SINCE 1 day ago FACET pageUrl, deviceType LIMIT 500
+SINCE 1 day ago FACET pageUrl, deviceType LIMIT MAX
 ```
 
 - [ ] **Step 2: Save to** `backend/tests/fixtures/new_relic/Q3_javascripterror_response.json`.
@@ -324,13 +333,13 @@ git add docs/projects/performance-grip/data-sources.md
 git commit -m "docs(performance-grip): NR field names verified"
 ```
 
-### Task 0.7: Decide hourly bucketing strategy
+### Task 0.7: Decide hourly bucketing strategy (BIAS: TIMESERIES unless proven broken)
 
 **Files:**
 - Modify: `docs/projects/performance-grip/data-sources.md`
 - Optional: Create: `backend/tests/fixtures/new_relic/Q1_timeseries_response.json`
 
-The choice: 24 per-hour NRQL calls per app vs single `TIMESERIES 1 hour` call.
+**Default decision: use `TIMESERIES 1 hour`.** It's the right answer (24× fewer round-trips, fits NRQL idiom). Only fall back to per-hour queries if facet-cap behaviour is broken with TIMESERIES (Step 3 below tests this). Don't treat these as equivalent options to weigh — the choice is "TIMESERIES works, or we have to fall back".
 
 - [ ] **Step 1: Test TIMESERIES variant**:
 
@@ -340,12 +349,12 @@ FROM PageViewTiming
 WHERE appName = '<CANONICAL>' AND pageUrl IS NOT NULL AND deviceType IS NOT NULL
 SINCE 1 day ago WITH TIMEZONE 'Asia/Kolkata'
 FACET pageUrl, deviceType
-LIMIT 500
+LIMIT MAX
 TIMESERIES 1 hour
 ```
 
 - [ ] **Step 2: Inspect response shape** — one row per facet with array of buckets, or one row per `(facet × bucket)`?
-- [ ] **Step 3: Verify facet cap with TIMESERIES** — does `LIMIT 500` apply per facet or per `(facet × bucket)`?
+- [ ] **Step 3: Verify facet cap with TIMESERIES** — does `LIMIT MAX` apply per facet or per `(facet × bucket)`?
 - [ ] **Step 4: Decide and document**:
 
 ```markdown
@@ -452,6 +461,11 @@ from __future__ import annotations
 import json
 
 
+class NewRelicError(Exception):
+    """Raised when NerdGraph returns a GraphQL-level error (HTTP 200 + errors envelope)
+    or a malformed response body (H1)."""
+
+
 class NewRelicClient:
     _ENDPOINTS = {
         "US": "https://api.newrelic.com/graphql",
@@ -539,8 +553,9 @@ def test_nrql_sends_correct_graphql_payload():
     def nrql(self, query: str) -> list[dict]:
         """Execute one NRQL query via NerdGraph. Returns facet rows.
 
-        The GraphQL wrapper is constant; only the embedded NRQL string varies.
-        Auth header `Api-Key` accepts both Query Key and User API Key.
+        Detects GraphQL-level errors (HTTP 200 with `errors` envelope) and
+        raises a clean exception with the error message instead of letting
+        the response-shape KeyError mask the real problem (H1).
         """
         import httpx
 
@@ -552,13 +567,19 @@ def test_nrql_sends_correct_graphql_payload():
         with httpx.Client(timeout=30.0) as http:
             response = http.post(
                 self.endpoint,
-                headers={"Api-Key": self.api_key, "Content-Type": "application/json"},
+                headers={"API-Key": self.api_key, "Content-Type": "application/json"},
                 json={"query": graphql_query},
             )
             response.raise_for_status()
             body = response.json()
 
-        return body["data"]["actor"]["account"]["nrql"]["results"]
+        # H1-fix: GraphQL errors arrive as HTTP 200 with body.errors set.
+        if body.get("errors"):
+            raise NewRelicError(f"NerdGraph errors: {body['errors']}")
+        nrql_block = body.get("data", {}).get("actor", {}).get("account", {}).get("nrql")
+        if nrql_block is None:
+            raise NewRelicError(f"NerdGraph returned null nrql block: {body}")
+        return nrql_block["results"]
 ```
 
 - [ ] **Step 4: Run tests** — expect 5 passed.
@@ -651,8 +672,10 @@ Add `import random; import time` at the top, then replace the method:
     def nrql(self, query: str) -> list[dict]:
         """Execute one NRQL query via NerdGraph. Returns facet rows.
 
-        Retries 3× on transient 5xx with backoff + ±25% jitter, capped at 30s.
-        4xx errors fail loud, no retry.
+        Retries 3× on transient errors with backoff + ±25% jitter, capped at 30s.
+        Retryable: 5xx HTTP status, httpx.RequestError (timeouts, ConnectError —
+        common on cron-driven networks; H2).
+        4xx HTTP status: fail loud, no retry.
         """
         import httpx
 
@@ -662,29 +685,39 @@ Add `import random; import time` at the top, then replace the method:
         )
 
         backoff_seconds = [1.0, 4.0, 16.0]
-        last_exc: Exception | None = None
 
         with httpx.Client(timeout=30.0) as http:
             for attempt in range(len(backoff_seconds) + 1):
+                retryable = False
                 try:
                     response = http.post(
                         self.endpoint,
-                        headers={"Api-Key": self.api_key, "Content-Type": "application/json"},
+                        headers={"API-Key": self.api_key, "Content-Type": "application/json"},
                         json={"query": graphql_query},
                     )
                     response.raise_for_status()
                     body = response.json()
-                    return body["data"]["actor"]["account"]["nrql"]["results"]
+                    # H1: handle GraphQL errors envelope (HTTP 200 + body.errors)
+                    if body.get("errors"):
+                        raise NewRelicError(f"NerdGraph errors: {body['errors']}")
+                    nrql_block = body.get("data", {}).get("actor", {}).get("account", {}).get("nrql")
+                    if nrql_block is None:
+                        raise NewRelicError(f"NerdGraph returned null nrql block: {body}")
+                    return nrql_block["results"]
                 except httpx.HTTPStatusError as e:
                     status = e.response.status_code if e.response else 0
-                    if status < 500 or attempt >= len(backoff_seconds):
+                    retryable = status >= 500
+                    if not retryable or attempt >= len(backoff_seconds):
                         raise
-                    last_exc = e
+                except httpx.RequestError:  # H2: timeouts, ConnectError, etc.
+                    retryable = True
+                    if attempt >= len(backoff_seconds):
+                        raise
+
+                if retryable:
                     base = backoff_seconds[attempt]
                     jitter = random.uniform(-0.25, 0.25) * base
                     time.sleep(min(base + jitter, 30.0))
-
-        raise RuntimeError(f"nrql() retry loop exited unexpectedly: {last_exc}")
 ```
 
 - [ ] **Step 4: Run tests** — expect 7 passed.
@@ -696,18 +729,23 @@ git add backend/services/integrations/new_relic.py backend/tests/test_new_relic_
 git commit -m "feat(new_relic): exponential backoff with jitter for transient 5xx"
 ```
 
-### Task 1.4: Defensive Api-Key log scrubbing
+### Task 1.4: Regression test — API key does not leak in exceptions
 
 **Files:**
-- Modify: `backend/services/integrations/new_relic.py`
 - Modify: `backend/tests/test_new_relic_client.py`
 
-Per spec §7 + M11.
+Per spec §7. **H4-fix:** the previous draft added a `_safe_message` helper that was never called anywhere (dead code; the regression test passed trivially because httpx doesn't leak headers by default). We drop the helper and keep only the regression test as a guard against future regressions if anyone adds custom exception messages downstream.
 
-- [ ] **Step 1: Add failing test**
+- [ ] **Step 1: Add the regression test**
 
 ```python
 def test_auth_failure_does_not_leak_api_key():
+    """Pin that the API key never appears in any exception's str() form.
+
+    httpx doesn't leak request headers in HTTPStatusError by default, so this
+    test currently passes against the implementation. It exists to fail loud
+    if anyone later adds custom exception messages that include credentials.
+    """
     import httpx
     client = NewRelicClient(api_key="super-secret-key-12345", account_id=1, region="US")
 
@@ -723,36 +761,16 @@ def test_auth_failure_does_not_leak_api_key():
                 client.nrql("SELECT count(*) FROM PageView")
 
     assert "super-secret-key-12345" not in str(exc_info.value)
+    assert "super-secret-key-12345" not in repr(exc_info.value)
 ```
 
-- [ ] **Step 2: Run** — likely passes (httpx doesn't leak headers by default). Test pins the behaviour.
+- [ ] **Step 2: Run tests** — expect all passing (no implementation change needed).
 
-- [ ] **Step 3: Add the defensive scrubber helper**
-
-Append to `new_relic.py`:
-
-```python
-def _safe_message(exc: BaseException) -> str:
-    """Strip Api-Key headers from any exception's string form.
-
-    Use this anywhere `new_relic.py` (or callers) log exception bodies.
-    """
-    import re
-    return re.sub(
-        r"Api-Key[:=]\s*[^\s\"'<>]+",
-        "Api-Key: <redacted>",
-        str(exc),
-        flags=re.IGNORECASE,
-    )
-```
-
-- [ ] **Step 4: Run all tests** — expect 8 passed.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add backend/services/integrations/new_relic.py backend/tests/test_new_relic_client.py
-git commit -m "feat(new_relic): defensive Api-Key scrubbing + regression test"
+git add backend/tests/test_new_relic_client.py
+git commit -m "test(new_relic): regression test for API key non-leakage in exceptions"
 ```
 
 ---
@@ -897,6 +915,25 @@ class TestTargetHours:
         now = datetime(2026, 5, 20, 14, 30, tzinfo=IST)
         latest = datetime(2026, 5, 20, 13, tzinfo=IST)
         assert target_hours(latest_in_csv=latest, now=now, since=None) == []
+
+    # H22-fix: timezone-boundary edge cases
+    def test_now_exactly_on_hour_boundary(self):
+        """At now=14:00:00 exactly, the latest closed hour is [13:00, 14:00)."""
+        now = datetime(2026, 5, 20, 14, 0, 0, tzinfo=IST)
+        latest = datetime(2026, 5, 20, 12, tzinfo=IST)
+        result = target_hours(latest_in_csv=latest, now=now, since=None)
+        assert len(result) == 1
+        assert result[0] == (datetime(2026, 5, 20, 13, tzinfo=IST),
+                             datetime(2026, 5, 20, 14, tzinfo=IST))
+
+    def test_window_crosses_midnight(self):
+        """latest=23:00 May 19, now=02:30 May 20 → fetch 00:00 + 01:00 of May 20."""
+        latest = datetime(2026, 5, 19, 23, tzinfo=IST)
+        now = datetime(2026, 5, 20, 2, 30, tzinfo=IST)
+        result = target_hours(latest_in_csv=latest, now=now, since=None)
+        assert len(result) == 2
+        assert result[0][0] == datetime(2026, 5, 20, 0, tzinfo=IST)
+        assert result[1][0] == datetime(2026, 5, 20, 1, tzinfo=IST)
 ```
 
 - [ ] **Step 2: Run** — expect ImportError for `target_hours`.
@@ -1056,7 +1093,10 @@ def parse_q1_response(nrql_response: dict) -> list[dict]:
     metrics = ["lcp", "inp", "cls", "fcp", "ttfb"]
     out = []
     for entry in nrql_response.get("results", []):
-        facet = entry.get("facet", [None, None])
+        facet = entry.get("facet") or []
+        # H6-fix: defensive against single-element facet
+        if len(facet) < 2:
+            continue
         page_url = clean_url(facet[0]) if facet[0] else None
         device = (facet[1] or "").lower()
         if page_url is None or not device:
@@ -1120,7 +1160,10 @@ def parse_q2_response(nrql_response: dict) -> list[dict]:
     """Parse Q2 (PageView count) response."""
     out = []
     for entry in nrql_response.get("results", []):
-        facet = entry.get("facet", [None, None])
+        facet = entry.get("facet") or []
+        # H6-fix: guard against single-element facet (matches Q3's defensive pattern)
+        if len(facet) < 2:
+            continue
         page_url = clean_url(facet[0]) if facet[0] else None
         device = (facet[1] or "").lower()
         if page_url is None or not device:
@@ -1579,13 +1622,14 @@ class TestFacetCap:
         check_facet_cap(unique_count=300, app="x", hour="2026-05-19 14")
 
     def test_at_or_above_threshold_raises(self):
+        # H10-fix: NerdGraph LIMIT MAX = 5000 (as of 2024). Warn zone 4500, fail 5000.
         from services.integrations.performance_grip import (
             check_facet_cap, FacetCapExceeded
         )
         with pytest.raises(FacetCapExceeded, match="facet cap"):
-            check_facet_cap(unique_count=1900, app="x", hour="2026-05-19 14")
+            check_facet_cap(unique_count=4500, app="x", hour="2026-05-19 14")
         with pytest.raises(FacetCapExceeded):
-            check_facet_cap(unique_count=2000, app="x", hour="2026-05-19 14")
+            check_facet_cap(unique_count=5000, app="x", hour="2026-05-19 14")
 ```
 
 - [ ] **Step 2: Run** — expect failures.
@@ -1594,14 +1638,17 @@ class TestFacetCap:
 
 ```python
 class FacetCapExceeded(RuntimeError):
-    """uniqueCount(pageUrl) too close to NerdGraph's 2000-facet cap (spec C2)."""
+    """uniqueCount(pageUrl) too close to NerdGraph's 5000-facet LIMIT MAX (H10)."""
 
 
 def check_facet_cap(unique_count: int, *, app: str, hour: str) -> None:
-    if unique_count >= 1900:
+    # NerdGraph's LIMIT MAX is 5000 (raised from 2000 in early 2024). Our queries
+    # use LIMIT MAX. We treat ≥4500 as the danger zone — the long tail is at
+    # risk of silent truncation before we hit the hard cap.
+    if unique_count >= 4500:
         raise FacetCapExceeded(
             f"{app} hour {hour}: uniqueCount(pageUrl) = {unique_count} — "
-            f"approaching NerdGraph's facet cap of 2000. Likely truncating long tail."
+            f"approaching NerdGraph's LIMIT MAX of 5000. Likely truncating long tail."
         )
 ```
 
@@ -1633,33 +1680,147 @@ Note `REGISTRY` shape and `main()` structure.
 
 ```python
 class TestRunOrchestrator:
-    def test_run_returns_status_log_refreshed_at(self):
-        from services.integrations.performance_grip import run
-        q1_fixture = json.loads((FIXTURES / "Q1_pageviewtiming_response.json").read_text())
-        q2_fixture = json.loads((FIXTURES / "Q2_pageview_response.json").read_text())
-        q3_fixture = json.loads((FIXTURES / "Q3_javascripterror_response.json").read_text())
+    """H23/H24/H26: real assertions on orchestrator behaviour; tests that
+    would fail if run() is broken in plausible ways."""
+
+    def _mock_client_with_fixtures(self):
+        """H8-fix: route on distinct substrings, not generic 'PageView' which
+        matches both Q1 (PageViewTiming) and Q2 (PageView)."""
+        q1 = json.loads((FIXTURES / "Q1_pageviewtiming_response.json").read_text())
+        q2 = json.loads((FIXTURES / "Q2_pageview_response.json").read_text())
+        q3 = json.loads((FIXTURES / "Q3_javascripterror_response.json").read_text())
 
         class MockClient:
             def nrql(self, query: str):
-                if "uniqueCount" in query:
+                if "uniqueCount(" in query:
                     return [{"uniqueCount": 100}]
-                if "PageViewTiming" in query:
-                    return q1_fixture["results"]
-                if "PageView" in query:
-                    return q2_fixture["results"]
-                if "JavaScriptError" in query:
-                    return q3_fixture["results"]
+                if "FROM PageViewTiming" in query:
+                    return q1["results"]
+                if "FROM PageView " in query or query.rstrip().endswith("FROM PageView"):
+                    return q2["results"]
+                if "FROM JavaScriptError" in query:
+                    return q3["results"]
                 return []
+        return MockClient()
+
+    def test_run_succeeds_and_writes_expected_rows(self):
+        """H23-fix: assert status == 'ok' exactly, CSV has rows, sample row has
+        non-None LCP. Previous draft accepted status in (ok, partial) which is
+        vacuous."""
+        from services.integrations.performance_grip import run
 
         with tempfile.TemporaryDirectory() as tmpdir:
             data_dir = Path(tmpdir)
-            result = run(client=MockClient(), data_dir=data_dir,
-                         now=datetime(2026, 5, 20, 14, 30, tzinfo=IST),
-                         since=None)
-            assert result["status"] in ("ok", "partial")
-            assert isinstance(result["log"], list)
-            assert "refreshed_at" in result
-            assert (data_dir / "hourly_web_vitals.csv").exists()
+            result = run(
+                client=self._mock_client_with_fixtures(),
+                data_dir=data_dir,
+                now=datetime(2026, 5, 20, 14, 30, tzinfo=IST),
+                since=None,
+            )
+
+            # Tight status assertion
+            assert result["status"] == "ok", f"expected 'ok', got {result['status']}; log: {result['log']}"
+
+            # CSV exists and has rows
+            csv_path = data_dir / "hourly_web_vitals.csv"
+            assert csv_path.exists()
+            with open(csv_path) as f:
+                rows = list(_csv.DictReader(f))
+            assert len(rows) > 0, "CSV is empty — run() didn't write anything"
+
+            # At least one row has the expected fields populated
+            assert any(r.get("lcp_p75_ms") not in ("", None) for r in rows), \
+                "No row has lcp_p75_ms set — parser likely broken"
+
+            # Log contains "rows committed" entries for at least one app
+            committed_lines = [l for l in result["log"] if "rows committed" in l]
+            assert committed_lines, f"No 'rows committed' lines in log; got {result['log']}"
+
+    def test_run_treats_auth_failure_as_fatal(self):
+        """H24-fix: a persistent 401 (the most likely production failure mode per
+        CA1) should stop the run, not silently log partial failures forever."""
+        from services.integrations.performance_grip import run
+        import httpx
+
+        class AuthFailClient:
+            def nrql(self, query):
+                raise httpx.HTTPStatusError(
+                    "401", request=MagicMock(),
+                    response=MagicMock(status_code=401),
+                )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = run(
+                client=AuthFailClient(),
+                data_dir=Path(tmpdir),
+                now=datetime(2026, 5, 20, 14, 30, tzinfo=IST),
+                since=None,
+            )
+            # Every (app, hour) should fail; status must be 'fail', not 'partial'
+            assert result["status"] == "fail", \
+                f"persistent auth failure should yield 'fail', got {result['status']}"
+            assert any("401" in l or "FAILED" in l for l in result["log"])
+
+
+class TestRunSmokeIntegration:
+    """H26-fix: smoke test with httpx.MockTransport instead of MockClient.
+
+    Exercises the real NewRelicClient (payload assembly, response parsing)
+    against a fake HTTP transport returning the captured fixtures. Catches
+    GraphQL request body assembly bugs that the MockClient test cannot.
+    """
+
+    def test_real_client_against_mock_transport(self):
+        import httpx
+        from services.integrations.new_relic import NewRelicClient
+        from services.integrations.performance_grip import run
+
+        q1 = json.loads((FIXTURES / "Q1_pageviewtiming_response.json").read_text())
+        q2 = json.loads((FIXTURES / "Q2_pageview_response.json").read_text())
+        q3 = json.loads((FIXTURES / "Q3_javascripterror_response.json").read_text())
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            query = body["query"]
+            # Wrap the appropriate fixture's results in the NerdGraph envelope
+            if "uniqueCount(" in query:
+                inner = {"results": [{"uniqueCount": 100}]}
+            elif "FROM PageViewTiming" in query:
+                inner = q1
+            elif "FROM PageView " in query or query.rstrip().endswith("FROM PageView"):
+                inner = q2
+            elif "FROM JavaScriptError" in query:
+                inner = q3
+            else:
+                inner = {"results": []}
+            return httpx.Response(
+                200,
+                json={"data": {"actor": {"account": {"nrql": inner}}}},
+            )
+
+        # Patch httpx.Client to use our MockTransport
+        transport = httpx.MockTransport(handler)
+        original_init = httpx.Client.__init__
+
+        def patched_init(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            return original_init(self, *args, **kwargs)
+
+        with patch.object(httpx.Client, "__init__", patched_init):
+            client = NewRelicClient(api_key="dummy", account_id=4002804, region="US")
+            with tempfile.TemporaryDirectory() as tmpdir:
+                result = run(
+                    client=client,
+                    data_dir=Path(tmpdir),
+                    now=datetime(2026, 5, 20, 14, 30, tzinfo=IST),
+                    since=None,
+                )
+                assert result["status"] == "ok"
+                csv_path = Path(tmpdir) / "hourly_web_vitals.csv"
+                assert csv_path.exists()
+                with open(csv_path) as f:
+                    rows = list(_csv.DictReader(f))
+                assert len(rows) > 0
 ```
 
 - [ ] **Step 3: Run** — expect ImportError.
@@ -1674,6 +1835,17 @@ APP_CONFIG = [
     ("gi-client-static", "GI Client Static"),
     ("gi-client-web",   "GI Client Web"),
 ]
+
+# H5-lite: validate app names at module load. NRQL doesn't support parameterised
+# queries; we mitigate injection risk by allowlisting safe characters at config
+# load rather than escaping at query construction time.
+_APP_NAME_OK = re.compile(r"^[A-Za-z0-9 \-_./]+$")
+for _slug, _nr_app in APP_CONFIG:
+    if not _APP_NAME_OK.match(_nr_app):
+        raise ValueError(
+            f"NR appName {_nr_app!r} contains characters outside [A-Za-z0-9 -_./]; "
+            f"NRQL injection risk. Edit APP_CONFIG to match a safer name."
+        )
 
 
 def _nrql_q1(nr_app: str, since: datetime, until: datetime) -> str:
@@ -1690,7 +1862,7 @@ def _nrql_q1(nr_app: str, since: datetime, until: datetime) -> str:
         f"SINCE '{since.strftime('%Y-%m-%d %H:%M:%S')}' "
         f"UNTIL '{until.strftime('%Y-%m-%d %H:%M:%S')}' "
         "WITH TIMEZONE 'Asia/Kolkata' "
-        "FACET pageUrl, deviceType LIMIT 500"
+        "FACET pageUrl, deviceType LIMIT MAX"
     )
 
 
@@ -1702,7 +1874,7 @@ def _nrql_q2(nr_app: str, since: datetime, until: datetime) -> str:
         f"SINCE '{since.strftime('%Y-%m-%d %H:%M:%S')}' "
         f"UNTIL '{until.strftime('%Y-%m-%d %H:%M:%S')}' "
         "WITH TIMEZONE 'Asia/Kolkata' "
-        "FACET pageUrl, deviceType LIMIT 500"
+        "FACET pageUrl, deviceType LIMIT MAX"
     )
 
 
@@ -1715,7 +1887,7 @@ def _nrql_q3(nr_app: str, since: datetime, until: datetime) -> str:
         f"SINCE '{since.strftime('%Y-%m-%d %H:%M:%S')}' "
         f"UNTIL '{until.strftime('%Y-%m-%d %H:%M:%S')}' "
         "WITH TIMEZONE 'Asia/Kolkata' "
-        "FACET pageUrl, deviceType LIMIT 500"
+        "FACET pageUrl, deviceType LIMIT MAX"
     )
 
 
@@ -2086,34 +2258,46 @@ git commit -m "docs(performance-grip): session-log.md initial entry"
 - Create: `backend/requirements.in`
 - Create: `backend/requirements.lock`
 
-- [ ] **Step 1: Author `requirements.in`** with only top-level deps (illustrative — adapt to actual):
+- [ ] **Step 1: Author `requirements.in` matching the current `requirements.txt`** (H16-fix: previous draft used illustrative list missing the `httpx<0.28` constraint required for anthropic compatibility — that omission would have broken production on next deploy)
+
+Copy the current `backend/requirements.txt` content into `backend/requirements.in`, preserving every constraint and comment:
 
 ```
-fastapi
-uvicorn
-duckdb
-pandas
-httpx
-python-dotenv
+# Top-level dependencies for grip-analytics backend.
+# Transitive deps + hashes are resolved into requirements.lock by
+# `pip-compile --generate-hashes`. Dependabot keeps the lock in sync.
+
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+duckdb==1.1.0
+anthropic==0.34.0
+httpx<0.28          # anthropic 0.34 passes proxies= to httpx.Client, which was removed in httpx 0.28
+python-dotenv==1.0.1
+python-multipart==0.0.9
+
+# Test-time only — kept here so CI installs in one step.
 pytest
 ```
 
-- [ ] **Step 2: Generate the lock**:
+> **Important:** the `httpx<0.28` constraint is load-bearing. Don't drop it; `pip-compile` will resolve to a compatible httpx version automatically.
+
+- [ ] **Step 2: Generate the lock — including `--allow-unsafe` to pin pip/setuptools/wheel** (H14-fix):
 
 ```bash
 cd backend
-.venv/bin/pip-compile --generate-hashes requirements.in -o requirements.lock
+.venv/bin/pip-compile --generate-hashes --allow-unsafe requirements.in -o requirements.lock
 ```
 
-Verify the output has `--hash=sha256:...` lines.
+Verify the output has `--hash=sha256:...` lines AND includes pip/setuptools/wheel entries.
 
-- [ ] **Step 3: Verify install in a fresh venv**:
+- [ ] **Step 3: Verify install against the existing backend venv** (H19-fix: previous draft created a fresh `python3.12 -m venv` which doesn't work in a worktree without py3.12 installed):
 
 ```bash
-python3.12 -m venv /tmp/perfgrip-venv-test
-/tmp/perfgrip-venv-test/bin/pip install --require-hashes -r requirements.lock
-rm -rf /tmp/perfgrip-venv-test
+cd backend
+.venv/bin/pip install --dry-run --require-hashes -r requirements.lock
 ```
+
+Expected: no errors. Dry-run validates hash file structure without actually installing.
 
 - [ ] **Step 4: Commit**
 
@@ -2290,25 +2474,35 @@ git add .github/workflows/refresh-performance-grip.yml
 git commit -m "ci(performance-grip): twice-daily cron, concurrency-locked, SHA-pinned actions"
 ```
 
-### Task 5.2: Configure secrets and variables (GitHub UI, manual)
+### Task 5.2: Configure secrets and variables (scripted via `gh`)
 
 **Files:**
-- None — manual GitHub UI
+- None — scripted from local `backend/.env` (DA3-fix: previous draft used manual UI click-through; the `gh` CLI keeps the plan executable end-to-end)
 
-- [ ] **Step 1: Settings → Secrets and variables → Actions, add secrets**:
+- [ ] **Step 1: Push the NR API Key to repo secrets**
 
-| Name | Value |
-|---|---|
-| `NEW_RELIC_QUERY_KEY` | from Task 0.1 (if Insights Query Key available) |
-| `NEW_RELIC_USER_API_KEY` | fallback only |
+```bash
+gh secret set NEW_RELIC_API_KEY < <(grep '^NEW_RELIC_API_KEY=' backend/.env | cut -d= -f2-)
+```
 
-- [ ] **Step 2: Add variable** (not secret):
+Verify: `gh secret list | grep NEW_RELIC_API_KEY` shows the secret with a recent updated-at timestamp.
 
-| Name | Value |
-|---|---|
-| `NEW_RELIC_ACCOUNT_ID` | numeric account ID from Task 0.1 |
+- [ ] **Step 2: Push the NR account ID as a repo variable**
 
-- [ ] **Step 3: Trigger a no-op workflow_dispatch**: Actions → Refresh Performance Grip → Run workflow. Empty `since`. Watch the run.
+```bash
+gh variable set NEW_RELIC_ACCOUNT_ID --body "$(grep '^NEW_RELIC_ACCOUNT_ID=' backend/.env | cut -d= -f2-)"
+```
+
+Verify: `gh variable list | grep NEW_RELIC_ACCOUNT_ID` shows `4002804`.
+
+- [ ] **Step 3: Trigger a no-op workflow_dispatch** (the genuine human-checkpoint here — observe the run):
+
+```bash
+gh workflow run refresh-performance-grip.yml
+gh run watch
+```
+
+Or use the GitHub UI: Actions → Refresh Performance Grip → Run workflow. Empty `since`. Watch the run.
 
 Expected: runner installs deps, `python -m services.integrations.refresh performance_grip` runs, and either reports "N hour-windows to fetch" with rows committed, or surfaces a clear NR-side error (confirms reachability).
 
@@ -2332,7 +2526,7 @@ git pull
 wc -l backend/data/performance_grip/hourly_web_vitals.csv
 ```
 
-Expected: tens of thousands of rows.
+Expected: **~100K-200K rows** for a 7-day backfill (H29-fix; spec §4.3 row-count math gives ~19K rows/day × 7 days ≈ 130K, ±50% for traffic variation). If it's a few hundred or a few million, something's wrong; investigate before continuing.
 
 - [ ] **Step 4: Spot-check contents**:
 
