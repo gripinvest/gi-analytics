@@ -1,0 +1,11 @@
+{
+  "name": "Performance Grip",
+  "description": "Leadership-facing weekly performance hygiene dashboard, backed by a daily archive of New Relic Web Vitals data that outlives NR's 8-day retention window. v1: 2 web Browser apps (gi-client-static, gi-client-web); hourly storage; Editorial dashboard.",
+  "status": "active",
+  "tags": ["performance", "web-vitals", "leadership-review", "hourly-archive"],
+  "updated_at": "2026-05-20",
+  "dashboard_component": "PerformanceGripEditorial",
+  "refreshable": true,
+  "owner": "Puru",
+  "chat_context": "Performance Grip archives hourly Web Vitals (LCP, INP, CLS, FCP, TTFB at p75 and p95) plus page-view counts and JS error counts, from New Relic Browser, for two apps: gi-client-static (pre-login marketing) and gi-client-web (post-login investing platform). Hourly grain because peak-hour patterns matter for an investing platform. Per (date, hour, app, page_url, device). See docs/projects/performance-grip/ for spec, data sources, and roadmap."
+}
