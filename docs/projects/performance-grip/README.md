@@ -34,13 +34,13 @@ Per page × device × day, for each app:
 - **Supporting** — FCP, TTFB (p75 + p95)
 - **Volume / quality denominators** — page views, JS error count
 
-Storage: `backend/data/performance-grip/daily_web_vitals.csv`. Raw URLs
+Storage: `backend/data/performance_grip/hourly_web_vitals.csv`. Raw URLs
 stored; route patterns applied at the dashboard layer via
-`backend/data/performance-grip/route_patterns.csv`.
+`backend/data/performance_grip/route_patterns.csv`.
 
 ## Cron
 
-GitHub Actions, daily at 00:15 IST. Workflow:
+GitHub Actions, twice daily at 01:00 + 13:00 IST. Workflow:
 `.github/workflows/refresh-performance-grip.yml`. Reruns and backfill within
 NR's 8-day window via `workflow_dispatch` with `since=YYYY-MM-DD`.
 
@@ -51,9 +51,9 @@ NR's 8-day window via `workflow_dispatch` with `since=YYYY-MM-DD`.
 | Spec | [`specs/2026-05-20-performance-grip-design.md`](./specs/2026-05-20-performance-grip-design.md) |
 | NR client | `backend/services/integrations/new_relic.py` |
 | Fetch module | `backend/services/integrations/performance_grip.py` |
-| Archive | `backend/data/performance-grip/daily_web_vitals.csv` |
-| Route patterns | `backend/data/performance-grip/route_patterns.csv` |
-| Project metadata | `backend/data/performance-grip/project.json` |
+| Archive | `backend/data/performance_grip/hourly_web_vitals.csv` |
+| Route patterns | `backend/data/performance_grip/route_patterns.csv` |
+| Project metadata | `backend/data/performance_grip/project.json` |
 | Dashboard | `frontend/components/dashboards/PerformanceGripDashboardEditorial.jsx` |
 | Sub-components | `frontend/components/dashboards/performance-grip/` |
 | Workflow | `.github/workflows/refresh-performance-grip.yml` |

@@ -83,7 +83,7 @@ platform-level changes:
 
 ```
 backend/
-  data/performance-grip/
+  data/performance_grip/
     project.json
     route_patterns.csv          ← config: regex → pattern label (hand-curated)
     hourly_web_vitals.csv       ← THE archive (page × device × hour × day grain)
@@ -229,7 +229,7 @@ empty-result detection in §7 cannot.
 
 ### 4.3 Storage schema
 
-`backend/data/performance-grip/hourly_web_vitals.csv` — primary key
+`backend/data/performance_grip/hourly_web_vitals.csv` — primary key
 `(date, hour, app, page_url, device)`. Filename reflects the hourly grain.
 
 | Column | Type | Example | Notes |
@@ -449,7 +449,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase
-          git add backend/data/performance-grip/
+          git add backend/data/performance_grip/
           git diff --staged --quiet || git commit -m "chore: refresh Performance Grip data"
           git push
 ```
@@ -491,9 +491,9 @@ belong in secrets:
 
 | Name | Location | Sensitivity | Notes |
 |---|---|---|---|
-| `NEW_RELIC_QUERY_KEY` (preferred) **OR** `NEW_RELIC_USER_API_KEY` (fallback) | Repo **secret** | High | **Preferred path: Insights Query Key** — read-only scope, query-only, no UI/mutation surface. Use this if our NR plan tier exposes it. **Fallback only if not available:** a User API Key tied to a dedicated service-account user with a read-only custom NerdGraph role (never an engineer's personal key). Discovery (§10) confirms which is available; spec mandates Insights Query Key when both are options. **Rotate every 90 days.** |
-| `NEW_RELIC_ACCOUNT_ID` | Repo **variable** (`vars.NEW_RELIC_ACCOUNT_ID`) | Low | Numeric account ID; not a credential. Repo variable, not secret, so it's visible in workflow runs for debugging. |
-| `NEW_RELIC_REGION` | `env:` literal in workflow | None | `"US"` or `"EU"` — public infrastructure choice; no need to hide. |
+| `NEW_RELIC_API_KEY` | Repo **secret** | High | **User API Key** — the only key type that works with NerdGraph. (Insights Query Keys authenticate the legacy Insights Query API, not NerdGraph — confirmed during plan review.) Production setup uses a User API Key tied to a service-account user with a read-only NerdGraph custom role (never an engineer's personal key). The same key is already available in local `backend/.env` from initial auth verification. **Rotate every 90 days.** |
+| `NEW_RELIC_ACCOUNT_ID` | Repo **variable** (`vars.NEW_RELIC_ACCOUNT_ID`) | Low | Numeric account ID; not a credential. Repo variable so it's visible in workflow runs for debugging. **Current value: `4002804`** (Grip Invest production NR account, US region). |
+| `NEW_RELIC_REGION` | `env:` literal in workflow | None | `"US"` for this account (confirmed). Public infrastructure choice; no need to hide. |
 
 `backend/.env.example` documents these for local development; `backend/.env`
 is gitignored (verify before first commit). Pre-commit secret scanning
@@ -873,7 +873,7 @@ Actions output:
 [performance_grip] fetched page_views: 184 rows (gi-client-static, 2026-05-19) — 0.4s
 [performance_grip] fetched js_errors: 12 rows (gi-client-static, 2026-05-19) — 0.3s
 [performance_grip] merged: 184 rows for date=2026-05-19 app=gi-client-static
-[performance_grip] write: 12647 total rows → daily_web_vitals.csv
+[performance_grip] write: 12647 total rows → hourly_web_vitals.csv
 ```
 
 No external observability stack. Matches existing project pattern.

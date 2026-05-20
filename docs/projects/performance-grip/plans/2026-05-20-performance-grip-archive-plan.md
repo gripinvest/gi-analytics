@@ -25,28 +25,84 @@
 
 Per spec §11: no fetch code lands until real NerdGraph response fixtures are committed. This phase is manual investigation against the live NR account, producing fixtures + locked-in facts.
 
-### Task 0.1: Obtain NR Insights Query Key (or service-account User API Key)
+### Task 0.1: Confirm NR User API Key + service-account migration
 
 **Files:**
 - Create: `docs/projects/performance-grip/data-sources.md`
 
-**Per spec §5.4 + §10:** Prefer Insights Query Key (read-only NRQL scope). User API Key fallback only if the NR plan tier doesn't expose Query Keys.
+**Confirmed during plan review:** Insights Query Keys do NOT work with NerdGraph (they authenticate the legacy Insights Query API only). The **User API Key** is the only key type that works with `api.newrelic.com/graphql`. A User API Key has already been tested locally and works against this account.
 
-- [ ] **Step 1: Log in to NR UI** for the gripinvest account.
-- [ ] **Step 2: Check Insights Query Keys availability**: `User menu → API keys → Insights Query Keys`. If absent, fall back to User API Key.
-- [ ] **Step 3: Create the key**. If Query Key: name it `performance-grip-readonly`. If User API Key fallback: create dedicated service-account user `grip-analytics-cron` with read-only NerdGraph custom role first, then make a key for that user.
-- [ ] **Step 4: Capture NR account ID and region**. From any dashboard URL: `accountId=12345`. Region: `one.newrelic.com` → US, `one.eu.newrelic.com` → EU.
-- [ ] **Step 5: Stash credentials locally (do NOT commit)**
+**Confirmed values:** `NEW_RELIC_ACCOUNT_ID=4002804`, `NEW_RELIC_REGION=US`. The current `NEW_RELIC_API_KEY` in `backend/.env` works.
 
-Create `backend/.env` (gitignored) with:
+- [ ] **Step 1: Verify gitignore** (do this BEFORE writing anything to .env in a new worktree):
+
+```bash
+git check-ignore backend/.env
 ```
-NEW_RELIC_QUERY_KEY=<key>
-# OR fallback:
-# NEW_RELIC_USER_API_KEY=<key>
-NEW_RELIC_ACCOUNT_ID=<id>
-NEW_RELIC_REGION=US
+
+Expected: prints the path. If not, the engineer's `.env` would leak — add `backend/.env` to `.gitignore` first.
+
+- [ ] **Step 2: Confirm the key in `backend/.env` works against NerdGraph**
+
+```bash
+cd backend
+.venv/bin/python -c "
+import os, httpx, json
+from dotenv import load_dotenv
+load_dotenv()
+key = os.environ['NEW_RELIC_API_KEY']
+acct = os.environ['NEW_RELIC_ACCOUNT_ID']
+r = httpx.post(
+    'https://api.newrelic.com/graphql',
+    headers={'API-Key': key, 'Content-Type': 'application/json'},
+    json={'query': '{ actor { account(id: ' + acct + ') { nrql(query: \"SELECT count(*) FROM PageViewTiming SINCE 1 hour ago\") { results } } } }'},
+    timeout=15.0,
+)
+print(r.status_code, json.dumps(r.json(), indent=2)[:500])
+"
 ```
-Verify `.env` is gitignored: `git check-ignore backend/.env` should print the path.
+
+Expected: HTTP 200, a `data.actor.account.nrql.results` array with a numeric count. If 401: key needs rotation or scope adjustment.
+
+- [ ] **Step 3: Plan the service-account migration** (lower priority — current key works, but using an engineer's personal key in production cron is fragile if they leave)
+
+Create a dedicated NR service-account user `grip-analytics-cron` with a read-only custom NerdGraph role. Generate a User API Key for that user. Update `backend/.env` and GitHub repo secret (Task 5.2) to use the service-account key. Document in `data-sources.md` whose key was used (personal vs service-account) and target rotation date.
+
+- [ ] **Step 4: Create `data-sources.md` skeleton**
+
+```markdown
+# Performance Grip — data sources
+
+Captured during Phase 0 discovery. **Update as you learn.**
+
+## New Relic account
+
+- **Account ID:** `4002804`
+- **Region:** US (`https://api.newrelic.com/graphql`)
+- **Key type:** User API Key (Insights Query Keys do not work with NerdGraph — confirmed in plan review)
+- **Active key owner:** {fill in: personal | service-account `grip-analytics-cron`}
+- **Last rotation:** {date}
+
+## Apps tracked (v1)
+
+(filled by Task 0.2)
+
+## NRQL query shapes + fixtures
+
+(filled by Tasks 0.3–0.5; fixtures under `backend/tests/fixtures/new_relic/`)
+
+## Verified facts
+
+(filled by Tasks 0.6–0.8)
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /Users/purujit/grip/grip-code/grip_analytics/grip-analytics/.claude/worktrees/performance-grip-design
+git add docs/projects/performance-grip/data-sources.md
+git commit -m "docs(performance-grip): data-sources.md — NR auth confirmed, account 4002804 / US"
+```
 
 - [ ] **Step 6: Create `data-sources.md` skeleton**
 
@@ -144,8 +200,34 @@ git commit -m "docs(performance-grip): NR appName canonical values discovered"
 ```
 
 - [ ] **Step 2: If empty, widen window** to `SINCE 2 days ago UNTIL 1 day ago`.
-- [ ] **Step 3: Save the JSON to fixture**: copy the entire `data.actor.account.nrql` block to `backend/tests/fixtures/new_relic/Q1_pageviewtiming_response.json`.
-- [ ] **Step 4: Document the actual percentile response shape in `data-sources.md`** — record verbatim what NR returned (e.g., `{"lcp": {"75": 2450, "95": 3920}, ...}` or whatever the actual shape is). This locks the parser in Task 2.3.
+- [ ] **Step 3: ALSO run the `timingName`-discriminated variant** (CA2 verification — reviewer flagged that `PageViewTiming` may use a single `timingName` discriminator per event; if so, the Step 1 query gives wrong sample counts):
+
+```graphql
+{
+  actor {
+    account(id: 4002804) {
+      nrql(query: "SELECT filter(percentile(largestContentfulPaint, 75, 95), WHERE timingName='largestContentfulPaint') AS lcp, filter(percentile(interactionToNextPaint, 75, 95), WHERE timingName='interactionToNextPaint') AS inp, filter(percentile(cumulativeLayoutShift, 75, 95), WHERE timingName='cumulativeLayoutShift') AS cls, filter(percentile(firstContentfulPaint, 75, 95), WHERE timingName='firstContentfulPaint') AS fcp, filter(percentile(firstByte, 75, 95), WHERE timingName='firstByte') AS ttfb, filter(count(*), WHERE timingName='largestContentfulPaint') AS sample_count FROM PageViewTiming WHERE appName = '<CANONICAL>' AND pageUrl IS NOT NULL AND deviceType IS NOT NULL SINCE 2 hours ago UNTIL 1 hour ago FACET pageUrl, deviceType LIMIT 500") {
+        results
+      }
+    }
+  }
+}
+```
+
+Compare the **`sample_count`** between Step 1 and Step 3 queries for an arbitrary facet. If Step 1's count is ~5× Step 3's count, `timingName` IS the discriminator — use the Step 3 query shape for production. Document which shape is correct in `data-sources.md`. **Use the correct shape to build the production fixture in step 4 below.**
+
+- [ ] **Step 4: Save the correct JSON to fixture**: copy the entire `data.actor.account.nrql` block from whichever query (Step 1 or Step 3) was determined correct, to `backend/tests/fixtures/new_relic/Q1_pageviewtiming_response.json`.
+- [ ] **Step 5: Document the actual percentile response shape in `data-sources.md`** — record verbatim what NR returned (e.g., `{"lcp": {"75": 2450, "95": 3920}, ...}` or whatever the actual shape is). This locks the parser in Task 2.3.
+
+```markdown
+## NRQL query shape decisions (Task 0.3)
+
+- **`timingName` discriminator required:** {yes | no}
+- **Reasoning:** Step 1 sample_count was {N}, Step 3 sample_count was {M}, ratio {N/M}. {Step 3 query is correct OR Step 1 query is correct}.
+- **Percentile response shape (verbatim):** {paste the actual JSON structure of one facet's `lcp` field}
+```
+
+- [ ] **Step 6: If `timingName` IS the discriminator**, also update plan Task 2.10's `_nrql_q1` helper before Phase 2 starts. (The plan ships with the simple SELECT; the `filter()`-wrapped variant is the fix.)
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -190,14 +272,17 @@ SINCE 1 day ago FACET pageUrl, deviceType LIMIT 500
 ```
 
 - [ ] **Step 2: Save to** `backend/tests/fixtures/new_relic/Q3_javascripterror_response.json`.
-- [ ] **Step 3: Inspect for `deviceType` population** — count buckets with non-null deviceType vs null. Record percent in `data-sources.md`:
+- [ ] **Step 3: Inspect for `deviceType` population** — count buckets with non-null deviceType vs null. Plan reviewer (CA3) flagged that `JavaScriptError` events historically don't carry `deviceType` reliably; we measure here and lock the merge behavior accordingly.
 
 ```markdown
 ## JavaScriptError deviceType availability
 
 - Sample: {N} facet buckets from {SINCE} window
 - Buckets with non-null `deviceType`: {N} ({pct}%)
-- Decision: {join on (pageUrl, deviceType) if >90% populated; else join on pageUrl only and accept device aggregation for JS errors}
+- **Decision tree:**
+  - If `>90%` populated → keep `FACET pageUrl, deviceType` in Q3; merge joins on (pageUrl, deviceType) as currently specced.
+  - If `<90%` populated → change Q3 FACET to `pageUrl` only; merge_rows broadcasts errors equally to both devices. Update plan Task 2.4 parser (drop device key) and Task 2.5 merge (broadcast logic) before Phase 2 starts.
+- **Outcome:** {filled after measurement}
 ```
 
 - [ ] **Step 4: Commit**
@@ -493,10 +578,16 @@ git commit -m "feat(new_relic): nrql() implemented and fixture-tested"
 
 Per spec §7: retry 3× with backoff `1s, 4s, 16s` + ±25% jitter, cap at 30s.
 
-- [ ] **Step 1: Add failing tests**
+- [ ] **Step 1: Add failing tests** (CC1-fix: must verify the retry actually slept the right intervals — a no-retry impl with three sequential calls would have passed the previous draft of this test)
 
 ```python
-def test_nrql_retries_on_transient_5xx():
+def test_nrql_retries_on_transient_5xx_with_correct_backoff():
+    """Verify retry actually waits between attempts.
+
+    Capture time.sleep calls; assert sleep durations approximate [1, 4]s
+    within ±25% jitter. A no-retry implementation has 0 sleep calls and
+    this test would fail.
+    """
     client = NewRelicClient(api_key="x", account_id=1, region="US")
     call_count = [0]
 
@@ -514,18 +605,25 @@ def test_nrql_retries_on_transient_5xx():
         mock.raise_for_status = MagicMock()
         return mock
 
+    sleep_calls: list[float] = []
     with patch("httpx.Client.post", side_effect=flaky_post):
-        with patch("time.sleep"):
+        with patch("time.sleep", side_effect=lambda s: sleep_calls.append(s)):
             rows = client.nrql("SELECT count(*) FROM PageView")
 
     assert call_count[0] == 3
     assert rows == [{"n": 1}]
+    # 2 sleeps for the 2 failed attempts before success
+    assert len(sleep_calls) == 2, f"expected 2 sleeps, got {len(sleep_calls)}: {sleep_calls}"
+    assert 0.75 <= sleep_calls[0] <= 1.25, f"first sleep {sleep_calls[0]} outside [0.75, 1.25]"
+    assert 3.0 <= sleep_calls[1] <= 5.0, f"second sleep {sleep_calls[1]} outside [3.0, 5.0]"
 
 
 def test_nrql_does_not_retry_on_4xx():
+    """4xx errors must fail loud immediately; no sleeps, no retries."""
     import httpx
     client = NewRelicClient(api_key="x", account_id=1, region="US")
     call_count = [0]
+    sleep_calls: list[float] = []
 
     def auth_fail(*args, **kwargs):
         call_count[0] += 1
@@ -535,11 +633,12 @@ def test_nrql_does_not_retry_on_4xx():
         return mock
 
     with patch("httpx.Client.post", side_effect=auth_fail):
-        with patch("time.sleep"):
+        with patch("time.sleep", side_effect=lambda s: sleep_calls.append(s)):
             with pytest.raises(httpx.HTTPStatusError):
                 client.nrql("SELECT count(*) FROM PageView")
 
     assert call_count[0] == 1
+    assert sleep_calls == [], f"4xx must not retry; got sleeps {sleep_calls}"
 ```
 
 - [ ] **Step 2: Run tests** — expect failures.
@@ -862,26 +961,64 @@ git commit -m "feat(performance_grip): target_hours computes fetch windows"
 
 THE critical task — parser locked to actual fixture shape (per spec C1).
 
-- [ ] **Step 1: Add failing tests**
+- [ ] **Step 1: Inspect the real fixture FIRST, then write tests against what's actually there** (CC2-fix: the previous draft of this step wrote a synthetic test based on assumed shape — a parser hand-coded against that shape would pass even if completely wrong against real data)
+
+Open the fixture from Task 0.3 (or 0.7's TIMESERIES variant if chosen):
+
+```bash
+python3 -m json.tool backend/tests/fixtures/new_relic/Q1_pageviewtiming_response.json | head -50
+```
+
+**Document the actual response shape you see**, especially:
+- How are p75 and p95 values represented? Nested `{"75": 2450, "95": 3920}`? Flat `"lcp.75": 2450`? Aliased under a different key?
+- What is the `facet` array shape? `["/url", "Mobile"]`? Sometimes 1-element?
+- What numeric type are the values? Integer or float? Are nulls present?
+- Does the response have `metadata` envelope alongside `results`?
+
+Lock the parser's expected shape against what you observed. If it diverges from public docs, that's expected (this is why we capture the fixture).
+
+- [ ] **Step 2: Add the failing tests** — fixture-first, value-presence assertions:
 
 ```python
 class TestParseQ1:
-    def test_extracts_rows_from_real_fixture(self):
+    def test_extracts_rows_from_real_fixture_with_actual_values(self):
+        """CC2: assert actual values, not just key presence. A parser returning
+        all-None rows must FAIL this test."""
         fixture = json.loads((FIXTURES / "Q1_pageviewtiming_response.json").read_text())
         from services.integrations.performance_grip import parse_q1_response
 
         rows = parse_q1_response(fixture)
-        assert len(rows) > 0
+
+        # Must produce rows
+        assert len(rows) > 0, "Parser returned no rows from fixture"
+
+        # Schema check
         sample = rows[0]
-        assert "page_url" in sample
-        assert "device" in sample
+        assert "page_url" in sample and "device" in sample and "sample_count" in sample
         for metric in ["lcp", "inp", "cls", "fcp", "ttfb"]:
             assert f"{metric}_p75" in sample
             assert f"{metric}_p95" in sample
-        assert "sample_count" in sample
 
-    def test_handles_null_percentiles(self):
-        """If NR returns null for INP on older browsers, parsed value is None."""
+        # VALUE check — at least one row must have non-None LCP p75 (the canonical
+        # metric — if this is None across every row, the parser is wrong)
+        lcp_values = [r["lcp_p75"] for r in rows if r["lcp_p75"] is not None]
+        assert len(lcp_values) > 0, "Every row has lcp_p75 = None — parser shape is wrong"
+        assert all(isinstance(v, (int, float)) for v in lcp_values), \
+            "lcp_p75 must be numeric"
+
+        # Sample count sanity
+        sample_counts = [r["sample_count"] for r in rows if r["sample_count"] is not None]
+        assert any(c > 0 for c in sample_counts), "All sample_counts are zero or None"
+
+    def test_handles_null_percentiles_gracefully(self):
+        """A NR row with null INP (older Browser agent) parses to None, not crash.
+
+        SHAPE NOTE: the synthetic input below assumes nested {"75": v, "95": v}.
+        If the real fixture from Step 1 above used a different shape, update
+        this synthetic to match THAT shape, AND update the parser. The
+        fixture-driven test above is the ground truth — this synthetic test
+        exists to verify null-handling specifically.
+        """
         synthetic = {
             "results": [{
                 "facet": ["/test", "Mobile"],
@@ -898,8 +1035,6 @@ class TestParseQ1:
         assert rows[0]["inp_p75"] is None
         assert rows[0]["lcp_p75"] == 2450
 ```
-
-> **Discovery-shape note:** the synthetic case assumes the nested `{"75": v, "95": v}` shape. If the actual fixture from Task 0.3 has a different shape, **update both the synthetic test and the parser together** before continuing. The first test (real fixture) is the ground truth.
 
 - [ ] **Step 2: Run** — expect failures.
 
@@ -1689,42 +1824,78 @@ REGISTRY = {
 }
 ```
 
-- [ ] **Step 7: Add the performance_grip CLI branch in refresh.py's `main()`**
+- [ ] **Step 7: Refactor `refresh.py` `main()` for project-aware client selection**
 
-Insert this block just after `argv` parsing and before the existing Metabase client setup:
+**Important (CB2):** the previous draft of this step inserted an early-return block that bypassed the REGISTRY. That conflicted with the REGISTRY registration in Step 6. The correct approach is to dispatch on `project_id` BEFORE client setup, so the existing `run_refresh()` dispatch flow still runs.
+
+Replace the current `main()` (lines ~33–61 of `refresh.py`) with this dispatch-aware version:
 
 ```python
+def main(argv: list[str] | None = None) -> int:
+    """Standalone CLI:  python -m services.integrations.refresh [project_id] [--since YYYY-MM-DD]
+
+    project_id defaults to 'grip_connect' for back-compat. --since is optional
+    and only consumed by projects that accept a backfill window.
+    """
+    from dotenv import load_dotenv
+    load_dotenv()
+    argv = sys.argv[1:] if argv is None else argv
+
+    # Parse args: positional project_id, optional --since YYYY-MM-DD
+    positional = [a for a in argv if not a.startswith("--")]
+    flags = {argv[i]: argv[i + 1] for i in range(len(argv) - 1) if argv[i].startswith("--")}
+    project_id = positional[0] if positional else "grip_connect"
+
+    if project_id not in REGISTRY:
+        print(f"ERROR: unknown project '{project_id}' — one of {sorted(REGISTRY)}",
+              file=sys.stderr)
+        return 1
+
+    # Per-project client selection. New Relic projects use NerdGraph;
+    # everything else uses Metabase (current pattern).
     if project_id == "performance_grip":
         from .new_relic import NewRelicClient
         from .performance_grip import validate_since
         from datetime import datetime
         from zoneinfo import ZoneInfo
 
-        api_key = os.getenv("NEW_RELIC_QUERY_KEY") or os.getenv("NEW_RELIC_USER_API_KEY")
+        api_key = os.getenv("NEW_RELIC_API_KEY")
         account_id = os.getenv("NEW_RELIC_ACCOUNT_ID")
         region = os.getenv("NEW_RELIC_REGION", "US")
         if not api_key or not account_id:
-            print(
-                "ERROR: set NEW_RELIC_QUERY_KEY (preferred) or NEW_RELIC_USER_API_KEY, "
-                "plus NEW_RELIC_ACCOUNT_ID",
-                file=sys.stderr,
-            )
+            print("ERROR: set NEW_RELIC_API_KEY and NEW_RELIC_ACCOUNT_ID", file=sys.stderr)
             return 1
 
-        client = NewRelicClient(
-            api_key=api_key, account_id=int(account_id), region=region
-        )
-        since_dt = validate_since(
-            os.getenv("SINCE", "").strip(),
-            now=datetime.now(ZoneInfo("Asia/Kolkata")),
-        )
+        client = NewRelicClient(api_key=api_key, account_id=int(account_id), region=region)
 
-        data_dir = Path(os.getenv("DATA_DIR", "./data")) / "performance-grip"
-        result = performance_grip.run(client, data_dir, since=since_dt)
-        print("\n".join(result["log"]))
-        print(f"Done ({result['status']}) — {result['refreshed_at']}")
-        return 0 if result["status"] in ("ok", "partial") else 1
+        since_str = flags.get("--since") or os.getenv("SINCE", "").strip()
+        since_dt = validate_since(since_str, now=datetime.now(ZoneInfo("Asia/Kolkata")))
+        kwargs = {"since": since_dt}
+    else:
+        # Metabase path (existing behavior)
+        from .metabase import MetabaseClient
+        base = os.getenv("METABASE_URL", "https://metabase.gripinvest.in")
+        api_key = os.getenv("METABASE_API_KEY")
+        email, password = os.getenv("METABASE_EMAIL"), os.getenv("METABASE_PASSWORD")
+        if not api_key and not (email and password):
+            print("ERROR: set METABASE_API_KEY, or METABASE_EMAIL and METABASE_PASSWORD",
+                  file=sys.stderr)
+            return 1
+        client = MetabaseClient(base, api_key=api_key)
+        if not api_key:
+            client.login(email, password)
+        kwargs = {}
+
+    data_dir = Path(os.getenv("DATA_DIR", "./data")) / project_id  # underscore-style (CB1)
+    result = REGISTRY[project_id](client, data_dir, **kwargs)
+    print("\n".join(result["log"]))
+    print(f"Done ({result['status']}) — {result['refreshed_at']}")
+    return 0 if result["status"] in ("ok", "partial") else 1
 ```
+
+**Note on REGISTRY signature (M-medium):** `performance_grip.run` accepts `since` as keyword-only; existing project `run()` functions don't. The `**kwargs` dispatch handles both cases without breaking back-compat.
+
+**Note on CLI flag:** `--since YYYY-MM-DD` is now parsed from argv; this matches the spec §4.5 documented invocation. Env `SINCE` (from workflow_dispatch) is the fallback when CLI flag is absent.
 
 - [ ] **Step 8: Run all tests**
 
@@ -1749,7 +1920,7 @@ git commit -m "feat(performance_grip): run() orchestrator + REGISTRY + CLI wirin
 ### Task 3.1: `project.json`
 
 **Files:**
-- Create: `backend/data/performance-grip/project.json`
+- Create: `backend/data/performance_grip/project.json`
 
 - [ ] **Step 1: Write the file**
 
@@ -1770,14 +1941,14 @@ git commit -m "feat(performance_grip): run() orchestrator + REGISTRY + CLI wirin
 - [ ] **Step 2: Commit**
 
 ```bash
-git add backend/data/performance-grip/project.json
+git add backend/data/performance_grip/project.json
 git commit -m "feat(performance-grip): project.json registration"
 ```
 
 ### Task 3.2: `route_patterns.csv` skeleton
 
 **Files:**
-- Create: `backend/data/performance-grip/route_patterns.csv`
+- Create: `backend/data/performance_grip/route_patterns.csv`
 
 - [ ] **Step 1: Write the file**
 
@@ -1802,7 +1973,7 @@ Starting skeleton; refined in v1.5 from observed week-1 URLs.
 - [ ] **Step 2: Commit**
 
 ```bash
-git add backend/data/performance-grip/route_patterns.csv
+git add backend/data/performance_grip/route_patterns.csv
 git commit -m "feat(performance-grip): route_patterns.csv skeleton"
 ```
 
@@ -1991,14 +2162,16 @@ git commit -m "build: Dependabot config for pip + github-actions"
 
 - [ ] **Step 1: Reference a sibling for patterns**: `cat .github/workflows/refresh-grip-connect.yml`.
 
-- [ ] **Step 2: Look up current SHAs for pinned actions**:
+- [ ] **Step 2: Look up the COMMIT SHAs for the pinned action versions** (CB4-fix):
 
 ```bash
-gh api repos/actions/checkout/git/ref/tags/v4.1.7 --jq '.object.sha' 2>/dev/null \
-  || echo "use GitHub UI: github.com/actions/checkout/releases/tag/v4.1.7"
-gh api repos/actions/setup-python/git/ref/tags/v5.1.0 --jq '.object.sha' 2>/dev/null \
-  || echo "use GitHub UI"
+# Use commits/<ref>, NOT git/ref/tags/<ref> — annotated tags return the tag
+# object SHA, not the commit SHA. GH Actions resolves commit SHAs.
+gh api repos/actions/checkout/commits/v4.1.7 --jq '.sha'
+gh api repos/actions/setup-python/commits/v5.1.0 --jq '.sha'
 ```
+
+Capture both SHAs; you'll paste them into the workflow file in Step 3.
 
 - [ ] **Step 3: Write the workflow**:
 
@@ -2008,6 +2181,10 @@ name: Refresh Performance Grip data
 # Daily archive of NR Web Vitals (gi-client-static, gi-client-web). Twice-daily
 # because NR's 8-day retention makes missed days unrecoverable.
 # Spec: docs/projects/performance-grip/specs/2026-05-20-performance-grip-design.md
+#
+# Security: SINCE flows from workflow_dispatch input via env: only — never
+# interpolated into a run: shell line. Validated against ^\d{4}-\d{2}-\d{2}$
+# by validate_since() in Python before any fetch (CB-class injection prevention).
 
 on:
   schedule:
@@ -2021,6 +2198,9 @@ on:
         type: string
 
 concurrency:
+  # Serialises same-workflow runs. Note: only 1 run can be queued behind 1 running
+  # run (3rd trigger is discarded by GH Actions) — safe because idempotent merge
+  # means a dropped trigger is recovered by the next scheduled run.
   group: refresh-performance-grip
   cancel-in-progress: false
 
@@ -2029,42 +2209,79 @@ permissions:
 
 jobs:
   refresh:
+    # CB3-fix: gate the whole job, not just the commit step. Avoids burning
+    # NR API quota when triggered from a non-main branch.
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # H19-fix: backfill runs need more time than steady-state. workflow_dispatch
+    # with since= is the only path that hits hundreds of NRQL calls.
+    timeout-minutes: ${{ inputs.since != '' && 60 || 20 }}
     env:
-      NEW_RELIC_QUERY_KEY:    ${{ secrets.NEW_RELIC_QUERY_KEY }}
-      NEW_RELIC_USER_API_KEY: ${{ secrets.NEW_RELIC_USER_API_KEY }}
-      NEW_RELIC_ACCOUNT_ID:   ${{ vars.NEW_RELIC_ACCOUNT_ID }}
-      NEW_RELIC_REGION:       US
-      SINCE:                  ${{ inputs.since }}
+      # Single User API Key — Insights Query Keys do not work with NerdGraph.
+      NEW_RELIC_API_KEY:    ${{ secrets.NEW_RELIC_API_KEY }}
+      NEW_RELIC_ACCOUNT_ID: ${{ vars.NEW_RELIC_ACCOUNT_ID }}
+      NEW_RELIC_REGION:     US
+      SINCE:                ${{ inputs.since }}
     steps:
-      - uses: actions/checkout@<REPLACE-WITH-SHA>     # actions/checkout v4.1.7
+      # NB: SHAs below are placeholders — Step 2 of Task 5.1 populates these.
+      # Step 4 has a validation gate that FAILS the commit if placeholders remain.
+      - uses: actions/checkout@<REPLACE-WITH-SHA>     # actions/checkout v4.1.7 — Dependabot bumps
       - uses: actions/setup-python@<REPLACE-WITH-SHA> # actions/setup-python v5.1.0
         with:
           python-version: "3.12"
+      - name: Preflight — verify secrets present
+        # Fails fast with a clear message if a secret is missing or misspelt;
+        # otherwise the failure surfaces deep in the Python stack as an opaque error.
+        run: |
+          python3 -c "import os, sys
+key, acct = os.getenv('NEW_RELIC_API_KEY'), os.getenv('NEW_RELIC_ACCOUNT_ID')
+assert key, 'NEW_RELIC_API_KEY missing — check repo secret'
+assert acct, 'NEW_RELIC_ACCOUNT_ID missing — check repo variable'
+print(f'Auth config OK; account={acct[:3]}***')"
       - name: Install deps (hash-verified)
         run: pip install --require-hashes -r backend/requirements.lock
       - name: Run refresh
         working-directory: backend
         run: python -m services.integrations.refresh performance_grip
       - name: Commit refreshed data if changed
-        if: github.ref == 'refs/heads/main'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase
-          git add backend/data/performance-grip/
-          git diff --staged --quiet || git commit -m "chore: refresh Performance Grip data"
-          git push
+          # CD1-fix: retry the pull-and-push loop. Sibling refresh workflows
+          # (asset-search, grip-connect, fra-youtube) push to main concurrently;
+          # a single pull --rebase + push can lose the race.
+          for i in 1 2 3; do
+            git pull --rebase --autostash
+            git add backend/data/performance_grip/
+            git diff --staged --quiet && break
+            git commit -m "chore: refresh Performance Grip data"
+            git push && break || sleep $((i * 10))
+          done
+      - name: Notify on failure
+        # H13-fix: copies the asset-search pattern. Slack curl is gated on
+        # SLACK_WEBHOOK_URL — stays disabled (K1) until configured.
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          echo "::error::Performance Grip refresh failed — every day this stays broken, we permanently lose a day of Web Vitals history."
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -sf -X POST -H 'Content-type: application/json' \
+              --data '{"text":"Performance Grip refresh failed — see GitHub Actions."}' \
+              "$SLACK_WEBHOOK_URL" || true
+          fi
 ```
 
 Replace `<REPLACE-WITH-SHA>` with actual values from Step 2.
 
-- [ ] **Step 4: Validate YAML**:
+- [ ] **Step 4: Validate YAML AND fail on unresolved placeholders** (CB3-fix):
 
 ```bash
 python3.12 -c "import yaml; yaml.safe_load(open('.github/workflows/refresh-performance-grip.yml'))"
+grep -q '<REPLACE-WITH-SHA>' .github/workflows/refresh-performance-grip.yml && { echo "ERROR: unresolved SHA placeholders"; exit 1; } || echo "SHAs resolved"
 ```
+
+Expected: no YAML exception, then "SHAs resolved". If "unresolved SHA placeholders": go back to Step 2 and complete the SHA lookup.
 
 - [ ] **Step 5: Commit**
 
@@ -2104,7 +2321,7 @@ Expected: runner installs deps, `python -m services.integrations.refresh perform
 ### Task 6.1: Initial 7-day backfill
 
 **Files:**
-- Generated: `backend/data/performance-grip/hourly_web_vitals.csv`
+- Generated: `backend/data/performance_grip/hourly_web_vitals.csv`
 
 - [ ] **Step 1: Trigger workflow_dispatch** with `since=` set to today − 7 days (YYYY-MM-DD).
 - [ ] **Step 2: Watch the run** — expect ~5 min. Up to 7 days × 24 × 2 × 3 = ~1000 NRQL calls (or ~6 with TIMESERIES per Task 0.7).
@@ -2112,7 +2329,7 @@ Expected: runner installs deps, `python -m services.integrations.refresh perform
 
 ```bash
 git pull
-wc -l backend/data/performance-grip/hourly_web_vitals.csv
+wc -l backend/data/performance_grip/hourly_web_vitals.csv
 ```
 
 Expected: tens of thousands of rows.
@@ -2120,8 +2337,8 @@ Expected: tens of thousands of rows.
 - [ ] **Step 4: Spot-check contents**:
 
 ```bash
-head -3 backend/data/performance-grip/hourly_web_vitals.csv
-tail -3 backend/data/performance-grip/hourly_web_vitals.csv
+head -3 backend/data/performance_grip/hourly_web_vitals.csv
+tail -3 backend/data/performance_grip/hourly_web_vitals.csv
 ```
 
 Verify header matches `CSV_COLUMNS`; recent rows have plausible values (LCP ~1000–5000ms).
@@ -2138,7 +2355,7 @@ Verify header matches `CSV_COLUMNS`; recent rows have plausible values (LCP ~100
 ```python
 # In python with the venv active:
 import pandas as pd
-df = pd.read_csv("backend/data/performance-grip/hourly_web_vitals.csv")
+df = pd.read_csv("backend/data/performance_grip/hourly_web_vitals.csv")
 df = df[(df["app"] == "gi-client-static") & (df["date"] == "2026-05-19")]
 total = df["page_views"].sum()
 weighted_p75 = (df["lcp_p75_ms"] * df["page_views"]).sum() / total
@@ -2158,7 +2375,7 @@ print(f"Our weighted p75 LCP: {weighted_p75:.0f}ms")
 
 ```bash
 git pull
-tail -5 backend/data/performance-grip/hourly_web_vitals.csv
+tail -5 backend/data/performance_grip/hourly_web_vitals.csv
 ```
 
 - [ ] **Step 4: Update `session-log.md`** — append at the top:
@@ -2184,7 +2401,7 @@ git commit -m "docs(performance-grip): session log — archive operational, Plan
 ## Plan 1 complete
 
 At this point:
-- `backend/data/performance-grip/hourly_web_vitals.csv` is populated and growing twice daily.
+- `backend/data/performance_grip/hourly_web_vitals.csv` is populated and growing twice daily.
 - Twice-daily cron verified, autonomously committing.
 - Every day Plan 2 is delayed = one more day of historical data accumulating.
 
