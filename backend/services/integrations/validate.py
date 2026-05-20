@@ -67,7 +67,10 @@ def validate_asset_search_week(stem: str, rows: list[dict],
     cols = set(rows[0].keys())
 
     for table, required in ASSET_SEARCH_REQUIRED_COLS.items():
-        if stem.endswith(table):
+        # Anchor on the separator so the match boundary is explicit: a stem
+        # like `W7_..._asset_search_result_clicked` cannot collide with a
+        # future event whose name is a suffix of another.
+        if stem.endswith(f"_{table}"):
             missing = required - cols
             if missing:
                 errors.append(f"{stem}: missing columns {sorted(missing)}")

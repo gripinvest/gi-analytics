@@ -93,8 +93,13 @@ function useDashboard(project, nonce) {
       if (!cancelled) setState({ loading: false, fatal: null, data: Object.fromEntries(entries) });
     })();
     return () => { cancelled = true; };
-    // `nonce` bumps after a refresh — re-runs the fetch so the report updates.
-  }, [project.id, grouped, conv, nonce]);
+    // Deps narrowed to [project.id, nonce] on purpose: `grouped`/`conv` are
+    // `useMemo` results over `project.tables`, and a parent re-render that
+    // hands us a new `project` *object* reference (same content) used to
+    // re-fire the entire query batch unnecessarily. `nonce` covers every
+    // refresh-driven content change; `project.id` covers project switches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, nonce]);
 
   return { ...state, weeks: grouped.weeks, lastWeek: grouped.lastWeek, convOk: conv.ok };
 }

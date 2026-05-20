@@ -34,6 +34,15 @@ const MAX_POLLS = 150;
 // Spec §12: the Refresh button stays disabled for 60 s after a refresh
 // completes, so a viewer cannot hammer Metabase with back-to-back pulls.
 const REFRESH_COOLDOWN_MS = 60_000;
+// "Refresh failed ⚠" stays on screen long enough to read, then auto-clears
+// so a viewer who looks back later isn't staring at a stuck-feeling error
+// from minutes ago. Longer than the "Updated ✓" reset (3 s) since errors
+// need more reading time.
+const ERROR_DISPLAY_MS = 10_000;
+// How often the "as of"-vs-now staleness check re-evaluates. `Date.now()`
+// is captured each tick, so a tab left open across the 26 h threshold
+// flips to "stale" without needing a manual reload.
+const STALE_RECHECK_MS = 60_000;
 
 /* Refresh controller hook. Mirrors GripConnect's in-component logic so the
    two dashboards behave identically: POST a refresh, poll to completion,
@@ -47,6 +56,14 @@ export function useProjectRefresh(project) {
   const [nonce, setNonce] = React.useState(0);
   const [cooldownUntil, setCooldownUntil] = React.useState(0);
 
+  // Centralised error transition so every error path auto-clears after
+  // ERROR_DISPLAY_MS — without this the "Refresh failed ⚠" chip persists
+  // until page reload, which reads as "still broken" minutes later.
+  const flagError = React.useCallback((msg) => {
+    setRefresh({ state: "error", error: msg });
+    setTimeout(() => setRefresh({ state: "idle", error: null }), ERROR_DISPLAY_MS);
+  }, []);
+
   const handleRefresh = React.useCallback(async () => {
     setRefresh({ state: "running", error: null });
     try {
@@ -57,12 +74,9 @@ export function useProjectRefresh(project) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
         const p = await pollRefresh(project.id, job_id);
         if (p.status === "done") done = p;
-        else if (p.status === "error") {
-          setRefresh({ state: "error", error: p.error || "refresh failed" });
-          return;
-        }
+        else if (p.status === "error") { flagError(p.error || "refresh failed"); return; }
       }
-      if (!done) { setRefresh({ state: "error", error: "refresh timed out" }); return; }
+      if (!done) { flagError("refresh timed out"); return; }
       setNonce((n) => n + 1);
       setAsOf(done.finished_at || new Date().toISOString());
       setRefresh({ state: "done", error: null });
@@ -72,15 +86,23 @@ export function useProjectRefresh(project) {
       setTimeout(() => setRefresh({ state: "idle", error: null }), 3000);
       setTimeout(() => setCooldownUntil(0), REFRESH_COOLDOWN_MS);
     } catch (e) {
-      setRefresh({ state: "error", error: String((e && e.message) || e) });
+      flagError(String((e && e.message) || e));
     }
-  }, [project.id]);
+  }, [project.id, flagError]);
 
-  const stale = React.useMemo(() => {
-    if (!asOf) return false;
-    const t = new Date(asOf).getTime();
-    if (Number.isNaN(t)) return false;
-    return (Date.now() - t) / 3600000 > STALE_AFTER_HOURS;
+  // `stale` re-evaluates against the wall clock on a timer — a tab left open
+  // overnight crosses the 26 h threshold without a reload (the previous
+  // useMemo-over-Date.now() froze the value at the most recent render).
+  const [stale, setStale] = React.useState(false);
+  React.useEffect(() => {
+    const check = () => {
+      if (!asOf) { setStale(false); return; }
+      const t = new Date(asOf).getTime();
+      setStale(!Number.isNaN(t) && (Date.now() - t) / 3600000 > STALE_AFTER_HOURS);
+    };
+    check();
+    const id = setInterval(check, STALE_RECHECK_MS);
+    return () => clearInterval(id);
   }, [asOf]);
 
   return { refresh, asOf, nonce, stale, cooldownUntil, handleRefresh };

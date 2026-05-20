@@ -4,8 +4,6 @@ Ported from gc-analyst's metabase_fetch.py (functions metabase_login /
 fetch_question_data, lines 172-250), adapted to httpx (the backend's HTTP
 library) and wrapped in a class so tests can inject a MockTransport.
 """
-import json
-
 import httpx
 
 
@@ -84,12 +82,10 @@ class MetabaseClient:
         fetch pipeline. NOTE: `/api/dataset` caps the result at Metabase's
         default 2000 `max-results-bare-rows`. The Asset Search fetch handles
         this by walking the rows with `ORDER BY id LIMIT 2000 OFFSET n` — see
-        `asset_search._fetch_paginated`. (`run_native_export` is an
-        alternative one-shot path via the export endpoint, but it requires a
-        separate Metabase permission that the service account may not have.)
-        A bad query comes back HTTP 202 with a JSON `error`/`status: failed`
-        body (Metabase does not use 4xx for SQL errors), so that case is
-        checked explicitly and surfaced as a MetabaseError.
+        `asset_search._fetch_paginated`. A bad query comes back HTTP 202 with
+        a JSON `error`/`status: failed` body (Metabase does not use 4xx for
+        SQL errors), so that case is checked explicitly and surfaced as a
+        MetabaseError.
 
         `raw_columns` — when True, column names are the raw DB column (`name`);
         when False (default) the humanised `display_name` is preferred. The
@@ -116,38 +112,6 @@ class MetabaseClient:
                     for i, c in enumerate(data.get("cols", []))]
         rows = [dict(zip(cols, r)) for r in data.get("rows", [])]
         return rows, cols
-
-    def run_native_export(self, database_id: int, sql: str) -> list[dict]:
-        """Run a native SQL query via Metabase's JSON *export* endpoint
-        (`/api/dataset/json`); return every row as a dict.
-
-        Unlike `run_sql` (POST `/api/dataset`, capped at Metabase's default
-        2000-row `max-results-bare-rows`), the export endpoint runs the query
-        with no row constraint — so a full feature week of a high-volume table
-        comes back complete. The Asset Search fetch uses this to avoid silent
-        truncation: a week of `asset_search_query` is ~4.4k rows and
-        `view_assets` ~68k, both far past the 2000 cap.
-
-        Rows are keyed by the result column names exactly as Metabase emits
-        them in the export — for a native query these are the raw SQL column
-        names (the same headers the existing W1–W6 CSV exports carry)."""
-        query = {"database": database_id, "type": "native",
-                 "native": {"query": sql}}
-        resp = self._client.post(
-            f"{self.base_url}/api/dataset/json",
-            headers=self._auth_headers(),
-            data={"query": json.dumps(query)},
-        )
-        if resp.status_code in (401, 403):
-            raise MetabaseError("Metabase auth failed — check credentials")
-        resp.raise_for_status()
-        body = resp.json()
-        # On success the export endpoint returns a JSON array of row objects;
-        # a SQL error comes back instead as a JSON object with an `error` key.
-        if not isinstance(body, list):
-            msg = body.get("error", body) if isinstance(body, dict) else body
-            raise MetabaseError(f"Metabase SQL error: {msg}")
-        return body
 
     @staticmethod
     def gc_name_param(param_tag: str, value: str, param_id: str | None) -> dict:
