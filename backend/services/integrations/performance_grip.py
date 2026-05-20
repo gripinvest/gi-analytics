@@ -247,3 +247,23 @@ def append_hour_atomic(
         for row in combined:
             writer.writerow(row)
     os.replace(tmp, csv_path)
+
+
+def latest_in_csv(csv_path: Path, app: str) -> datetime | None:
+    """Return the latest (date, hour) for the given app, as an IST datetime."""
+    if not csv_path.exists():
+        return None
+    latest: datetime | None = None
+    with open(csv_path, newline="") as f:
+        for row in _csv.DictReader(f):
+            if row.get("app") != app:
+                continue
+            try:
+                dt = datetime.strptime(row["date"], "%Y-%m-%d").replace(
+                    hour=int(row["hour"]), tzinfo=IST
+                )
+            except (ValueError, KeyError):
+                continue
+            if latest is None or dt > latest:
+                latest = dt
+    return latest

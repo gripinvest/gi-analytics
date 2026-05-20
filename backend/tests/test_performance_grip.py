@@ -254,3 +254,25 @@ class TestAppendHourAtomic:
                 rows = list(csv.DictReader(f))
             assert len(rows) == 2
             assert {r["app"] for r in rows} == {"gi-client-static", "gi-client-web"}
+
+
+class TestLatestInCsv:
+    def test_missing_csv_returns_none(self):
+        from services.integrations.performance_grip import latest_in_csv
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assert latest_in_csv(Path(tmpdir) / "missing.csv", app="x") is None
+
+    def test_returns_max_for_app(self):
+        from services.integrations.performance_grip import (
+            latest_in_csv, append_hour_atomic
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "h.csv"
+            base = TestAppendHourAtomic.BASE_ROW
+            for h in (10, 11, 13):
+                append_hour_atomic(csv_path,
+                                   [{**base, "date": "2026-05-19", "hour": h,
+                                     "app": "gi-client-static"}],
+                                   app="gi-client-static", date="2026-05-19", hour=h)
+            result = latest_in_csv(csv_path, app="gi-client-static")
+            assert result == datetime(2026, 5, 19, 13, tzinfo=IST)
