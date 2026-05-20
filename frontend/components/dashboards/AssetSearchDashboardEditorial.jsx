@@ -101,7 +101,8 @@ function useDashboard(project, nonce) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id, nonce]);
 
-  return { ...state, weeks: grouped.weeks, lastWeek: grouped.lastWeek, convOk: conv.ok };
+  return { ...state, weeks: grouped.weeks, lastWeek: grouped.lastWeek,
+           convOk: conv.ok, pageViewsOk: conv.pageViewsOk };
 }
 
 /* ── small helpers ─────────────────────────────────────────────────────────── */
@@ -329,7 +330,7 @@ function Term({ n, children }) {
 
 export default function AssetSearchDashboardEditorial({ project }) {
   const refreshState = useProjectRefresh(project);
-  const { loading, fatal, data, weeks, lastWeek, convOk } = useDashboard(project, refreshState.nonce);
+  const { loading, fatal, data, weeks, lastWeek, convOk, pageViewsOk } = useDashboard(project, refreshState.nonce);
 
   // ── masthead derivations — keep the editorial copy honest against live data
   // The masthead used to carry hardcoded dates ("APR 2 – MAY 13, 2026"),
@@ -613,7 +614,7 @@ export default function AssetSearchDashboardEditorial({ project }) {
         />
       )}
       {section === "conversion" && convOk && (
-        <ConversionSection data={data} loading={loading} weeks={weeks} lastWeek={lastWeek} lift={lift} cohort={cohort} />
+        <ConversionSection data={data} loading={loading} weeks={weeks} lastWeek={lastWeek} lift={lift} cohort={cohort} pageViewsOk={pageViewsOk} />
       )}
       {section === "issuers" && (
         <IssuersSection
@@ -820,7 +821,7 @@ function OverviewSection({ loading, data, adoptionSeries, healthSeries, funnelSe
 
 /* ── SECTION II — CONVERSION ──────────────────────────────────────────────── */
 
-function ConversionSection({ data, loading, weeks, lastWeek, lift, cohort }) {
+function ConversionSection({ data, loading, weeks, lastWeek, lift, cohort, pageViewsOk }) {
   const cohortByWeek = rowsOf(data, "conv_byWeek");
   const cvrSeries = cohortByWeek.map((r) => ({
     week: r.week,
@@ -895,6 +896,20 @@ function ConversionSection({ data, loading, weeks, lastWeek, lift, cohort }) {
             )}
           </p>
         </div>
+      )}
+
+      {/* B6 — visitor-data-pending signal. Sits below the cumulative-lift
+          callout because that's where the silent fallback bites: when
+          `pageViewsOk` is false the cohort math drops from the W1–{lastWeek}
+          user-id window to the launch-week anon-id deep export, which
+          quietly changes the lift's definition. The pill makes that switch
+          visible. Only shown when there's a cohort to talk about. */}
+      {!pageViewsOk && cohort && (
+        <p className="ed-caption mt-3 ed-prose-italic" style={{ color: "var(--ed-ink-muted)" }}>
+          Visitor data refreshes weekly — showing the launch-week cohort while
+          the full-window <code className="font-mono">assets_page_views</code>
+          {" "}catches up. Full-window numbers land at the next rollover.
+        </p>
       )}
 
       {/* Lift trend — the cumulative figure above (~2.3×) is the W1–{lastWeek}

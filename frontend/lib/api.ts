@@ -168,19 +168,23 @@ export interface RefreshJob {
 }
 
 // Kick a background refresh; returns a job id to poll. A 409 (a refresh is
-// already running) resolves to the in-flight job's id rather than throwing.
+// already running) resolves to the in-flight job's id and marks
+// `alreadyRunning: true` so the caller can attach to that job silently
+// instead of starting a new one. `job_id` is null in the rare race where the
+// running job finishes between the 409 and reading its body.
 export async function refreshProject(
   projectId: string
-): Promise<{ job_id: string }> {
+): Promise<{ job_id: string | null; alreadyRunning: boolean }> {
   const res = await fetch(`${BASE}/api/projects/${projectId}/refresh`, {
     method: "POST",
   });
   if (res.status === 409) {
     const body = await res.json();
-    return { job_id: body?.detail?.job_id ?? "" };
+    return { job_id: body?.detail?.job_id ?? null, alreadyRunning: true };
   }
   if (!res.ok) throw new Error(`refresh failed: ${res.status}`);
-  return res.json();
+  const body = await res.json();
+  return { job_id: body.job_id, alreadyRunning: false };
 }
 
 // Poll a refresh job. status is "running" | "done" | "error".
