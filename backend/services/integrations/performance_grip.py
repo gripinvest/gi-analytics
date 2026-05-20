@@ -8,12 +8,26 @@ merges idempotently into hourly_web_vitals.csv.
 """
 from __future__ import annotations
 
+import csv as _csv
+import os
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")
+
+CSV_COLUMNS = [
+    "date", "hour", "app", "page_url", "device",
+    "page_views", "js_errors", "sample_count",
+    "lcp_p75_ms", "lcp_p95_ms",
+    "inp_p75_ms", "inp_p95_ms",
+    "cls_p75", "cls_p95",
+    "fcp_p75_ms", "fcp_p95_ms",
+    "ttfb_p75_ms", "ttfb_p95_ms",
+    "fetched_at",
+]
 
 
 def clean_url(raw_url: str) -> str:
@@ -195,3 +209,41 @@ def merge_rows(
         }
         out.append(merged)
     return out
+
+
+def append_hour_atomic(
+    csv_path: Path,
+    new_rows: list[dict],
+    *,
+    app: str,
+    date: str,
+    hour: int,
+) -> None:
+    """Atomically replace any existing rows for (app, date, hour) and append new ones.
+
+    Algorithm: read existing → filter out (app, date, hour) matches → append
+    new → write to .tmp → atomic rename. Crash leaves CSV intact; partial
+    .tmp is discarded.
+    """
+    existing: list[dict] = []
+    if csv_path.exists():
+        with open(csv_path, newline="") as f:
+            existing = list(_csv.DictReader(f))
+
+    filtered = [
+        r for r in existing
+        if not (r.get("app") == app and r.get("date") == date and str(r.get("hour")) == str(hour))
+    ]
+
+    combined = filtered + [{k: row.get(k, "") for k in CSV_COLUMNS} for row in new_rows]
+    combined.sort(key=lambda r: (r["date"], int(r["hour"]) if r["hour"] != "" else 0,
+                                  r["app"], r["page_url"], r["device"]))
+
+    tmp = csv_path.with_suffix(".csv.tmp")
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    with open(tmp, "w", newline="") as f:
+        writer = _csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+        for row in combined:
+            writer.writerow(row)
+    os.replace(tmp, csv_path)

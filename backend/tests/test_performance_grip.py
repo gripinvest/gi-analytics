@@ -1,5 +1,7 @@
 """Unit tests for performance_grip.py."""
+import csv
 import json
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -199,3 +201,56 @@ class TestMergeRows:
                           [{"page_url": "/x", "device": "mobile", "page_views": 1}],
                           [], app="x", date="2026-05-19", hour=14, fetched_at="x")
         assert rows == []
+
+
+class TestAppendHourAtomic:
+    BASE_ROW = {
+        "date": "2026-05-19", "hour": 14, "app": "gi-client-static",
+        "page_url": "/a", "device": "mobile",
+        "page_views": 100, "js_errors": 1, "sample_count": 100,
+        "lcp_p75_ms": 2400, "lcp_p95_ms": 3900,
+        "inp_p75_ms": 180, "inp_p95_ms": 420,
+        "cls_p75": 0.08, "cls_p95": 0.21,
+        "fcp_p75_ms": 1100, "fcp_p95_ms": 2200,
+        "ttfb_p75_ms": 320, "ttfb_p95_ms": 780,
+        "fetched_at": "2026-05-20T01:00:00+05:30",
+    }
+
+    def test_first_write_creates_csv_with_header(self):
+        from services.integrations.performance_grip import append_hour_atomic
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "hourly_web_vitals.csv"
+            append_hour_atomic(csv_path, [self.BASE_ROW],
+                               app="gi-client-static", date="2026-05-19", hour=14)
+            assert csv_path.exists()
+            with open(csv_path) as f:
+                rows = list(csv.DictReader(f))
+            assert len(rows) == 1
+            assert rows[0]["page_url"] == "/a"
+
+    def test_rerun_overwrites_not_duplicates(self):
+        from services.integrations.performance_grip import append_hour_atomic
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "h.csv"
+            append_hour_atomic(csv_path, [self.BASE_ROW],
+                               app="gi-client-static", date="2026-05-19", hour=14)
+            updated = {**self.BASE_ROW, "page_views": 200}
+            append_hour_atomic(csv_path, [updated],
+                               app="gi-client-static", date="2026-05-19", hour=14)
+            with open(csv_path) as f:
+                rows = list(csv.DictReader(f))
+            assert len(rows) == 1
+            assert rows[0]["page_views"] == "200"
+
+    def test_different_apps_same_hour_coexist(self):
+        from services.integrations.performance_grip import append_hour_atomic
+        with tempfile.TemporaryDirectory() as tmpdir:
+            csv_path = Path(tmpdir) / "h.csv"
+            append_hour_atomic(csv_path, [{**self.BASE_ROW, "app": "gi-client-static"}],
+                               app="gi-client-static", date="2026-05-19", hour=14)
+            append_hour_atomic(csv_path, [{**self.BASE_ROW, "app": "gi-client-web"}],
+                               app="gi-client-web", date="2026-05-19", hour=14)
+            with open(csv_path) as f:
+                rows = list(csv.DictReader(f))
+            assert len(rows) == 2
+            assert {r["app"] for r in rows} == {"gi-client-static", "gi-client-web"}
