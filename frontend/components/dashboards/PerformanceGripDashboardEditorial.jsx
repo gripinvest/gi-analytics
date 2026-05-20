@@ -7,6 +7,8 @@ import HeroBand from "./performance-grip/HeroBand";
 import WindowToggle from "./performance-grip/WindowToggle";
 import MetricTrendGrid from "./performance-grip/MetricTrendGrid";
 import RouteDrilldown from "./performance-grip/RouteDrilldown";
+import AppSwitcher from "./performance-grip/AppSwitcher";
+import DeviceToggle from "./performance-grip/DeviceToggle";
 import { THRESHOLDS } from "@/lib/queries/performanceGrip";
 
 /* Editorial Lite — typography + palette only; no broadsheet masthead. See
@@ -43,13 +45,8 @@ export default function PerformanceGripDashboardEditorial() {
 
   return (
     <div className="performance-grip-dashboard">
-      {/* TODO Phase G: AppSwitcher */}
-      {/* TODO Phase G: DeviceToggle */}
-      {/* TODO Phase D: WindowToggle */}
-      {/* TODO Phase D: StatusVerdict */}
-      {/* TODO Phase D: HeroBand */}
-      {/* TODO Phase F: RouteDrilldown */}
-      {/* TODO Phase E: MetricTrendGrid */}
+      <AppSwitcher value={app} onChange={setApp} />
+      <DeviceToggle value={device} onChange={setDevice} />
       <WindowToggle value={windowDays} onChange={setWindowDays} daysCollected={daysCollected} />
       <StatusVerdict rows={data?.trendlines?.rows ?? []} thresholds={THRESHOLDS} />
       <HeroBand heroRows={data?.hero?.rows ?? []} />
