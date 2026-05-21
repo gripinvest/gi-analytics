@@ -279,8 +279,21 @@ dashboard rendering config (sort_priority for the route drill-down).
 - `Q1_pageviewtiming_response_giweb_collapse_external-ui.json` (1 KB, 3 device rows) — example collapse-pattern response
 - `Q1_pageviewtiming_response.json` (25.8 KB) and other earlier fixtures — pre-Path-C captures, retained for reference but parser locks against the new raw + collapse shapes
 
-## Open questions / next-step verifications (during Phase 1+)
+## Units — RESOLVED (2026-05-21)
 
-- TTFB values being ~0 — investigate why during dashboard development. May need to switch from `firstByte` to another timing field.
-- Service-account user setup for cron — currently using personal User API Key.
-- INP values look very small (0.04, 0.088 in seconds) — confirm INP is in milliseconds-as-fraction-of-second vs. some other unit. Multiply by 1000 if so.
+NR's `PageViewTiming` returns **LCP, INP, FCP, TTFB in seconds**; **CLS is
+dimensionless**. The archive's `*_ms` columns are milliseconds: the fetch
+module (`performance_grip.py` → `_to_ms`) multiplies LCP/INP/FCP/TTFB by 1000
+at write time. CLS passes through unchanged.
+
+The first 8 days of archived data (captured before this fix) were migrated
+in-place — the 8 timing columns ×1000 — in the same commit that introduced
+`_to_ms`, so the whole archive is uniformly in milliseconds. **Do not add
+another ×1000 anywhere** (e.g. the query layer or the dashboard) — the
+columns are already true ms and the Web-Vitals thresholds are in ms.
+
+## Open questions / next-step verifications
+
+- TTFB values are ~0 across the board — `firstByte` may not be the right field, or NR isn't capturing TTFB for these apps. Investigate; possibly drop TTFB from the dashboard or switch fields.
+- Service-account user setup for cron — currently using a personal User API Key.
+- NR Web Vitals carry extreme outliers (INP up to 250k+ ms, CLS up to 6). The dashboard query layer clamps + drops low-sample rows and surfaces an outlier count — see the query-layer notes / PR2.

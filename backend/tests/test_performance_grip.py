@@ -124,21 +124,28 @@ class TestParseQ1:
 
         SHAPE NOTE: the synthetic input below assumes nested {"75": v, "95": v}.
         Verified against the real fixture in Step 1 — it uses the same shape.
+
+        UNIT NOTE: NR returns LCP/INP/FCP/TTFB in SECONDS — the parser converts
+        them to milliseconds (×1000). CLS is dimensionless and passes through.
+        So the synthetic inputs below are in NR's native seconds; the assertions
+        are in the parser's output milliseconds.
         """
         synthetic = {
             "results": [{
                 "facet": ["/test", "Mobile"],
-                "lcp": {"75": 2450, "95": 3920},
+                "lcp": {"75": 2.45, "95": 3.92},
                 "inp": {"75": None, "95": None},
                 "cls": {"75": 0.08, "95": 0.21},
-                "fcp": {"75": 1100, "95": 2200},
-                "ttfb": {"75": 320, "95": 780},
+                "fcp": {"75": 1.10, "95": 2.20},
+                "ttfb": {"75": 0.32, "95": 0.78},
                 "sample_count": 100,
             }]
         }
         rows = parse_q1_response(synthetic)
-        assert rows[0]["inp_p75"] is None
-        assert rows[0]["lcp_p75"] == 2450
+        assert rows[0]["inp_p75"] is None                 # null passes through
+        assert rows[0]["lcp_p75"] == 2450                 # 2.45 s → 2450 ms
+        assert rows[0]["fcp_p95"] == 2200                 # 2.20 s → 2200 ms
+        assert rows[0]["cls_p75"] == 0.08                 # CLS unchanged — not ×1000
 
 
 class TestParseQ2:
