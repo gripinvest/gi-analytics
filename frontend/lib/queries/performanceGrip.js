@@ -14,6 +14,10 @@
 import * as React from "react";
 import { runQuery } from "@/lib/api";
 
+/* The project id — the path segment for /api/projects/{id}/query and the
+   backend's data dir key. runQuery's signature is (projectId, sql, limit). */
+const PROJECT_ID = "performance_grip";
+
 // Web Vitals thresholds (spec §6.2 — Google official). [Good, NI, Poor] boundaries.
 // LCP/INP/FCP/TTFB are in milliseconds (the archive stores seconds — we ×1000 in display).
 // CLS is dimensionless.
@@ -133,9 +137,9 @@ function routesSQL({ app, device }) {
    No app/device filter — the caption is a global property of the archive. */
 const DATA_AGE_SQL = `
   SELECT
-    MIN(date) AS first_date,
-    MAX(date) AS last_date,
-    CAST(MAX(date) - MIN(date) + INTERVAL 1 DAY AS INTEGER) AS days_collected
+    MIN(CAST(date AS DATE)) AS first_date,
+    MAX(CAST(date AS DATE)) AS last_date,
+    (MAX(CAST(date AS DATE)) - MIN(CAST(date AS DATE))) + 1 AS days_collected
   FROM performance_grip__hourly_web_vitals
 `;
 
@@ -177,7 +181,9 @@ export function usePerformanceGrip({ app, device, windowDays }) {
 
     Promise.all(
       Object.entries(queries).map(([key, sql]) =>
-        runQuery(sql).then(rows => [key, { rows }]).catch(e => [key, { error: e.message || String(e) }])
+        runQuery(PROJECT_ID, sql, 1000)
+          .then(res => [key, res && res.error ? { error: res.error } : { rows: (res && res.rows) || [] }])
+          .catch(e => [key, { error: e.message || String(e) }])
       )
     ).then(entries => {
       if (cancelled) return;
@@ -196,8 +202,8 @@ export function useRouteSparkline({ app, device, pageUrl }) {
   React.useEffect(() => {
     if (!pageUrl) { setRows([]); return; }
     let cancelled = false;
-    runQuery(routeSparklineSQL({ app, device, pageUrl }))
-      .then(r => { if (!cancelled) setRows(r); })
+    runQuery(PROJECT_ID, routeSparklineSQL({ app, device, pageUrl }), 1000)
+      .then(res => { if (!cancelled) setRows((res && res.rows) || []); })
       .catch(() => { if (!cancelled) setRows([]); });
     return () => { cancelled = true; };
   }, [app, device, pageUrl]);
