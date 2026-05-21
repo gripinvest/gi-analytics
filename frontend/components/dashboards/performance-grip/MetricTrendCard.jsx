@@ -62,37 +62,20 @@ export default function MetricTrendCard({
   const yMax = t.ni * 1.5;
 
   return (
-    <div className="metric-trend-card" style={{
-      border: "1px solid var(--ed-rule-faint)",
-      padding: 16,
-      background: "var(--ed-paper)",
-      fontFeatureSettings: "'tnum' 1",
-    }}>
+    <div className="metric-trend-card">
       <div className="metric-trend-card__head">
-        <div className="metric-trend-card__name" style={{
-          fontFamily: "var(--ed-display, Fraunces, serif)",
-          fontSize: 18,
-          marginBottom: 4,
-        }}>{metricLabel}</div>
+        <p className="metric-trend-card__name ed-headline" style={{ fontSize: 18 }}>
+          {metricLabel}
+        </p>
         {metricBlurb && (
-          <div className="metric-trend-card__blurb" style={{
-            fontFamily: "var(--ed-body, Newsreader, serif)",
-            fontStyle: "italic",
-            fontSize: 11,
-            color: "var(--ed-ink-soft)",
-            marginBottom: 8,
-          }}>{metricBlurb}</div>
+          <p className="metric-trend-card__blurb ed-prose-italic mt-1">{metricBlurb}</p>
         )}
-        <div className="metric-trend-card__value" style={{
-          fontFamily: "var(--ed-mono, IBM Plex Mono, monospace)",
-          fontSize: 32,
-          fontVariantNumeric: "tabular-nums",
-          color: ED_INK,
-        }}>
+        <p className="metric-trend-card__value ed-stat-num mt-2">
           {formatValue(metric, latestP75)}
-        </div>
+        </p>
       </div>
 
+      <div className="ed-figure mt-3">
       <div className="metric-trend-card__chart" style={{ width: "100%", height: 140 }}>
         <ResponsiveContainer>
           <LineChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
@@ -128,16 +111,9 @@ export default function MetricTrendCard({
           </LineChart>
         </ResponsiveContainer>
       </div>
-
-      <div className="metric-trend-card__legend" style={{
-        fontFamily: "var(--ed-mono)",
-        fontSize: 10,
-        letterSpacing: "0.06em",
-        textTransform: "uppercase",
-        color: "var(--ed-ink-soft)",
-        marginTop: 6,
-      }}>
+      <p className="metric-trend-card__legend ed-caption mt-1.5">
         ── p75   ░░ p75–p95 spread
+      </p>
       </div>
     </div>
   );

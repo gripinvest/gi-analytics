@@ -17,8 +17,10 @@ const SECONDARY = ["fcp", "ttfb"];
 export default function MetricTrendGrid({ rows }) {
   return (
     <div className="metric-trend-grid">
-      <Section title="Core Web Vitals">
-        <Grid columns={3}>
+      <section className="mb-8">
+        <hr className="ed-rule-thick" />
+        <p className="ed-section-no mt-2 mb-4">Core Web Vitals</p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {CORE.map(m => (
             <MetricTrendCard
               key={m}
@@ -29,10 +31,12 @@ export default function MetricTrendGrid({ rows }) {
               thresholds={THRESHOLDS}
             />
           ))}
-        </Grid>
-      </Section>
-      <Section title="Secondary Web Vitals">
-        <Grid columns={2}>
+        </div>
+      </section>
+      <section className="mb-8">
+        <hr className="ed-rule-thick" />
+        <p className="ed-section-no mt-2 mb-4">Secondary Web Vitals</p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {SECONDARY.map(m => (
             <MetricTrendCard
               key={m}
@@ -43,38 +47,8 @@ export default function MetricTrendGrid({ rows }) {
               thresholds={THRESHOLDS}
             />
           ))}
-        </Grid>
-      </Section>
+        </div>
+      </section>
     </div>
-  );
-}
-
-function Section({ title, children }) {
-  return (
-    <section style={{ marginBottom: 24 }}>
-      <div style={{
-        fontFamily: "var(--ed-mono)",
-        fontSize: 10,
-        letterSpacing: "0.12em",
-        textTransform: "uppercase",
-        color: "var(--ed-ink-soft)",
-        borderTop: "1px solid var(--ed-ink)",
-        paddingTop: 8,
-        marginBottom: 12,
-      }}>
-        {title}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Grid({ columns, children }) {
-  return (
-    <div style={{
-      display: "grid",
-      gridTemplateColumns: `repeat(auto-fit, minmax(280px, 1fr))`,
-      gap: 16,
-    }}>{children}</div>
   );
 }

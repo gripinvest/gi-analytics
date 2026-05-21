@@ -22,50 +22,30 @@ export default function RouteDrilldown({ routeRows, app, device }) {
   const otherViews = otherRows.reduce((s, r) => s + (r.page_views ?? 0), 0);
 
   return (
-    <section className="route-drilldown" style={{ marginTop: 24 }}>
-      <div style={{
-        fontFamily: "var(--ed-mono)",
-        fontSize: 10,
-        letterSpacing: "0.12em",
-        textTransform: "uppercase",
-        color: "var(--ed-ink-soft)",
-        borderTop: "1px solid var(--ed-ink)",
-        paddingTop: 8,
-        marginBottom: 12,
-        display: "flex",
-        justifyContent: "space-between",
-      }}>
-        <span>Routes — top {expanded ? EXPANDED_TOP : DEFAULT_TOP} by week-over-week LCP regression</span>
+    <section className="route-drilldown">
+      <hr className="ed-rule-thick" />
+      <div className="mt-2 mb-3 flex items-baseline justify-between gap-4">
+        <p className="ed-section-no">
+          Routes — top {expanded ? EXPANDED_TOP : DEFAULT_TOP} by week-over-week LCP regression
+        </p>
         <button
+          type="button"
           onClick={() => setExpanded(e => !e)}
-          style={{
-            fontFamily: "var(--ed-mono)",
-            fontSize: 10,
-            background: "none",
-            border: "none",
-            color: "var(--ed-ink-soft)",
-            cursor: "pointer",
-            textDecoration: "underline",
-          }}
+          className="ed-caption shrink-0 underline"
+          style={{ background: "none", border: "none", cursor: "pointer" }}
         >
           {expanded ? "[show 5]" : `[show ${EXPANDED_TOP}]`}
         </button>
       </div>
 
-      <table style={{
-        width: "100%",
-        borderCollapse: "collapse",
-        fontFamily: "var(--ed-mono)",
-        fontSize: 12,
-        fontVariantNumeric: "tabular-nums",
-      }}>
+      <table className="w-full" style={{ borderCollapse: "collapse" }}>
         <thead>
-          <tr style={{ textAlign: "left", color: "var(--ed-ink-soft)" }}>
-            <th style={{ padding: 6 }}>Route</th>
-            <th style={{ padding: 6, textAlign: "right" }}>Views (7d)</th>
-            <th style={{ padding: 6, textAlign: "right" }}>LCP p75</th>
-            <th style={{ padding: 6, textAlign: "right" }}>INP p75</th>
-            <th style={{ padding: 6, textAlign: "right" }}>WoW Δ LCP</th>
+          <tr style={{ textAlign: "left" }}>
+            <th className="ed-caption p-1.5">Route</th>
+            <th className="ed-caption p-1.5 text-right">Views (7d)</th>
+            <th className="ed-caption p-1.5 text-right">LCP p75</th>
+            <th className="ed-caption p-1.5 text-right">INP p75</th>
+            <th className="ed-caption p-1.5 text-right">WoW Δ LCP</th>
           </tr>
         </thead>
         <tbody>
@@ -76,10 +56,10 @@ export default function RouteDrilldown({ routeRows, app, device }) {
                       app={app} device={device} />
           ))}
           {otherRows.length > 0 && (
-            <tr style={{ borderTop: "1px solid var(--ed-rule-faint)", color: "var(--ed-ink-soft)" }}>
-              <td style={{ padding: 6 }}>Other pages ({otherRows.length})</td>
-              <td style={{ padding: 6, textAlign: "right" }}>{otherViews.toLocaleString()}</td>
-              <td colSpan={3}>—</td>
+            <tr className="ed-rule-faint" style={{ borderTopWidth: 1, borderTopStyle: "solid" }}>
+              <td className="ed-caption p-1.5">Other pages ({otherRows.length})</td>
+              <td className="ed-num p-1.5 text-right">{otherViews.toLocaleString()}</td>
+              <td className="ed-caption p-1.5" colSpan={3}>—</td>
             </tr>
           )}
         </tbody>
@@ -93,12 +73,13 @@ function RouteRow({ row, isOpen, onToggle, app, device }) {
   const wowColor = wow > 0 ? "var(--ed-rust)" : wow < 0 ? "var(--ed-forest)" : "var(--ed-ink-soft)";
   return (
     <>
-      <tr onClick={onToggle} style={{ cursor: "pointer", borderTop: "1px solid var(--ed-rule-faint)" }}>
-        <td style={{ padding: 6 }}>{row.page_url}</td>
-        <td style={{ padding: 6, textAlign: "right" }}>{row.page_views?.toLocaleString()}</td>
-        <td style={{ padding: 6, textAlign: "right" }}>{row.lcp_p75_ms ? `${(row.lcp_p75_ms / 1000).toFixed(2)}s` : "—"}</td>
-        <td style={{ padding: 6, textAlign: "right" }}>{row.inp_p75_ms != null ? `${Math.round(row.inp_p75_ms)}ms` : "—"}</td>
-        <td style={{ padding: 6, textAlign: "right", color: wowColor }}>
+      <tr onClick={onToggle} className="ed-rule-faint"
+          style={{ cursor: "pointer", borderTopWidth: 1, borderTopStyle: "solid" }}>
+        <td className="ed-num p-1.5">{row.page_url}</td>
+        <td className="ed-num p-1.5 text-right">{row.page_views?.toLocaleString()}</td>
+        <td className="ed-num p-1.5 text-right">{row.lcp_p75_ms ? `${(row.lcp_p75_ms / 1000).toFixed(2)}s` : "—"}</td>
+        <td className="ed-num p-1.5 text-right">{row.inp_p75_ms != null ? `${Math.round(row.inp_p75_ms)}ms` : "—"}</td>
+        <td className="ed-num p-1.5 text-right" style={{ color: wowColor }}>
           {wow == null ? "—" : `${wow >= 0 ? "+" : ""}${(wow / 1000).toFixed(2)}s`}
         </td>
       </tr>
@@ -111,17 +92,12 @@ function RouteSparklineRow({ pageUrl, app, device }) {
   const rows = useRouteSparkline({ app, device, pageUrl });
   return (
     <tr>
-      <td colSpan={5} style={{ padding: "8px 6px", background: "var(--ed-paper-deep)" }}>
-        <div style={{
-          fontFamily: "var(--ed-mono)",
-          fontSize: 10,
-          color: "var(--ed-ink-soft)",
-          marginBottom: 4,
-        }}>30-day LCP p75 trend</div>
+      <td colSpan={5} className="p-1.5" style={{ background: "var(--ed-paper-deep)" }}>
+        <p className="ed-caption mb-1">30-day LCP p75 trend</p>
         {rows.length > 0 ? (
           <Sparkline rows={rows} />
         ) : (
-          <div style={{ color: "var(--ed-ink-soft)" }}>No data yet for this route.</div>
+          <p className="ed-caption">No data yet for this route.</p>
         )}
       </td>
     </tr>

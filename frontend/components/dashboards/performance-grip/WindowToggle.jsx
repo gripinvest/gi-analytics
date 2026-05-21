@@ -10,40 +10,31 @@ const OPTIONS = [
 
 export default function WindowToggle({ value, onChange, daysCollected }) {
   return (
-    <div className="window-toggle" style={{
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      marginBottom: 16,
-    }}>
-      <div style={{
-        fontFamily: "var(--ed-mono)",
-        fontSize: 11,
-        color: "var(--ed-ink-soft)",
-      }}>
+    <div className="window-toggle inline-flex items-center gap-x-2">
+      <span className="ed-caption">
         Data: {daysCollected ?? 0} days collected · viewing last
-      </div>
-      {OPTIONS.map(opt => (
-        <button
-          key={opt.days}
-          onClick={() => onChange(opt.days)}
-          style={{
-            fontFamily: "var(--ed-mono)",
-            fontSize: 11,
-            padding: "4px 12px",
-            border: value === opt.days
-              ? "1px solid var(--ed-ink)"
-              : "1px solid var(--ed-rule-faint)",
-            background: value === opt.days ? "var(--ed-paper-deep)" : "transparent",
-            cursor: "pointer",
-            borderRadius: 999,
-            // Touch target — minimum 44px on touch devices (spec §6.5)
-            minHeight: 32,
-          }}
-        >
-          {opt.label}
-        </button>
-      ))}
+      </span>
+      {OPTIONS.map(opt => {
+        const active = value === opt.days;
+        return (
+          <button
+            key={opt.days}
+            type="button"
+            onClick={() => onChange(opt.days)}
+            className="ed-caption px-2 py-1"
+            style={{
+              // Touch target — minimum 32px (spec §6.5)
+              minHeight: 32,
+              border: active ? "1px solid var(--ed-ink)" : "1px solid var(--ed-rule-faint)",
+              background: active ? "var(--ed-ink)" : "transparent",
+              color: active ? "var(--ed-paper)" : "var(--ed-ink-muted)",
+              cursor: "pointer",
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

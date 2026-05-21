@@ -15,7 +15,7 @@ function fmtDelta(d, unit, signLabel) {
   if (!d) return "—";
   const sign = d.diff > 0 ? "↑" : d.diff < 0 ? "↓" : "→";
   const color = d.good ? "var(--ed-forest)" : "var(--ed-rust)";
-  return <span style={{ color, fontFamily: "var(--ed-mono)" }}>{sign} {Math.abs(d.diff).toFixed(2)}{unit} ({d.pct >= 0 ? "+" : ""}{d.pct.toFixed(1)}%)</span>;
+  return <span className="ed-num" style={{ color }}>{sign} {Math.abs(d.diff).toFixed(2)}{unit} ({d.pct >= 0 ? "+" : ""}{d.pct.toFixed(1)}%)</span>;
 }
 
 export default function HeroBand({ heroRows /* from hero query: this_week, last_week */ }) {
@@ -28,14 +28,7 @@ export default function HeroBand({ heroRows /* from hero query: this_week, last_
                           lw.js_errors / Math.max(lw.page_views, 1) * 1000, true);
 
   return (
-    <div className="hero-band" style={{
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-      gap: 16,
-      padding: 16,
-      background: "var(--ed-paper-deep)",
-      marginBottom: 16,
-    }}>
+    <div className="hero-band grid grid-cols-2 gap-4 md:grid-cols-4">
       <HeroCell label="p75 LCP this week"
                 value={tw.lcp_p75_ms != null ? `${(tw.lcp_p75_ms / 1000).toFixed(2)}s` : "—"}
                 delta={fmtDelta(lcpDelta, "ms", "")} />
@@ -55,21 +48,9 @@ export default function HeroBand({ heroRows /* from hero query: this_week, last_
 function HeroCell({ label, value, delta }) {
   return (
     <div>
-      <div style={{
-        fontFamily: "var(--ed-mono)",
-        fontSize: 10,
-        letterSpacing: "0.06em",
-        textTransform: "uppercase",
-        color: "var(--ed-ink-soft)",
-        marginBottom: 4,
-      }}>{label}</div>
-      <div style={{
-        fontFamily: "var(--ed-mono)",
-        fontSize: 24,
-        fontVariantNumeric: "tabular-nums",
-        color: "var(--ed-ink)",
-      }}>{value}</div>
-      <div style={{ fontSize: 12, marginTop: 2 }}>{delta}</div>
+      <p className="ed-overline mb-1">{label}</p>
+      <p className="ed-stat-num">{value}</p>
+      <p className="mt-1" style={{ fontSize: 12 }}>{delta}</p>
     </div>
   );
 }

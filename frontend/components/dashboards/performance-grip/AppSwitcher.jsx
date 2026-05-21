@@ -8,32 +8,18 @@ const APPS = [
 
 export default function AppSwitcher({ value, onChange }) {
   return (
-    <div role="tablist" aria-label="App switcher" style={{
-      display: "flex",
-      gap: 24,
-      borderBottom: "1px solid var(--ed-rule-faint)",
-      marginBottom: 16,
-    }}>
+    <div role="tablist" aria-label="App switcher" className="flex gap-x-6 border-b"
+         style={{ borderColor: "var(--ed-rule-faint)" }}>
       {APPS.map(app => {
         const active = value === app.slug;
         return (
           <button
             key={app.slug}
+            type="button"
             role="tab"
             aria-selected={active}
             onClick={() => onChange(app.slug)}
-            style={{
-              fontFamily: "var(--ed-display)",
-              fontSize: 16,
-              padding: "12px 4px",
-              background: "none",
-              border: "none",
-              borderBottom: active ? "2px solid var(--ed-ink)" : "2px solid transparent",
-              color: active ? "var(--ed-ink)" : "var(--ed-ink-soft)",
-              fontWeight: active ? 600 : 400,
-              cursor: "pointer",
-              marginBottom: -1,
-            }}
+            className="ed-section-link shrink-0 whitespace-nowrap"
           >
             {app.label}
           </button>

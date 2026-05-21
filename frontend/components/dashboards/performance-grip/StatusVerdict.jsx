@@ -53,28 +53,11 @@ export default function StatusVerdict({ rows, thresholds }) {
   const v = STATUS_VISUAL[status];
 
   return (
-    <div className="status-verdict" style={{
-      border: `1px solid ${v.color}`,
-      padding: 16,
-      background: "var(--ed-paper)",
-      marginBottom: 24,
-    }}>
-      <div style={{
-        fontFamily: "var(--ed-display)",
-        fontSize: 24,
-        color: v.color,
-        marginBottom: 4,
-      }}>
-        Status: {v.label} <span style={{ marginLeft: 8 }}>{v.icon}</span>
-      </div>
-      <div style={{
-        fontFamily: "var(--ed-body)",
-        fontStyle: "italic",
-        fontSize: 14,
-        color: "var(--ed-ink)",
-      }}>
-        {reason}
-      </div>
+    <div className="status-verdict ed-figure">
+      <p className="ed-headline" style={{ fontSize: 24, color: v.color }}>
+        Status: {v.label} <span className="ml-2">{v.icon}</span>
+      </p>
+      <p className="ed-prose-italic mt-1">{reason}</p>
     </div>
   );
 }
