@@ -75,9 +75,16 @@ function outlierCount(metric) {
 
 /* Build per-day trendline aggregates from the hourly archive. Page-view-weighted
    averages across the day's hours per (page_url) — then dashboard rolls up to
-   site-level by page-view-weighted average across page_urls. */
-function trendlineSQL({ app, device, days }) {
+   site-level by page-view-weighted average across page_urls.
+
+   Optional `pageUrl` scopes the aggregate to a single route — the Page Detail
+   panel uses this; absent it, behaviour is unchanged (all pages). Single-quote
+   escaping matches routeSparklineSQL. */
+function trendlineSQL({ app, device, days, pageUrl }) {
   const dev = deviceClause(device);
+  const pageClause = pageUrl
+    ? ` AND page_url = '${pageUrl.replaceAll("'", "''")}'`
+    : "";
   return `
     SELECT
       date,
@@ -101,7 +108,7 @@ function trendlineSQL({ app, device, days }) {
       ${outlierCount("fcp")}  AS fcp_outliers,
       ${outlierCount("ttfb")} AS ttfb_outliers
     FROM performance_grip__hourly_web_vitals
-    WHERE app = '${app}'${dev}
+    WHERE app = '${app}'${dev}${pageClause}
       AND date >= CURRENT_DATE - INTERVAL ${days} DAY
     GROUP BY date
     ORDER BY date
@@ -261,4 +268,21 @@ export function useRouteSparkline({ app, device, pageUrl }) {
     return () => { cancelled = true; };
   }, [app, device, pageUrl]);
   return rows;
+}
+
+/* Full per-day trendline detail for ONE route over the active window. Returns
+   the SAME row shape as the main trendline query, so MetricTrendCard consumes
+   it unchanged. Falsy pageUrl → empty (nothing selected yet). */
+export function usePageDetail({ app, device, pageUrl, windowDays }) {
+  const [rows, setRows] = React.useState([]);
+  React.useEffect(() => {
+    if (!pageUrl) { setRows([]); return; }
+    let cancelled = false;
+    const sql = trendlineSQL({ app, device, days: windowDays, pageUrl });
+    runQuery(PROJECT_ID, sql, 1000)
+      .then(res => { if (!cancelled) setRows(res && res.error ? [] : (res && res.rows) || []); })
+      .catch(() => { if (!cancelled) setRows([]); });
+    return () => { cancelled = true; };
+  }, [app, device, pageUrl, windowDays]);
+  return { rows };
 }

@@ -8,6 +8,7 @@ import HeroBand from "./performance-grip/HeroBand";
 import WindowToggle from "./performance-grip/WindowToggle";
 import MetricTrendGrid from "./performance-grip/MetricTrendGrid";
 import RouteDrilldown from "./performance-grip/RouteDrilldown";
+import PageDetailPanel from "./performance-grip/PageDetailPanel";
 import AppSwitcher from "./performance-grip/AppSwitcher";
 import DeviceToggle from "./performance-grip/DeviceToggle";
 import { THRESHOLDS } from "@/lib/queries/performanceGrip";
@@ -107,6 +108,15 @@ export default function PerformanceGripDashboardEditorial() {
 
       <div className="ed-set ed-set-delay-5 mt-12">
         <MetricTrendGrid rows={data?.trendlines?.rows ?? []} />
+      </div>
+
+      <div className="ed-set ed-set-delay-5 mt-12">
+        <PageDetailPanel
+          app={app}
+          device={device}
+          windowDays={windowDays}
+          routeRows={data?.routes?.rows ?? []}
+        />
       </div>
     </article>
   );

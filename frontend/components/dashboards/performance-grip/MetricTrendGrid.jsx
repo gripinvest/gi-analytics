@@ -3,7 +3,9 @@ import * as React from "react";
 import MetricTrendCard from "./MetricTrendCard";
 import { THRESHOLDS } from "@/lib/queries/performanceGrip";
 
-const METRICS = {
+/* Metric label/blurb map + Core/Secondary grouping. Exported so PageDetailPanel
+   (and any other per-metric surface) reuses the same copy without duplicating it. */
+export const METRICS = {
   lcp:  { label: "Largest Contentful Paint",  blurb: "Time until the largest visible element loads" },
   inp:  { label: "Interaction to Next Paint", blurb: "Latency of the user's next interaction" },
   cls:  { label: "Cumulative Layout Shift",   blurb: "How much the page visibly jumps after load" },
@@ -11,8 +13,8 @@ const METRICS = {
   ttfb: { label: "Time to First Byte",        blurb: "Server response speed" },
 };
 
-const CORE = ["lcp", "inp", "cls"];
-const SECONDARY = ["fcp", "ttfb"];
+export const CORE = ["lcp", "inp", "cls"];
+export const SECONDARY = ["fcp", "ttfb"];
 
 export default function MetricTrendGrid({ rows }) {
   return (
