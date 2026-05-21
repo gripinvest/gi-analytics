@@ -53,9 +53,10 @@ export default function MetricTrendCard({
   const p75Key = `${metric}${metric === "cls" ? "_p75" : "_p75_ms"}`;
   const p95Key = `${metric}${metric === "cls" ? "_p95" : "_p95_ms"}`;
 
-  // Latest day's headline p75 value
+  // Latest day's headline figures — p75 (typical user) + p95 (slow tail).
   const latest = rows.length ? rows[rows.length - 1] : {};
   const latestP75 = latest[p75Key];
+  const latestP95 = latest[p95Key];
 
   // Outlier transparency — how many (url,hour) readings were set aside
   // (clamped or too-few-samples) across the window for THIS metric. Some
@@ -76,9 +77,20 @@ export default function MetricTrendCard({
         {metricBlurb && (
           <p className="metric-trend-card__blurb ed-prose-italic mt-1">{metricBlurb}</p>
         )}
-        <p className="metric-trend-card__value ed-stat-num mt-2">
-          {formatValue(metric, latestP75)}
-        </p>
+        <div className="metric-trend-card__values mt-2 flex items-baseline gap-x-3">
+          <span className="metric-trend-card__value ed-stat-num">
+            {formatValue(metric, latestP75)}
+          </span>
+          <span className="ed-caption">p75</span>
+          <span
+            className="metric-trend-card__p95 ed-num"
+            style={{ fontSize: 15, color: "var(--ed-ink-muted)" }}
+            title="95th percentile — the slow-tail experience. The shaded band on the chart is the p75→p95 spread."
+          >
+            {formatValue(metric, latestP95)}
+            <span className="ed-caption" style={{ marginLeft: 4 }}>p95</span>
+          </span>
+        </div>
       </div>
 
       <div className="ed-figure mt-3">
@@ -112,7 +124,7 @@ export default function MetricTrendCard({
                 background: "var(--ed-paper)",
                 border: "1px solid var(--ed-rule)",
               }}
-              formatter={(v, k) => [formatValue(metric, v), k]}
+              formatter={(v, k) => [formatValue(metric, v), k === p95Key ? "p95" : "p75"]}
             />
           </LineChart>
         </ResponsiveContainer>
