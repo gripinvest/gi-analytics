@@ -4,7 +4,10 @@ import * as React from "react";
 /* Display direction: lower-is-better metrics get ↓ = forest, ↑ = rust.
    Higher-is-better (page_views) flip the sign. */
 function delta(thisVal, lastVal, lowerIsBetter = true) {
-  if (thisVal == null || lastVal == null) return null;
+  // Number.isFinite rejects null, undefined AND NaN. The NaN case is real:
+  // with <14 days of data the "last week" bucket is empty, so a derived value
+  // like js_errors/page_views resolves to NaN — which `== null` does NOT catch.
+  if (!Number.isFinite(thisVal) || !Number.isFinite(lastVal)) return null;
   const diff = thisVal - lastVal;
   const pct = lastVal !== 0 ? (diff / lastVal) * 100 : 0;
   const good = lowerIsBetter ? diff <= 0 : diff >= 0;
