@@ -57,6 +57,12 @@ export default function MetricTrendCard({
   const latest = rows.length ? rows[rows.length - 1] : {};
   const latestP75 = latest[p75Key];
 
+  // Outlier transparency — how many (url,hour) readings were set aside
+  // (clamped or too-few-samples) across the window for THIS metric. Some
+  // extremes may be genuine, so we surface the count rather than hide it.
+  const totalReadings = rows.reduce((s, r) => s + (Number(r.reading_count) || 0), 0);
+  const totalOutliers = rows.reduce((s, r) => s + (Number(r[`${metric}_outliers`]) || 0), 0);
+
   // Fixed Y-axis anchored to thresholds. Range = [0, 1.5 × amber boundary].
   // Keeps the Good→NI line in a stable visual position across days.
   const yMax = t.ni * 1.5;
@@ -114,6 +120,15 @@ export default function MetricTrendCard({
       <p className="metric-trend-card__legend ed-caption mt-1.5">
         ── p75   ░░ p75–p95 spread
       </p>
+      {totalOutliers > 0 && (
+        <p
+          className="metric-trend-card__outliers ed-caption mt-1"
+          style={{ color: "var(--ed-rust)" }}
+          title="Readings excluded as extreme (clamped or too few samples) before averaging. Some may be genuine — check New Relic if a metric looks off."
+        >
+          ⚠ {totalReadings.toLocaleString()} readings · {totalOutliers.toLocaleString()} extreme set aside
+        </p>
+      )}
       </div>
     </div>
   );

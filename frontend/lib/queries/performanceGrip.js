@@ -35,6 +35,44 @@ function deviceClause(device) {
   return device === "all" ? "" : ` AND device = '${device}'`;
 }
 
+/* ── Outlier handling ────────────────────────────────────────────────────────
+   NR Web Vitals carry garbage extremes — idle-tab INP of 70+ hours, CLS of 6,
+   hung-page LCP of 1000s. We re-aggregate per-hour percentiles with a weighted
+   mean, which amplifies them. So before aggregating we:
+     · clamp each metric to a sane ceiling (above it is an artifact, not a
+       real measurement — CrUX-style tools do the same), and
+     · drop (url,hour) rows backed by fewer than MIN_SAMPLES readings — too
+       noisy to trust; outliers cluster in tiny-sample buckets.
+   Both clamped and dropped rows are still COUNTED (see outlierCount) so the
+   dashboard can show how many readings were set aside — some may be real. */
+const CAP = { lcp: 60000, inp: 10000, cls: 1.0, fcp: 60000, ttfb: 60000 };
+const MIN_SAMPLES = 3;
+
+/* Column name for a metric+stat. CLS is dimensionless (`cls_p75`); the timing
+   metrics carry the `_ms` suffix (`lcp_p75_ms`). */
+function col(metric, stat) {
+  return metric === "cls" ? `cls_${stat}` : `${metric}_${stat}_ms`;
+}
+
+/* A clamped, sample-filtered, page-view-... no — sample-weighted average for
+   one metric column. Rows below MIN_SAMPLES are excluded; values are clamped
+   to CAP[metric] before the weighted mean. */
+function wavg(metric, stat) {
+  const c = col(metric, stat);
+  const cap = CAP[metric];
+  const keep = `FILTER (WHERE sample_count >= ${MIN_SAMPLES})`;
+  return `SUM(LEAST(${c}, ${cap}) * sample_count) ${keep} `
+       + `/ NULLIF(SUM(sample_count) ${keep}, 0)`;
+}
+
+/* Count of (url,hour) rows set aside for one metric — either too few samples
+   to trust, or a p75 above the cap (clamped). Drives the per-card
+   "N set aside" caption. */
+function outlierCount(metric) {
+  const c = col(metric, "p75");
+  return `COUNT(*) FILTER (WHERE sample_count < ${MIN_SAMPLES} OR ${c} > ${CAP[metric]})`;
+}
+
 /* Build per-day trendline aggregates from the hourly archive. Page-view-weighted
    averages across the day's hours per (page_url) — then dashboard rolls up to
    site-level by page-view-weighted average across page_urls. */
@@ -43,19 +81,25 @@ function trendlineSQL({ app, device, days }) {
   return `
     SELECT
       date,
-      SUM(page_views)                                                          AS page_views_total,
-      SUM(js_errors)                                                           AS js_errors_total,
-      SUM(sample_count)                                                        AS sample_count_total,
-      SUM(lcp_p75_ms * sample_count)  / NULLIF(SUM(sample_count), 0)           AS lcp_p75_ms,
-      SUM(lcp_p95_ms * sample_count)  / NULLIF(SUM(sample_count), 0)           AS lcp_p95_ms,
-      SUM(inp_p75_ms * sample_count)  / NULLIF(SUM(sample_count), 0)           AS inp_p75_ms,
-      SUM(inp_p95_ms * sample_count)  / NULLIF(SUM(sample_count), 0)           AS inp_p95_ms,
-      SUM(cls_p75    * sample_count)  / NULLIF(SUM(sample_count), 0)           AS cls_p75,
-      SUM(cls_p95    * sample_count)  / NULLIF(SUM(sample_count), 0)           AS cls_p95,
-      SUM(fcp_p75_ms * sample_count)  / NULLIF(SUM(sample_count), 0)           AS fcp_p75_ms,
-      SUM(fcp_p95_ms * sample_count)  / NULLIF(SUM(sample_count), 0)           AS fcp_p95_ms,
-      SUM(ttfb_p75_ms * sample_count) / NULLIF(SUM(sample_count), 0)           AS ttfb_p75_ms,
-      SUM(ttfb_p95_ms * sample_count) / NULLIF(SUM(sample_count), 0)           AS ttfb_p95_ms
+      SUM(page_views)   AS page_views_total,
+      SUM(js_errors)    AS js_errors_total,
+      SUM(sample_count) AS sample_count_total,
+      COUNT(*)          AS reading_count,
+      ${wavg("lcp",  "p75")} AS lcp_p75_ms,
+      ${wavg("lcp",  "p95")} AS lcp_p95_ms,
+      ${wavg("inp",  "p75")} AS inp_p75_ms,
+      ${wavg("inp",  "p95")} AS inp_p95_ms,
+      ${wavg("cls",  "p75")} AS cls_p75,
+      ${wavg("cls",  "p95")} AS cls_p95,
+      ${wavg("fcp",  "p75")} AS fcp_p75_ms,
+      ${wavg("fcp",  "p95")} AS fcp_p95_ms,
+      ${wavg("ttfb", "p75")} AS ttfb_p75_ms,
+      ${wavg("ttfb", "p95")} AS ttfb_p95_ms,
+      ${outlierCount("lcp")}  AS lcp_outliers,
+      ${outlierCount("inp")}  AS inp_outliers,
+      ${outlierCount("cls")}  AS cls_outliers,
+      ${outlierCount("fcp")}  AS fcp_outliers,
+      ${outlierCount("ttfb")} AS ttfb_outliers
     FROM performance_grip__hourly_web_vitals
     WHERE app = '${app}'${dev}
       AND date >= CURRENT_DATE - INTERVAL ${days} DAY
@@ -75,11 +119,11 @@ function heroSQL({ app, device }) {
           WHEN date >= CURRENT_DATE - INTERVAL 14 DAY THEN 'last_week'
           ELSE NULL
         END AS bucket,
-        SUM(page_views)                                                        AS page_views,
-        SUM(js_errors)                                                         AS js_errors,
-        SUM(sample_count)                                                      AS samples,
-        SUM(lcp_p75_ms * sample_count) / NULLIF(SUM(sample_count), 0)          AS lcp_p75_ms,
-        SUM(inp_p75_ms * sample_count) / NULLIF(SUM(sample_count), 0)          AS inp_p75_ms
+        SUM(page_views)   AS page_views,
+        SUM(js_errors)    AS js_errors,
+        SUM(sample_count) AS samples,
+        ${wavg("lcp", "p75")} AS lcp_p75_ms,
+        ${wavg("inp", "p75")} AS inp_p75_ms
       FROM performance_grip__hourly_web_vitals
       WHERE app = '${app}'${dev}
         AND date >= CURRENT_DATE - INTERVAL 14 DAY
@@ -99,11 +143,11 @@ function routesSQL({ app, device }) {
     WITH this_week AS (
       SELECT
         page_url,
-        SUM(page_views)                                                        AS page_views,
-        SUM(js_errors)                                                         AS js_errors,
-        SUM(lcp_p75_ms * sample_count) / NULLIF(SUM(sample_count), 0)          AS lcp_p75_ms,
-        SUM(inp_p75_ms * sample_count) / NULLIF(SUM(sample_count), 0)          AS inp_p75_ms,
-        SUM(cls_p75    * sample_count) / NULLIF(SUM(sample_count), 0)          AS cls_p75
+        SUM(page_views) AS page_views,
+        SUM(js_errors)  AS js_errors,
+        ${wavg("lcp", "p75")} AS lcp_p75_ms,
+        ${wavg("inp", "p75")} AS inp_p75_ms,
+        ${wavg("cls", "p75")} AS cls_p75
       FROM performance_grip__hourly_web_vitals
       WHERE app = '${app}'${dev}
         AND date >= CURRENT_DATE - INTERVAL 7 DAY
@@ -112,7 +156,7 @@ function routesSQL({ app, device }) {
     last_week AS (
       SELECT
         page_url,
-        SUM(lcp_p75_ms * sample_count) / NULLIF(SUM(sample_count), 0)          AS lcp_p75_ms_lw
+        ${wavg("lcp", "p75")} AS lcp_p75_ms_lw
       FROM performance_grip__hourly_web_vitals
       WHERE app = '${app}'${dev}
         AND date <  CURRENT_DATE - INTERVAL 7  DAY
@@ -149,8 +193,8 @@ function routeSparklineSQL({ app, device, pageUrl }) {
   return `
     SELECT
       date,
-      SUM(lcp_p75_ms * sample_count) / NULLIF(SUM(sample_count), 0) AS lcp_p75_ms,
-      SUM(sample_count)                                              AS samples
+      ${wavg("lcp", "p75")} AS lcp_p75_ms,
+      SUM(sample_count)     AS samples
     FROM performance_grip__hourly_web_vitals
     WHERE app = '${app}'${dev}
       AND date >= CURRENT_DATE - INTERVAL 30 DAY
