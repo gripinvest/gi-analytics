@@ -8,13 +8,13 @@ export function computeVerdict(rows, thresholds) {
     return { status: "watch", reason: "No data yet — first cron pending." };
   }
 
-  // For each CWV metric (LCP, INP, CLS) check every day's p75 against thresholds.
+  // For each CWV metric (LCP, INP, CLS) check every day's p95 against thresholds.
   const cwv = ["lcp", "inp", "cls"];
   let worstStatus = "ok";
   const reasons = [];
 
   for (const m of cwv) {
-    const key = m === "cls" ? "cls_p75" : `${m}_p75_ms`;
+    const key = m === "cls" ? "cls_p95" : `${m}_p95_ms`;
     const t = m === "cls" ? thresholds.cls : thresholds[m];
     const goodMax = m === "cls" ? t.good : t.good_ms;
     const niMax   = m === "cls" ? t.ni   : t.ni_ms;
@@ -29,10 +29,10 @@ export function computeVerdict(rows, thresholds) {
 
     if (daysInPoor > 0) {
       worstStatus = "attention";
-      reasons.push(`${m.toUpperCase()} p75 in Poor on ${daysInPoor} of last ${rows.length} days`);
+      reasons.push(`${m.toUpperCase()} p95 in Poor on ${daysInPoor} of last ${rows.length} days`);
     } else if (daysInNi > 0 && worstStatus !== "attention") {
       worstStatus = "watch";
-      reasons.push(`${m.toUpperCase()} p75 crossed NI threshold on ${daysInNi} of last ${rows.length} days`);
+      reasons.push(`${m.toUpperCase()} p95 crossed NI threshold on ${daysInNi} of last ${rows.length} days`);
     }
   }
 

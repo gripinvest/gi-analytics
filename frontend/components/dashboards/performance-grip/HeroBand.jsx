@@ -25,18 +25,18 @@ export default function HeroBand({ heroRows /* from hero query: this_week, last_
   const tw = heroRows?.find(r => r.bucket === "this_week") || {};
   const lw = heroRows?.find(r => r.bucket === "last_week") || {};
 
-  const lcpDelta = delta(tw.lcp_p75_ms, lw.lcp_p75_ms, true);
-  const inpDelta = delta(tw.inp_p75_ms, lw.inp_p75_ms, true);
+  const lcpDelta = delta(tw.lcp_p95_ms, lw.lcp_p95_ms, true);
+  const inpDelta = delta(tw.inp_p95_ms, lw.inp_p95_ms, true);
   const errDelta = delta(tw.js_errors / Math.max(tw.page_views, 1) * 1000,
                           lw.js_errors / Math.max(lw.page_views, 1) * 1000, true);
 
   return (
     <div className="hero-band grid grid-cols-2 gap-4 md:grid-cols-4">
-      <HeroCell label="p75 LCP this week"
-                value={tw.lcp_p75_ms != null ? `${(tw.lcp_p75_ms / 1000).toFixed(2)}s` : "—"}
+      <HeroCell label="p95 LCP this week"
+                value={tw.lcp_p95_ms != null ? `${(tw.lcp_p95_ms / 1000).toFixed(2)}s` : "—"}
                 delta={fmtDelta(lcpDelta, "ms", "")} />
-      <HeroCell label="p75 INP this week"
-                value={tw.inp_p75_ms != null ? `${Math.round(tw.inp_p75_ms)}ms` : "—"}
+      <HeroCell label="p95 INP this week"
+                value={tw.inp_p95_ms != null ? `${Math.round(tw.inp_p95_ms)}ms` : "—"}
                 delta={fmtDelta(inpDelta, "ms", "")} />
       <HeroCell label="JS errors / 1K page views"
                 value={tw.page_views ? (tw.js_errors / tw.page_views * 1000).toFixed(1) : "—"}
