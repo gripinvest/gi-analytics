@@ -79,16 +79,16 @@ export default function MetricTrendCard({
         )}
         <div className="metric-trend-card__values mt-2 flex items-baseline gap-x-3">
           <span className="metric-trend-card__value ed-stat-num">
-            {formatValue(metric, latestP75)}
-          </span>
-          <span className="ed-caption">p75</span>
-          <span
-            className="metric-trend-card__p95 ed-num"
-            style={{ fontSize: 15, color: "var(--ed-ink-muted)" }}
-            title="95th percentile — the slow-tail experience. The shaded band on the chart is the p75→p95 spread."
-          >
             {formatValue(metric, latestP95)}
-            <span className="ed-caption" style={{ marginLeft: 4 }}>p95</span>
+          </span>
+          <span className="ed-caption">p95</span>
+          <span
+            className="metric-trend-card__p75 ed-num"
+            style={{ fontSize: 15, color: "var(--ed-ink-muted)" }}
+            title="75th percentile — the typical user experience. The shaded band on the chart is the p75→p95 spread."
+          >
+            {formatValue(metric, latestP75)}
+            <span className="ed-caption" style={{ marginLeft: 4 }}>p75</span>
           </span>
         </div>
       </div>
@@ -113,8 +113,8 @@ export default function MetricTrendCard({
                   fill={ED_INK} fillOpacity={SPREAD_OPACITY}
                   baseLine={(d) => d[p75Key]} isAnimationActive={false} />
 
-            {/* p75 line — the headline */}
-            <Line type="monotone" dataKey={p75Key} stroke={ED_INK} strokeWidth={1.5}
+            {/* p95 line — the headline */}
+            <Line type="monotone" dataKey={p95Key} stroke={ED_INK} strokeWidth={1.5}
                   dot={false} isAnimationActive={false} />
 
             <Tooltip
@@ -130,7 +130,7 @@ export default function MetricTrendCard({
         </ResponsiveContainer>
       </div>
       <p className="metric-trend-card__legend ed-caption mt-1.5">
-        ── p75   ░░ p75–p95 spread
+        ── p95   ░░ p75–p95 spread
       </p>
       {totalOutliers > 0 && (
         <p

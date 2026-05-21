@@ -123,7 +123,9 @@ function heroSQL({ app, device }) {
         SUM(js_errors)    AS js_errors,
         SUM(sample_count) AS samples,
         ${wavg("lcp", "p75")} AS lcp_p75_ms,
-        ${wavg("inp", "p75")} AS inp_p75_ms
+        ${wavg("lcp", "p95")} AS lcp_p95_ms,
+        ${wavg("inp", "p75")} AS inp_p75_ms,
+        ${wavg("inp", "p95")} AS inp_p95_ms
       FROM performance_grip__hourly_web_vitals
       WHERE app = '${app}'${dev}
         AND date >= CURRENT_DATE - INTERVAL 14 DAY
@@ -146,8 +148,11 @@ function routesSQL({ app, device }) {
         SUM(page_views) AS page_views,
         SUM(js_errors)  AS js_errors,
         ${wavg("lcp", "p75")} AS lcp_p75_ms,
+        ${wavg("lcp", "p95")} AS lcp_p95_ms,
         ${wavg("inp", "p75")} AS inp_p75_ms,
-        ${wavg("cls", "p75")} AS cls_p75
+        ${wavg("inp", "p95")} AS inp_p95_ms,
+        ${wavg("cls", "p75")} AS cls_p75,
+        ${wavg("cls", "p95")} AS cls_p95
       FROM performance_grip__hourly_web_vitals
       WHERE app = '${app}'${dev}
         AND date >= CURRENT_DATE - INTERVAL 7 DAY
@@ -156,7 +161,8 @@ function routesSQL({ app, device }) {
     last_week AS (
       SELECT
         page_url,
-        ${wavg("lcp", "p75")} AS lcp_p75_ms_lw
+        ${wavg("lcp", "p75")} AS lcp_p75_ms_lw,
+        ${wavg("lcp", "p95")} AS lcp_p95_ms_lw
       FROM performance_grip__hourly_web_vitals
       WHERE app = '${app}'${dev}
         AND date <  CURRENT_DATE - INTERVAL 7  DAY
@@ -168,9 +174,12 @@ function routesSQL({ app, device }) {
       tw.page_views,
       tw.js_errors,
       tw.lcp_p75_ms,
+      tw.lcp_p95_ms,
       tw.inp_p75_ms,
+      tw.inp_p95_ms,
       tw.cls_p75,
-      tw.lcp_p75_ms - COALESCE(lw.lcp_p75_ms_lw, tw.lcp_p75_ms) AS lcp_wow_delta_ms
+      tw.cls_p95,
+      tw.lcp_p95_ms - COALESCE(lw.lcp_p95_ms_lw, tw.lcp_p95_ms) AS lcp_wow_delta_ms
     FROM this_week tw
     LEFT JOIN last_week lw USING (page_url)
     ORDER BY tw.page_views DESC
@@ -193,7 +202,7 @@ function routeSparklineSQL({ app, device, pageUrl }) {
   return `
     SELECT
       date,
-      ${wavg("lcp", "p75")} AS lcp_p75_ms,
+      ${wavg("lcp", "p95")} AS lcp_p95_ms,
       SUM(sample_count)     AS samples
     FROM performance_grip__hourly_web_vitals
     WHERE app = '${app}'${dev}
