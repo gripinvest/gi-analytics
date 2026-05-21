@@ -87,6 +87,26 @@ def target_hours(
     return result
 
 
+# NR's PageViewTiming returns LCP / INP / FCP / TTFB in SECONDS (confirmed in
+# Phase 0 discovery — see docs/projects/performance-grip/data-sources.md). Our
+# schema columns are named *_ms and the dashboard + Web-Vitals thresholds all
+# expect milliseconds, so we convert at fetch time. CLS is dimensionless and
+# passes through untouched.
+_SECONDS_METRICS = {"lcp", "inp", "fcp", "ttfb"}
+
+
+def _to_ms(metric: str, value):
+    """Convert a NR seconds-valued timing metric to milliseconds.
+
+    CLS (dimensionless) and None pass through unchanged.
+    """
+    if value is None:
+        return None
+    if metric in _SECONDS_METRICS:
+        return value * 1000
+    return value
+
+
 def parse_q1_response(nrql_response: dict) -> list[dict]:
     """Parse Q1 (Web Vitals timings) NerdGraph response.
 
@@ -116,8 +136,8 @@ def parse_q1_response(nrql_response: dict) -> list[dict]:
         }
         for m in metrics:
             mobj = entry.get(m) or {}
-            row[f"{m}_p75"] = mobj.get("75")
-            row[f"{m}_p95"] = mobj.get("95")
+            row[f"{m}_p75"] = _to_ms(m, mobj.get("75"))
+            row[f"{m}_p95"] = _to_ms(m, mobj.get("95"))
         out.append(row)
     return out
 
@@ -504,8 +524,8 @@ def parse_collapse_response(nrql_response: list, *, label: str, metric_type: str
             }
             for m in ["lcp", "inp", "cls", "fcp", "ttfb"]:
                 mobj = entry.get(m) or {}
-                row[f"{m}_p75"] = mobj.get("75")
-                row[f"{m}_p95"] = mobj.get("95")
+                row[f"{m}_p75"] = _to_ms(m, mobj.get("75"))
+                row[f"{m}_p95"] = _to_ms(m, mobj.get("95"))
             out.append(row)
         elif metric_type == "q2":
             out.append({
