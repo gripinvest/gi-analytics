@@ -635,7 +635,9 @@ export default function AssetSearchDashboardEditorial({ project }) {
       )}
 
       {/* ── FOOTNOTES ─────────────────────────────────────────────────────── */}
-      <FootnotesBlock />
+      {/* nWeeks/lastWeekN/lastRange are component-local — footnote #2 reads
+          them, so they must be passed in (FootnotesBlock has its own scope). */}
+      <FootnotesBlock nWeeks={nWeeks} lastWeekN={lastWeekN} lastRange={lastRange} />
 
       {/* ── COLOPHON ──────────────────────────────────────────────────────── */}
       <footer className="mt-16">
@@ -1758,7 +1760,7 @@ function InstrumentationSection({ clears, totalClears, weeks, lastWeek, loading,
 
 /* ── FOOTNOTES ─────────────────────────────────────────────────────────────── */
 
-function FootnotesBlock() {
+function FootnotesBlock({ nWeeks, lastWeekN, lastRange }) {
   return (
     <section className="mt-20">
       <hr className="ed-rule-double" />
