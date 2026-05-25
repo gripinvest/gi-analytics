@@ -1,44 +1,44 @@
 {
-  "refreshed_at": "2026-05-22T20:19:17.011225+00:00",
+  "refreshed_at": "2026-05-25T20:08:50.878733+00:00",
   "tables": {
     "channel_snapshots": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "video_snapshots": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "overview": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "distribution": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "category_mix": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "monthly_views": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "engagement_breakdown": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "posting_patterns": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "title_patterns": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "catalog_health": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "duration_buckets": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "tag_analysis": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     },
     "upload_cadence": {
-      "last_refreshed_at": "2026-05-22T20:19:17.011225+00:00"
+      "last_refreshed_at": "2026-05-25T20:08:50.878733+00:00"
     }
   }
 }
