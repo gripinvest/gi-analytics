@@ -5,42 +5,61 @@ Daily refresh of the weekly A/B tracker for the Learn page experiment
 (`weekly_ab_tracker.csv`) plus a `_manifest.json` stamp — the dashboard
 reads the CSV via DuckDB table `learn_education__weekly_ab_tracker`.
 
-Status — pre-launch:
-    The gi-client-web feature ships an event surface but no prod data
-    has been recorded yet. `run()` is wired into the refresh registry
-    so the daily cron is idempotent and harmless until W1 prod data
-    appears — both probes (learn_page_viewed and experiment_assigned)
-    must be > 0 before the main SQL runs. Status `awaiting_first_event`
-    is returned cleanly so the cron does not page until live data lands.
+Two-database design
+───────────────────
+- Engagement data (cohort, visits, plays) lives in Rudder (DB 8,
+  `client_web` schema). Pulled via `build_engagement_sql()`.
+- FTI data (first-ever buy order per user) lives in the production
+  transactions DB (DB 24, `tblorders` table). Pulled via
+  `build_fti_sql()`. The canonical reference is the FTI dashboard
+  Metabase question 2672 (FTI DoD non-PII):
+      SELECT user_id, MIN(created_at) AS fti_date
+      FROM tblorders
+      WHERE status IN (1, 7, 8) AND order_type = 'BUY'
+      GROUP BY user_id
 
-Design: `docs/projects/learn-education/data-sources.md` §4 (canonical
-SQL formulas). Deterministic Python only — Claude authors and validates;
-the cron runs it.
+Because Metabase does not support cross-database joins in native SQL,
+we run two queries and merge in Python — same pattern as Grip Connect's
+multi-card composition, just simpler.
+
+Pre-launch status
+─────────────────
+The gi-client-web feature ships an event surface but no prod data
+has been recorded yet. Two probes (`learn_page_viewed` and
+`experiment_assigned(learn_page)`) gate the main fetch. Until both fire,
+status is `awaiting_first_event` and nothing is written. The FTI query
+is unconditional once probes pass — `tblorders` is always populated.
+
+Spec: `docs/projects/learn-education/data-sources.md` §4.
 """
 import csv
 import json
+from collections import defaultdict
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from .metabase import MetabaseError
 
-# Rudder Prod, schema client_web — same as Asset Search.
-DATABASE_ID = 8
+# Rudder Prod, schema client_web — same as Asset Search / cohort + engagement.
+RUDDER_DB_ID = 8
+
+# Production transactions DB — tblorders / FTI source of truth.
+# Reference: https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch
+TRANSACTIONS_DB_ID = 24
 
 # Test users excluded from every query path. Single-sourced across projects.
 TEST_USERS = (3, 4, 207871, 207875, 207878, 207879)
 
-# Rolling window for the weekly tracker. Documented as a module constant so
-# the dashboard's "Why only N weeks?" question has an answer.
+# Rolling window for the weekly tracker.
 WEEKS_OF_HISTORY = 12
+
+# tblorders.status codes that count toward FTI. Per Metabase question 2672:
+# 1 = order placed, 7 = success, 8 = settled. The interim/failed statuses
+# (2-6) do not count as a successful first-time investment.
+FTI_ORDER_STATUSES = (1, 7, 8)
 
 
 # ─── Probes ───────────────────────────────────────────────────────────────
-# Two cheap gates before the join-heavy main query. Both must be > 0:
-#   1. learn_page_viewed — feature is emitting at all
-#   2. experiment_assigned for learn_page — bucketing is wired
-# Without (2), we'd happily produce zero cohort rows and the cron would
-# report success while the dashboard renders empty.
 PROBE_LEARN_PAGE_SQL = """
 SELECT COUNT(*) AS n
 FROM client_web.learn_page_viewed
@@ -55,22 +74,12 @@ WHERE experiment_name = 'learn_page'
 """
 
 
-# ─── Weekly A/B tracker SQL ───────────────────────────────────────────────
-# Cohort slice: assignment-week. Each row represents users **newly bucketed
-# in week N**. Engagement metrics (visitors, plays, watch time) and the
-# FTI count are computed across all time at or after N for those users —
-# i.e. sticky bucketing per data-sources.md §3d. This matches the product
-# spreadsheet's mental model where Week N is a cohort, not just an activity
-# window.
-#
-# Each metric block is computed in its own CTE so the cohort row never
-# fans out across multiple visits/plays/orders (the LEFT-JOIN-and-aggregate
-# bug an earlier revision had).
-#
-# user_id is normalised to ::text everywhere — Rudder stores it as varchar
-# in event tables but our TEST_USERS list is ints, so casts must happen
-# before any equality predicate.
-def build_weekly_ab_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
+# ─── Engagement query (DB 8 — Rudder) ──────────────────────────────────────
+# Returns one row per cohort user with their per-user engagement metrics.
+# Aggregation up to (week, variant) happens in Python so we can also merge
+# with the FTI list from DB 24 at user-level (causal-ordering for
+# fti_users_who_watched requires user-level join keys).
+def build_engagement_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
     test_users_in = ",".join(f"'{u}'" for u in TEST_USERS)
     return f"""
     WITH cohort AS (
@@ -88,36 +97,15 @@ def build_weekly_ab_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
         AND user_id::text NOT IN ({test_users_in})
     ),
 
-    cohort_sizes AS (
-      SELECT
-        assigned_week AS week_start,
-        variant,
-        COUNT(DISTINCT user_id) AS total_non_invested_users
-      FROM cohort
-      GROUP BY assigned_week, variant
-    ),
-
     visits AS (
-      SELECT DISTINCT
+      SELECT
         user_id::text AS user_id,
-        DATE_TRUNC('week', timestamp)::date AS visit_week
+        COUNT(*) AS visit_count
       FROM client_web.learn_page_viewed
       WHERE timestamp >= NOW() - INTERVAL '{weeks} weeks'
         AND user_id IS NOT NULL
         AND user_id::text NOT IN ({test_users_in})
-    ),
-
-    visit_metrics AS (
-      -- Visitors aggregated by assignment-week × variant via cohort
-      -- (sticky bucketing). Computed in its own CTE so a user with
-      -- multiple visits does not fan out with plays / fti.
-      SELECT
-        c.assigned_week AS week_start,
-        c.variant,
-        COUNT(DISTINCT v.user_id) AS learn_page_visitors
-      FROM cohort c
-      LEFT JOIN visits v ON v.user_id = c.user_id
-      GROUP BY c.assigned_week, c.variant
+      GROUP BY user_id::text
     ),
 
     plays AS (
@@ -125,83 +113,54 @@ def build_weekly_ab_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
       -- autoplay-failure rows per data-sources.md §6 Q1 default.
       SELECT
         user_id::text AS user_id,
-        timestamp AS played_at,
-        total_watched_seconds
+        COUNT(*) AS play_count,
+        SUM(total_watched_seconds) AS watch_seconds_sum,
+        MIN(timestamp) AS first_play_at
       FROM client_web.learn_video_viewed
       WHERE timestamp >= NOW() - INTERVAL '{weeks} weeks'
         AND total_watched_seconds > 0
         AND user_id::text NOT IN ({test_users_in})
-    ),
-
-    play_metrics AS (
-      SELECT
-        c.assigned_week AS week_start,
-        c.variant,
-        COUNT(DISTINCT p.user_id) AS unique_video_players,
-        COUNT(p.user_id) AS total_video_plays,
-        SUM(p.total_watched_seconds) AS total_watched_seconds_sum
-      FROM cohort c
-      LEFT JOIN plays p ON p.user_id = c.user_id
-      GROUP BY c.assigned_week, c.variant
-    ),
-
-    fti AS (
-      SELECT
-        user_id::text AS user_id,
-        MIN(timestamp) AS first_order_at
-      FROM client_web.new_user_order
-      WHERE timestamp >= NOW() - INTERVAL '{weeks} weeks'
-        AND user_id::text NOT IN ({test_users_in})
       GROUP BY user_id::text
-    ),
-
-    fti_metrics AS (
-      -- fti_users_who_watched requires the watch to have happened at
-      -- or before the first order (causal ordering per §4).
-      SELECT
-        c.assigned_week AS week_start,
-        c.variant,
-        COUNT(DISTINCT f.user_id) AS fti_users,
-        COUNT(DISTINCT CASE
-          WHEN EXISTS (
-            SELECT 1 FROM plays p
-            WHERE p.user_id = f.user_id
-              AND p.played_at <= f.first_order_at
-          )
-          THEN f.user_id
-          END
-        ) AS fti_users_who_watched
-      FROM cohort c
-      LEFT JOIN fti f ON f.user_id = c.user_id
-                     AND f.first_order_at >= c.assigned_week
-      GROUP BY c.assigned_week, c.variant
     )
 
     SELECT
-      to_char(cs.week_start, 'YYYY-MM-DD')                                 AS week_start,
-      cs.variant                                                           AS variant,
-      cs.total_non_invested_users                                          AS total_non_invested_users,
-      COALESCE(vm.learn_page_visitors, 0)                                  AS learn_page_visitors,
-      ROUND(100.0 * vm.learn_page_visitors / NULLIF(cs.total_non_invested_users, 0), 2)
-                                                                           AS learn_visit_rate_pct,
-      COALESCE(pm.unique_video_players, 0)                                 AS unique_video_players,
-      COALESCE(pm.total_video_plays, 0)                                    AS total_video_plays,
-      ROUND(1.0 * pm.total_video_plays / NULLIF(pm.unique_video_players, 0), 2)
-                                                                           AS avg_videos_per_user,
-      ROUND(1.0 * pm.total_watched_seconds_sum / NULLIF(pm.total_video_plays, 0), 1)
-                                                                           AS avg_watch_time_sec,
-      COALESCE(fm.fti_users, 0)                                            AS fti_users,
-      COALESCE(fm.fti_users_who_watched, 0)                                AS fti_users_who_watched,
-      ROUND(100.0 * fm.fti_users / NULLIF(cs.total_non_invested_users, 0), 2)
-                                                                           AS fti_rate_pct
-    FROM cohort_sizes cs
-    LEFT JOIN visit_metrics vm ON vm.week_start = cs.week_start AND vm.variant = cs.variant
-    LEFT JOIN play_metrics  pm ON pm.week_start = cs.week_start AND pm.variant = cs.variant
-    LEFT JOIN fti_metrics   fm ON fm.week_start = cs.week_start AND fm.variant = cs.variant
-    ORDER BY cs.week_start, cs.variant
+      c.user_id                                AS user_id,
+      c.variant                                AS variant,
+      to_char(c.assigned_week, 'YYYY-MM-DD')   AS assigned_week,
+      COALESCE(v.visit_count, 0)               AS visit_count,
+      COALESCE(p.play_count, 0)                AS play_count,
+      COALESCE(p.watch_seconds_sum, 0)         AS watch_seconds_sum,
+      p.first_play_at                          AS first_play_at
+    FROM cohort c
+    LEFT JOIN visits v ON v.user_id = c.user_id
+    LEFT JOIN plays  p ON p.user_id = c.user_id
+    ORDER BY c.assigned_week, c.variant, c.user_id
     """
 
 
+# ─── FTI query (DB 24 — transactions) ──────────────────────────────────────
+# Canonical FTI definition per Metabase question 2672:
+# first BUY order per user where status indicates a successful purchase
+# (1 = placed, 7 = success, 8 = settled). Other statuses are interim or
+# failed and do not count.
+def build_fti_sql() -> str:
+    test_users_in = ",".join(str(u) for u in TEST_USERS)
+    statuses_in = ",".join(str(s) for s in FTI_ORDER_STATUSES)
+    return f"""
+    SELECT
+      user_id,
+      MIN(created_at) AS fti_date
+    FROM tblorders
+    WHERE status IN ({statuses_in})
+      AND order_type = 'BUY'
+      AND user_id NOT IN ({test_users_in})
+    GROUP BY user_id
+    """
+
+
+# ─── Output schema ─────────────────────────────────────────────────────────
+# Order matches the canonical product spreadsheet. Frontend reads these
+# column names verbatim via lib/queries/learnEducation.js:COLUMNS.
 CANONICAL_COLUMNS = [
     "week_start", "variant",
     "total_non_invested_users", "learn_page_visitors", "learn_visit_rate_pct",
@@ -210,6 +169,103 @@ CANONICAL_COLUMNS = [
 ]
 
 
+# ─── Python aggregation — merge engagement + FTI per (week, variant) ───────
+def aggregate_rows(engagement_rows: list[dict], fti_rows: list[dict]) -> list[dict]:
+    """Combine per-user engagement (Rudder) with per-user FTI (transactions DB)
+    into per-(week, variant) summary rows matching CANONICAL_COLUMNS.
+
+    Pure function — no SQL, no I/O. Easy to unit-test.
+    """
+    # Build FTI lookup. tblorders.user_id is an integer in Postgres; the
+    # Rudder side is text. Normalise to string on both sides so the join works.
+    fti_by_user: dict[str, str] = {}
+    for r in fti_rows:
+        uid = r.get("user_id")
+        fti_date = r.get("fti_date")
+        if uid is None or fti_date is None:
+            continue
+        fti_by_user[str(uid)] = _to_iso(fti_date)
+
+    # Accumulate per (week_start, variant).
+    keys = ("total_non_invested_users", "learn_page_visitors",
+            "unique_video_players", "total_video_plays",
+            "watch_seconds_sum", "fti_users", "fti_users_who_watched")
+    groups: dict[tuple[str, str], dict] = defaultdict(
+        lambda: {k: 0 for k in keys}
+    )
+
+    for r in engagement_rows:
+        week = r["assigned_week"]
+        variant = r["variant"]
+        key = (week, variant)
+        bucket = groups[key]
+
+        bucket["total_non_invested_users"] += 1
+
+        visit_count = int(r.get("visit_count") or 0)
+        if visit_count > 0:
+            bucket["learn_page_visitors"] += 1
+
+        play_count = int(r.get("play_count") or 0)
+        if play_count > 0:
+            bucket["unique_video_players"] += 1
+            bucket["total_video_plays"] += play_count
+            bucket["watch_seconds_sum"] += float(r.get("watch_seconds_sum") or 0)
+
+        # FTI attribution — sticky bucketing. A user assigned in W1 who
+        # FTIs in W3 counts under W1's row (matches product spreadsheet
+        # mental model).
+        user_id = str(r["user_id"])
+        fti_date = fti_by_user.get(user_id)
+        # `fti_date >= assigned_week` enforces "after assignment" — defensive
+        # guard against a useShowLearnPage bug; should always be true since
+        # the hook gates on !isInvested.
+        if fti_date and fti_date >= week:
+            bucket["fti_users"] += 1
+            # fti_users_who_watched — causal ordering: the watch must have
+            # happened at or before the first order.
+            first_play_at = r.get("first_play_at")
+            if first_play_at and _to_iso(first_play_at) <= fti_date:
+                bucket["fti_users_who_watched"] += 1
+
+    # Materialise final rows in canonical order.
+    out: list[dict] = []
+    for (week, variant) in sorted(groups.keys()):
+        g = groups[(week, variant)]
+        denom = g["total_non_invested_users"] or 1  # guarded division
+        plays = g["total_video_plays"] or 0
+        players = g["unique_video_players"] or 0
+        out.append({
+            "week_start": week,
+            "variant": variant,
+            "total_non_invested_users": g["total_non_invested_users"],
+            "learn_page_visitors": g["learn_page_visitors"],
+            "learn_visit_rate_pct": round(100.0 * g["learn_page_visitors"] / denom, 2),
+            "unique_video_players": players,
+            "total_video_plays": plays,
+            "avg_videos_per_user": round(plays / players, 2) if players else None,
+            "avg_watch_time_sec": round(g["watch_seconds_sum"] / plays, 1) if plays else None,
+            "fti_users": g["fti_users"],
+            "fti_users_who_watched": g["fti_users_who_watched"],
+            "fti_rate_pct": round(100.0 * g["fti_users"] / denom, 2),
+        })
+    return out
+
+
+def _to_iso(value) -> str:
+    """Normalise a date/datetime/str to ISO-8601 string for comparison.
+
+    Metabase usually returns dates as strings already, but be defensive —
+    different drivers may surface datetime or date instances.
+    """
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+# ─── I/O helpers ───────────────────────────────────────────────────────────
 def write_csv_atomic(path: Path, rows: list[dict], columns: list[str]) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -227,16 +283,11 @@ def _now() -> str:
 
 
 def _probe(client, sql: str) -> tuple[int | None, str | None]:
-    """Run one probe; return (count, error_message).
-
-    `client.run_sql` returns (rows-as-dicts, column-names) per
-    services/integrations/metabase.py.
-    """
+    """Run one probe; return (count, error_message)."""
     try:
-        rows, _cols = client.run_sql(DATABASE_ID, sql)
+        rows, _cols = client.run_sql(RUDDER_DB_ID, sql)
         if not rows:
             return 0, None
-        # COUNT(*) is exposed under the alias "n" in both probe queries.
         return int(rows[0].get("n", 0)), None
     except MetabaseError as e:
         return None, str(e)
@@ -261,6 +312,7 @@ def _write_manifest(data_dir: Path, *, refreshed_at: str, tables: list[str]) -> 
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
+# ─── Entry point ───────────────────────────────────────────────────────────
 def run(client, data_dir, *, today: date | None = None) -> dict:
     """Daily-refresh entry point. Called by services.integrations.refresh.
 
@@ -304,16 +356,30 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
         f"experiment_assigned in last 90 days"
     )
 
-    # ─── Live path ─────────────────────────────────────────────────────────
-    sql = build_weekly_ab_sql(weeks=WEEKS_OF_HISTORY)
+    # ─── Engagement query (DB 8 — Rudder) ──────────────────────────────────
     try:
-        rows, _cols = client.run_sql(DATABASE_ID, sql)
+        engagement_rows, _ = client.run_sql(
+            RUDDER_DB_ID, build_engagement_sql(weeks=WEEKS_OF_HISTORY)
+        )
     except MetabaseError as e:
-        log.append(f"weekly_ab_tracker SQL failed — {e}")
+        log.append(f"engagement query failed (DB {RUDDER_DB_ID}) — {e}")
         return {"status": "error", "log": log, "refreshed_at": _now()}
+    log.append(f"engagement: {len(engagement_rows)} per-user rows from Rudder")
+
+    # ─── FTI query (DB 24 — transactions) ──────────────────────────────────
+    try:
+        fti_rows, _ = client.run_sql(TRANSACTIONS_DB_ID, build_fti_sql())
+    except MetabaseError as e:
+        log.append(f"FTI query failed (DB {TRANSACTIONS_DB_ID}) — {e}")
+        return {"status": "error", "log": log, "refreshed_at": _now()}
+    log.append(f"fti: {len(fti_rows)} FTI rows from transactions DB")
+
+    # ─── Merge ─────────────────────────────────────────────────────────────
+    summary_rows = aggregate_rows(engagement_rows, fti_rows)
+    log.append(f"merged into {len(summary_rows)} (week, variant) rows")
 
     out_path = data_dir / "weekly_ab_tracker.csv"
-    n_written = write_csv_atomic(out_path, rows, CANONICAL_COLUMNS)
+    n_written = write_csv_atomic(out_path, summary_rows, CANONICAL_COLUMNS)
     log.append(f"wrote {n_written} rows → {out_path.relative_to(data_dir.parent)}")
 
     refreshed_at = _now()
