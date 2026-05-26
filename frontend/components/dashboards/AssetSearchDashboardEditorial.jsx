@@ -25,6 +25,8 @@ import * as Q from "@/lib/queries/assetSearch";
 import { METRIC_DEFS, ISSUER_MAP, ISSUER_CATEGORY } from "@/lib/queries/assetSearch";
 import * as C from "@/lib/queries/conversion";
 import { CONV_METRIC_DEFS } from "@/lib/queries/conversion";
+import AssetSearchOutreachSection from "./AssetSearchOutreachSection";
+import AssetSearchCutoverStrip from "./AssetSearchCutoverStrip";
 
 /* ── data loading (mirrors the classic dashboard's hook) ──────────────────── */
 
@@ -428,13 +430,30 @@ export default function AssetSearchDashboardEditorial({ project }) {
 
   // ── section state ────────────────────────────────────────────────────────
   const sections = [
-    { key: "overview",     no: "I",   italic: "The Overview" },
-    ...(convOk ? [{ key: "conversion", no: "II",  italic: "The Conversion" }] : []),
-    { key: "issuers",      no: convOk ? "III" : "II",  italic: "The Issuers" },
-    { key: "terms",        no: convOk ? "IV"  : "III", italic: "The Terms" },
-    { key: "instrumentation", no: convOk ? "V" : "IV", italic: "The Instrumentation" },
+    { key: "overview",        no: "I",                       italic: "The Overview" },
+    ...(convOk ? [{ key: "conversion", no: "II",            italic: "The Conversion" }] : []),
+    { key: "issuers",         no: convOk ? "III" : "II",     italic: "The Issuers" },
+    { key: "terms",           no: convOk ? "IV"  : "III",    italic: "The Terms" },
+    { key: "instrumentation", no: convOk ? "V"   : "IV",     italic: "The Instrumentation" },
+    // V2 outreach surface — CS-facing queue of "Notify me when it's back"
+    // taps. Deep-linkable via ?section=outreach so CS can bookmark it.
+    { key: "outreach",        no: convOk ? "VI"  : "V",      italic: "The Outreach" },
   ];
   const [section, setSection] = React.useState("overview");
+
+  // Deep-linking: honour ?section=<key> on first mount so a CS team member
+  // can bookmark /projects/asset_search?section=outreach and land directly
+  // on their workbench without scrolling through the leadership sections.
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("section");
+    if (requested && sections.some((s) => s.key === requested)) {
+      setSection(requested);
+    }
+    // run once on mount; subsequent changes go via setSection
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (fatal) {
     return (
@@ -633,6 +652,16 @@ export default function AssetSearchDashboardEditorial({ project }) {
       {section === "instrumentation" && (
         <InstrumentationSection clears={clears} totalClears={totalClears} weeks={weeks} lastWeek={lastWeek} loading={loading} data={data} />
       )}
+      {section === "outreach" && (
+        // liveRows arrives empty until the asset_search_notify_me_clicked
+        // event ships on V2; the section auto-renders mock data + a
+        // pending pill until then. sectionNumber stays in sync with
+        // the dynamic nav numbering (V/VI based on convOk).
+        <AssetSearchOutreachSection
+          liveRows={[]}
+          sectionNumber={sections.find((s) => s.key === "outreach")?.no ?? "VI"}
+        />
+      )}
 
       {/* ── FOOTNOTES ─────────────────────────────────────────────────────── */}
       {/* nWeeks/lastWeekN/lastRange are component-local — footnote #2 reads
@@ -667,6 +696,13 @@ function OverviewSection({ loading, data, adoptionSeries, healthSeries, funnelSe
         italic="The Overview"
         deck={`Six feature weeks of asset-search data, ${weeks[0]}–${lastWeek}. The adoption trend is the lead story; everything below it qualifies or extends it.`}
       />
+
+      {/* V1 vs V2 release-cut comparison. Reads `engine_version` from
+          asset_search_* event payloads (NULL = V1, 'v2' = V2). Renders
+          projected sample numbers until the V2 release ships and the
+          cutover query starts returning v2 rows. No new query wired
+          yet — strip falls back to its own mock. */}
+      <AssetSearchCutoverStrip healthRows={[]} outcomeRows={[]} />
 
       {showAdoption && (
         <Figure
