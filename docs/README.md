@@ -15,9 +15,10 @@ docs/
   reference/      Source-of-truth facts — external documents and the notes built
                   on them (DB schema, metric catalogs). Cite these; don't restate.
   projects/
-    asset-search/ Everything specific to one project — data sources, dashboard,
-    grip-connect/ metric definitions, ideation, plans, specs. One folder per
-    <project>/    project.
+    asset-search/    Everything specific to one project — data sources,
+    grip-connect/    dashboard, metric definitions, ideation, plans, specs.
+    learn-education/ One folder per project.
+    <project>/
 ```
 
 ## The rule — where does a doc go?
