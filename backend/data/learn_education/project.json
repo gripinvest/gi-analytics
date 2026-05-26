@@ -1,10 +1,10 @@
 {
-  "name": "Learn (Grip Education)",
-  "description": "A/B-cohort dashboard for the Learn page (short-form investing video reels for non-invested users). Tracks visit rate, video engagement, and FTI lift between Control and Treatment.",
-  "status": "scaffolding",
-  "tags": ["experiment", "education", "fti", "ab-test"],
+  "name": "Grip Education",
+  "description": "A/B-cohort analytics for the Learn page (short-form investing reels for non-invested users). Weekly tracker: visit rate, video engagement, FTI lift between Control and Treatment. Editorial dashboard primary; classic later.",
+  "status": "active",
+  "tags": ["experiment", "education", "fti", "ab-test", "live-data"],
   "updated_at": "2026-05-26",
-  "dashboard_component": "LearnEducationDashboard",
+  "dashboard_component": "LearnEducation",
   "refreshable": true,
   "owner": "Puru",
   "jira_ticket": "PT-37596"
