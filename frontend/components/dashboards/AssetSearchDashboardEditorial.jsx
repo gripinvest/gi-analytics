@@ -25,6 +25,7 @@ import * as Q from "@/lib/queries/assetSearch";
 import { METRIC_DEFS, ISSUER_MAP, ISSUER_CATEGORY } from "@/lib/queries/assetSearch";
 import * as C from "@/lib/queries/conversion";
 import { CONV_METRIC_DEFS } from "@/lib/queries/conversion";
+import AssetSearchOutreachSection from "./AssetSearchOutreachSection";
 
 /* ── data loading (mirrors the classic dashboard's hook) ──────────────────── */
 
@@ -428,13 +429,30 @@ export default function AssetSearchDashboardEditorial({ project }) {
 
   // ── section state ────────────────────────────────────────────────────────
   const sections = [
-    { key: "overview",     no: "I",   italic: "The Overview" },
-    ...(convOk ? [{ key: "conversion", no: "II",  italic: "The Conversion" }] : []),
-    { key: "issuers",      no: convOk ? "III" : "II",  italic: "The Issuers" },
-    { key: "terms",        no: convOk ? "IV"  : "III", italic: "The Terms" },
-    { key: "instrumentation", no: convOk ? "V" : "IV", italic: "The Instrumentation" },
+    { key: "overview",        no: "I",                       italic: "The Overview" },
+    ...(convOk ? [{ key: "conversion", no: "II",            italic: "The Conversion" }] : []),
+    { key: "issuers",         no: convOk ? "III" : "II",     italic: "The Issuers" },
+    { key: "terms",           no: convOk ? "IV"  : "III",    italic: "The Terms" },
+    { key: "instrumentation", no: convOk ? "V"   : "IV",     italic: "The Instrumentation" },
+    // V2 outreach surface — CS-facing queue of "Notify me when it's back"
+    // taps. Deep-linkable via ?section=outreach so CS can bookmark it.
+    { key: "outreach",        no: convOk ? "VI"  : "V",      italic: "The Outreach" },
   ];
   const [section, setSection] = React.useState("overview");
+
+  // Deep-linking: honour ?section=<key> on first mount so a CS team member
+  // can bookmark /projects/asset_search?section=outreach and land directly
+  // on their workbench without scrolling through the leadership sections.
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("section");
+    if (requested && sections.some((s) => s.key === requested)) {
+      setSection(requested);
+    }
+    // run once on mount; subsequent changes go via setSection
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (fatal) {
     return (
@@ -632,6 +650,12 @@ export default function AssetSearchDashboardEditorial({ project }) {
       )}
       {section === "instrumentation" && (
         <InstrumentationSection clears={clears} totalClears={totalClears} weeks={weeks} lastWeek={lastWeek} loading={loading} data={data} />
+      )}
+      {section === "outreach" && (
+        // liveRows arrives empty until the asset_search_notify_me_clicked
+        // event ships on V2; the section auto-renders mock data + a
+        // pending pill until then.
+        <AssetSearchOutreachSection liveRows={[]} />
       )}
 
       {/* ── FOOTNOTES ─────────────────────────────────────────────────────── */}
