@@ -4,6 +4,19 @@ name: Refresh Learn Education data
 # the cohort-vs-cohort weekly rollup from Metabase against client_web
 # (Rudder Prod) and commits the result.
 #
+# Cadence — single daily run at 01:00 IST. Rationale:
+#  · Weekly A/B aggregation; the cohort metrics do not move meaningfully
+#    within a day, so twice-daily would double cost without analytic gain.
+#  · Source events live in Rudder (Postgres, permanent storage) — no
+#    retention pressure that would mandate twice-daily (cf. Performance
+#    Grip's NR Web Vitals 8-day window).
+#  · 01:00 IST sits after the prior calendar day in IST is fully closed
+#    but before the office wakes up; staggered 1h after Asset Search
+#    (00:00 IST) so concurrent pushes to main do not race.
+#  · The dashboard's "speed" parity with Grip Connect comes from the
+#    query itself (4 CTEs over ~12 weeks × 2 variants = ≤24 output
+#    rows); a faster cron does not improve perceived dashboard latency.
+#
 # Pre-launch behaviour: the fetch module (services/integrations/learn_education.py)
 # probes for learn_page_viewed AND experiment_assigned(learn_page) first.
 # Both must be > 0 before the main SQL runs. The cron stays harmless and
@@ -14,7 +27,7 @@ name: Refresh Learn Education data
 
 on:
   schedule:
-    - cron: "45 18 * * *"   # 00:15 IST — staggered after Asset Search (00:00)
+    - cron: "30 19 * * *"   # 01:00 IST (UTC+5:30) — 1h after Asset Search
   workflow_dispatch: {}
 
 permissions:
