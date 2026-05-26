@@ -93,8 +93,12 @@ not Learn-fork queries):
   banner widget). page = '/learn' filters them.
 ```
 
-The funnel closes against `new_user_order` (FTI conversion) using same-user
-joins; that table is already exported for Asset Search.
+The funnel closes against `tblorders` (FTI conversion) using same-user
+joins. `tblorders` lives in DB 24 (transactions); the fetch module runs
+the join client-side in Python because Metabase doesn't support
+cross-database joins in native SQL. See §4 for the exact SQL and
+[Metabase q2672](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch)
+for the canonical FTI definition.
 
 ---
 
@@ -438,59 +442,106 @@ WHERE lvv.total_watched_seconds > 0
 GROUP BY 1, 2;
 ```
 
-### FTI Users / FTI Rate
+### FTI source — `tblorders`, NOT `new_user_order`
+
+**Important — corrected 2026-05-26.** An earlier revision of this doc
+pointed at the Rudder event `client_web.new_user_order`. That is **not**
+the canonical source. Use the production transactions database:
+
+| Aspect | Value |
+|---|---|
+| Database | **DB 24** (transactions DB, not DB 8 / Rudder) |
+| Table | `tblorders` |
+| Filter | `status IN (1, 7, 8) AND order_type = 'BUY'` |
+| FTI per user | `MIN(created_at)` grouped by `user_id` |
+| Reference | [Metabase question 2672 — FTI DoD non-PII](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch) |
+
+Status codes per Metabase question 2672:
+- `1` — order placed
+- `7` — success
+- `8` — settled
+
+Other statuses (2–6) are interim/failed and do not count toward FTI.
+
+Because Metabase cannot JOIN across databases in native SQL, the fetch
+module runs **two queries** and merges in Python (see
+`backend/services/integrations/learn_education.py`):
+1. **Engagement query** (DB 8) — per-user cohort + visits + plays.
+2. **FTI query** (DB 24) — per-user `MIN(created_at)`.
+3. **Python merge** — aggregate to (week × variant) with sticky bucketing.
+
+### FTI Users / FTI Rate — engagement side (DB 8)
+
+The cohort denominator comes from `experiment_assigned`:
 
 ```sql
-WITH cohort AS (
-  SELECT user_id, experiment_variant AS variant,
-         DATE_TRUNC('week', timestamp) AS assigned_week
-  FROM experiment_assigned
-  WHERE experiment_name = 'learn_page'
-)
+-- DB 8 (Rudder / client_web)
 SELECT
-  cohort.variant,
-  cohort.assigned_week AS week_start,
-  COUNT(DISTINCT cohort.user_id) AS total_non_invested_users,
-  COUNT(DISTINCT n.user_id) AS fti_users,
-  ROUND(100.0 * COUNT(DISTINCT n.user_id) / NULLIF(COUNT(DISTINCT cohort.user_id), 0), 2) AS fti_rate_pct
-FROM cohort
-LEFT JOIN new_user_order n
-  ON n.user_id = cohort.user_id
-  AND n.timestamp >= cohort.assigned_week
-WHERE cohort.user_id::text NOT IN ('3','4','207871','207875','207878','207879')
-GROUP BY 1, 2;
+  user_id::text,
+  experiment_variant AS variant,
+  DATE_TRUNC('week', timestamp)::date AS assigned_week
+FROM experiment_assigned
+WHERE experiment_name = 'learn_page'
+  AND user_id::text NOT IN ('3','4','207871','207875','207878','207879')
 ```
 
-### FTI users who watched
+### FTI Users / FTI Rate — FTI side (DB 24)
 
 ```sql
+-- DB 24 (transactions / production)
 SELECT
-  cohort.variant,
-  cohort.assigned_week AS week_start,
-  COUNT(DISTINCT n.user_id) AS fti_users_who_watched
-FROM cohort
-JOIN new_user_order n USING (user_id)
-JOIN learn_video_viewed lvv
-  ON lvv.user_id = cohort.user_id
-  AND lvv.total_watched_seconds > 0
-  AND lvv.timestamp <= n.timestamp
-WHERE cohort.user_id::text NOT IN ('3','4','207871','207875','207878','207879')
-GROUP BY 1, 2;
+  user_id,
+  MIN(created_at) AS fti_date
+FROM tblorders
+WHERE status IN (1, 7, 8)
+  AND order_type = 'BUY'
+  AND user_id NOT IN (3, 4, 207871, 207875, 207878, 207879)
+GROUP BY user_id
 ```
+
+### Python merge — sticky bucketing
+
+For each cohort row `(user_id, variant, assigned_week)`:
+- `fti_users += 1` if the user appears in the FTI lookup AND
+  `fti_date >= assigned_week` (defensive guard against an upstream
+  `useShowLearnPage` bug; should always be true since the hook gates
+  on `!isInvested`).
+- `fti_users_who_watched += 1` if the above AND the user's
+  `first_play_at <= fti_date` (causal ordering — watch before invest).
+
+Both `tblorders.user_id` (int, Postgres native) and
+`experiment_assigned.user_id` (varchar, Rudder convention) are normalised
+to `str()` before lookup so the join works.
+
+The final `fti_rate_pct = ROUND(100.0 * fti_users / total_non_invested_users, 2)`
+is computed in Python after aggregation.
+
+### FTI users who watched — causal ordering
+
+Implemented inside the Python merge — not a separate SQL because we
+need the cross-DB user join. The condition is:
+
+```text
+play.played_at  <=  fti.fti_date
+```
+
+A user who FTI'd then watched does NOT count. Watching after the
+investment decision proves nothing about Learn's causal influence —
+they were going to invest anyway and stumbled onto Learn afterward.
 
 ---
 
 ## 5. Tables to fetch (recommended order)
 
-| # | Event / table | Status | Why |
-|---|---|---|---|
-| 1 | `experiment_assigned` (filtered to `experiment_name = 'learn_page'`) | Existing in Rudder; needs Learn-scoped CSV slice | Denominator for everything |
-| 2 | `learn_video_viewed` | **New** — first prod data after feature ships | The workhorse — every engagement column derives from it |
-| 3 | `learn_page_viewed` | **New** | Visit-rate numerator |
-| 4 | `new_user_order` | Already exported for Asset Search | FTI numerator — reuse existing table |
-| 5 | `learn_video_opened` | **New** | Pairs with `learn_video_viewed` for autoplay-success rate; grid-position bias |
-| 6 | `learn_category_clicked` | **New** | Category exploration that doesn't reach a play |
-| 7 | `learn_outbound_clicked` | **New** — single-source of in-grid banner clicks | "Did Learn drive a click into a deal" |
+| # | Event / table | DB | Status | Why |
+|---|---|---|---|---|
+| 1 | `experiment_assigned` (filtered to `experiment_name = 'learn_page'`) | 8 (Rudder) | Existing in Rudder | Denominator for everything |
+| 2 | `learn_video_viewed` | 8 (Rudder) | **New** — first prod data after feature ships | The workhorse — every engagement column derives from it |
+| 3 | `learn_page_viewed` | 8 (Rudder) | **New** | Visit-rate numerator |
+| 4 | `tblorders` filtered to `status IN (1,7,8) AND order_type='BUY'` | **24 (transactions)** | Existing in production DB; new data path | FTI numerator — source of truth per Metabase q2672 |
+| 5 | `learn_video_opened` | 8 (Rudder) | **New** | Pairs with `learn_video_viewed` for autoplay-success rate; grid-position bias |
+| 6 | `learn_category_clicked` | 8 (Rudder) | **New** | Category exploration that doesn't reach a play |
+| 7 | `learn_outbound_clicked` | 8 (Rudder) | **New** — single-source of in-grid banner clicks | "Did Learn drive a click into a deal" |
 | 8 | `banner_clicked WHERE page = '/learn'` | Already exported | Top/bottom carousel banners — joins on `page = '/learn'` |
 | 9 | `bottom_nav_click WHERE nav_item_name = 'Learn'` | Already exported | Cross-feature event; gives bottom-nav click count for Learn item independent of `learn_page_viewed` (which requires a successful route mount) |
 
