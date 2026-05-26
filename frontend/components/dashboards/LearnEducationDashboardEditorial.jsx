@@ -20,6 +20,11 @@ import {
   COLUMNS,
   formatCell,
   computeFtiLift,
+  computeFtiLifts,
+  formatVariantLabel,
+  isControlVariant,
+  isTreatmentVariant,
+  getTreatmentVariants,
 } from '@/lib/queries/learnEducation';
 
 /* Anchored sections. The reader chooses one and the page scrolls there;
@@ -30,11 +35,6 @@ const SECTIONS = [
   { key: 'engagement',   no: 'III', italic: 'The Engagement' },
   { key: 'health',       no: 'IV',  italic: 'The Guardrails' },
 ];
-
-const COHORT_PROSE = {
-  control:   'Control',
-  treatment: 'Treatment',
-};
 
 /* Engagement columns that are em-dashed for Control. The denominator
  * (`total_non_invested_users`), the FTI count, and the FTI-rate columns
@@ -53,7 +53,8 @@ export default function LearnEducationDashboardEditorial({ project }) {
   const { data, loading } = useLearnEducation();
   const rows = data?.rows ?? [];
   const meta = data?.meta ?? {};
-  const lift = React.useMemo(() => computeFtiLift(rows), [rows]);
+  const lifts = React.useMemo(() => computeFtiLifts(rows), [rows]);
+  const lift = lifts[0] ?? null;
 
   const [section, setSection] = React.useState('overview');
 
@@ -76,13 +77,34 @@ export default function LearnEducationDashboardEditorial({ project }) {
   }, [section]);
 
   const sortedRows = React.useMemo(() => {
+    // Within a week: Control first, then treatment variants alphabetically.
     return [...rows].sort((a, b) => {
       if (a.week !== b.week) return a.week.localeCompare(b.week);
-      return a.variant === 'control' ? -1 : 1;
+      if (isControlVariant(a.variant)) return -1;
+      if (isControlVariant(b.variant)) return 1;
+      return a.variant.localeCompare(b.variant);
     });
   }, [rows]);
 
-  const latest = sortedRows[sortedRows.length - 1];
+  // For the headline exhibits row, pick the highest-FTI treatment row of the
+  // most recent week. Falls back to first treatment when no FTI data. For a
+  // binary experiment this is just "the treatment row" — same as before.
+  const latestTreatment = React.useMemo(() => {
+    if (sortedRows.length === 0) return null;
+    const lastWeek = sortedRows[sortedRows.length - 1].week;
+    const lastWeekTreatments = sortedRows.filter(
+      (r) => r.week === lastWeek && isTreatmentVariant(r.variant)
+    );
+    if (lastWeekTreatments.length === 0) return null;
+    return lastWeekTreatments.reduce((best, r) =>
+      (r.fti_rate_pct ?? -Infinity) > (best.fti_rate_pct ?? -Infinity) ? r : best
+    );
+  }, [sortedRows]);
+
+  const treatmentVariants = React.useMemo(
+    () => getTreatmentVariants(rows),
+    [rows]
+  );
   const weekRange = sortedRows.length === 0
     ? '—'
     : sortedRows.length === 1
@@ -141,11 +163,14 @@ export default function LearnEducationDashboardEditorial({ project }) {
                 {lift.delta_pp > 0 ? '+' : ''}{lift.delta_pp}pp
               </div>
               <p className="ed-prose-italic mt-3" style={{ fontSize: 14 }}>
-                FTI rate, Treatment over Control · {lift.week}.
+                FTI rate, {formatVariantLabel(lift.variant)} over Control · {lift.week}.
                 {lift.relative_pct != null ? (
                   <> A relative gain of <Term>+{lift.relative_pct}%</Term> vs the Control baseline.</>
                 ) : (
                   <> Control FTI rate is zero, so the relative figure is undefined.</>
+                )}
+                {lifts.length > 1 && (
+                  <> Best of {lifts.length} treatment arms — see §02 for each arm.</>
                 )}
               </p>
             </>
@@ -183,8 +208,8 @@ export default function LearnEducationDashboardEditorial({ project }) {
             letter="B"
             label="visit rate"
             value={
-              latest && latest.variant === 'treatment' && latest.learn_visit_rate_pct != null
-                ? `${latest.learn_visit_rate_pct.toFixed(1)}%`
+              latestTreatment && latestTreatment.learn_visit_rate_pct != null
+                ? `${latestTreatment.learn_visit_rate_pct.toFixed(1)}%`
                 : '—'
             }
             sub="Treatment users who reached /learn"
@@ -194,8 +219,8 @@ export default function LearnEducationDashboardEditorial({ project }) {
             letter="C"
             label="avg watch time"
             value={
-              latest && latest.variant === 'treatment' && latest.avg_watch_time_sec != null
-                ? `${latest.avg_watch_time_sec}s`
+              latestTreatment && latestTreatment.avg_watch_time_sec != null
+                ? `${latestTreatment.avg_watch_time_sec}s`
                 : '—'
             }
             sub="seconds per video play"
@@ -205,11 +230,17 @@ export default function LearnEducationDashboardEditorial({ project }) {
             letter="D"
             label="FTI rate"
             value={
-              latest && latest.variant === 'treatment' && latest.fti_rate_pct != null
-                ? `${latest.fti_rate_pct.toFixed(1)}%`
+              latestTreatment && latestTreatment.fti_rate_pct != null
+                ? `${latestTreatment.fti_rate_pct.toFixed(1)}%`
                 : '—'
             }
-            sub="first-time investors · Treatment"
+            sub={
+              latestTreatment
+                ? treatmentVariants.length > 1
+                  ? `first-time investors · ${formatVariantLabel(latestTreatment.variant)} (best of ${treatmentVariants.length})`
+                  : 'first-time investors · Treatment'
+                : 'first-time investors · Treatment'
+            }
             delta={
               lift
                 ? { from: lift.control_pct, to: lift.treatment_pct, suffix: 'pt' }
@@ -321,19 +352,34 @@ function Masthead({ weekRange, isMock, loading }) {
 /* ═══════════════════════════════ SECTIONS ═══════════════════════════════ */
 
 function OverviewSection({ rows }) {
-  const treatment = rows.find((r) => r.variant === 'treatment');
-  const control = rows.find((r) => r.variant === 'control');
+  // For multi-variant: pick the latest-week best-FTI treatment arm as the
+  // representative for the Overview narrative. The Ledger (§02) breaks
+  // every arm out in detail; this section is the prose summary.
+  const treatments = rows.filter((r) => isTreatmentVariant(r.variant));
+  const treatment = treatments.reduce(
+    (best, r) =>
+      !best || (r.fti_rate_pct ?? -Infinity) > (best.fti_rate_pct ?? -Infinity)
+        ? r
+        : best,
+    null
+  );
+  const control = rows.find((r) => isControlVariant(r.variant));
+  const variantLabel = treatment ? formatVariantLabel(treatment.variant) : 'Treatment';
+  const variantCount = new Set(treatments.map((r) => r.variant)).size;
   return (
     <section>
       <SectionHead no="I" title="The Overview" />
       <div className="grid gap-10 md:grid-cols-2 mt-8">
         <div>
-          <p className="ed-overline mb-3">Treatment</p>
+          <p className="ed-overline mb-3">
+            {variantLabel}
+            {variantCount > 1 && ` (best of ${variantCount} arms)`}
+          </p>
           <p className="ed-lede ed-dropcap max-w-prose">
             {treatment ? (
               <>
                 This week {nf.format(treatment.total_non_invested_users ?? 0)}{' '}
-                non-invested users were bucketed into Treatment.{' '}
+                non-invested users were bucketed into {variantLabel}.{' '}
                 {nf.format(treatment.learn_page_visitors ?? 0)} reached{' '}
                 <code className="font-mono">/learn</code> — a visit rate of{' '}
                 <Term>{treatment.learn_visit_rate_pct?.toFixed(1) ?? '—'}%</Term>
@@ -405,7 +451,7 @@ function LedgerSection({ rows, loading }) {
             {rows.map((r, i) => {
               const prev = rows[i - 1];
               const isNewWeek = !prev || prev.week !== r.week;
-              const isTreatment = r.variant === 'treatment';
+              const isTreatment = isTreatmentVariant(r.variant);
               return (
                 <tr
                   key={`${r.week}-${r.variant}`}
@@ -430,7 +476,7 @@ function LedgerSection({ rows, loading }) {
                       color: isTreatment ? 'var(--ed-ink)' : 'var(--ed-ink-muted)',
                     }}
                   >
-                    {COHORT_PROSE[r.variant]}
+                    {formatVariantLabel(r.variant)}
                   </th>
                   {COLUMNS.map((c) => {
                     // Editorial choice: render em-dash for Control on
@@ -442,7 +488,7 @@ function LedgerSection({ rows, loading }) {
                     // and FTI columns remain numeric — those are real for
                     // both arms.
                     const isControlEngagement =
-                      r.variant === 'control' && ENGAGEMENT_ONLY_COLS.has(c.key);
+                      isControlVariant(r.variant) && ENGAGEMENT_ONLY_COLS.has(c.key);
                     const raw = r[c.key];
                     const display = isControlEngagement
                       ? '—'
@@ -485,8 +531,17 @@ function LedgerSection({ rows, loading }) {
 }
 
 function EngagementSection({ rows }) {
-  const treatment = rows.find((r) => r.variant === 'treatment');
-  if (!treatment) return <Stub no="03" title="On Engagement" />;
+  // For multi-variant: pick best-FTI treatment arm as representative.
+  // Ledger (§02) breaks out every arm in detail.
+  const treatments = rows.filter((r) => isTreatmentVariant(r.variant));
+  const treatment = treatments.reduce(
+    (best, r) =>
+      !best || (r.fti_rate_pct ?? -Infinity) > (best.fti_rate_pct ?? -Infinity)
+        ? r
+        : best,
+    null
+  );
+  if (!treatment) return <Stub no="III" title="The Engagement" />;
   return (
     <section>
       <SectionHead no="III" title="The Engagement" />

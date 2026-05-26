@@ -110,39 +110,96 @@ export function formatCell(value, kind) {
   }
 }
 
-/* Compute the cohort-vs-cohort lift for the FTI rate. Used by both the
- * headline strip and the editorial verdict. Returns the most recent week
- * with both arms populated, or null when no such week exists.
+/* Variant landscape — post the develop-branch experiment refactor:
+ *   'control'                            → bucket > treatmentPercentage
+ *   'treatment'                          → binary mode (no variants[] config)
+ *   'treatmentv1', 'treatmentv2', ...    → named-variants mode (variants[])
  *
- * `relative_pct` is null when Control's FTI rate is 0 — a tiny W1 Control
- * cohort with no investors is entirely plausible and dividing by it
- * would yield Infinity. The display layer renders `—` in that case;
- * `delta_pp` is still meaningful and is always returned. */
-export function computeFtiLift(rows) {
-  if (!rows || rows.length === 0) return null;
+ * Today's learn_page uses binary mode; the helpers below handle both shapes. */
+
+export const isControlVariant = (variant) => variant === 'control';
+export const isTreatmentVariant = (variant) =>
+  typeof variant === 'string' && variant !== 'control';
+
+/* Human label for a variant. 'treatment' → 'Treatment'; 'treatmentv1' →
+ * 'Treatment v1'; arbitrary 'foo' → 'Foo'. */
+export function formatVariantLabel(variant) {
+  if (variant === 'control') return 'Control';
+  if (variant === 'treatment') return 'Treatment';
+  const namedMatch = variant.match(/^treatment(.+)$/i);
+  if (namedMatch) {
+    const tail = namedMatch[1].replace(/^v?(\d+)$/i, 'v$1');
+    return `Treatment ${tail}`;
+  }
+  return variant.charAt(0).toUpperCase() + variant.slice(1);
+}
+
+/* Unique non-control variants present in the data, in stable order. */
+export function getTreatmentVariants(rows) {
+  if (!rows) return [];
+  const seen = new Set();
+  for (const r of rows) {
+    if (isTreatmentVariant(r.variant)) seen.add(r.variant);
+  }
+  return Array.from(seen).sort();
+}
+
+/* Compute the cohort-vs-cohort FTI lift for every treatment variant
+ * against Control, for the most recent week with both Control and at
+ * least one treatment arm populated.
+ *
+ * Returns an array sorted by delta_pp descending (so [0] is the
+ * best-performing arm). Empty array when no week qualifies.
+ *
+ * Each entry: { week, variant, control_pct, treatment_pct, delta_pp,
+ *               relative_pct (null if control_pct = 0) }.
+ *
+ * For a binary experiment (today's learn_page) this returns 0 or 1
+ * entries — same shape as the old single-lift behaviour, just wrapped
+ * in an array. */
+export function computeFtiLifts(rows) {
+  if (!rows || rows.length === 0) return [];
   const byWeek = {};
   for (const r of rows) {
     byWeek[r.week] = byWeek[r.week] || {};
     byWeek[r.week][r.variant] = r;
   }
   const weeks = Object.keys(byWeek).sort();
+
   for (let i = weeks.length - 1; i >= 0; i--) {
-    const c = byWeek[weeks[i]].control;
-    const t = byWeek[weeks[i]].treatment;
-    if (c && t && c.fti_rate_pct != null && t.fti_rate_pct != null) {
-      const delta_pp = +(t.fti_rate_pct - c.fti_rate_pct).toFixed(2);
+    const wk = byWeek[weeks[i]];
+    const c = wk.control;
+    if (!c || c.fti_rate_pct == null) continue;
+
+    const lifts = [];
+    for (const [variant, r] of Object.entries(wk)) {
+      if (variant === 'control') continue;
+      if (r.fti_rate_pct == null) continue;
+      const delta_pp = +(r.fti_rate_pct - c.fti_rate_pct).toFixed(2);
       const relative_pct =
         c.fti_rate_pct > 0
-          ? +(((t.fti_rate_pct - c.fti_rate_pct) / c.fti_rate_pct) * 100).toFixed(0)
+          ? +(((r.fti_rate_pct - c.fti_rate_pct) / c.fti_rate_pct) * 100).toFixed(0)
           : null;
-      return {
+      lifts.push({
         week: weeks[i],
+        variant,
         control_pct: c.fti_rate_pct,
-        treatment_pct: t.fti_rate_pct,
+        treatment_pct: r.fti_rate_pct,
         delta_pp,
         relative_pct,
-      };
+      });
+    }
+    if (lifts.length > 0) {
+      lifts.sort((a, b) => b.delta_pp - a.delta_pp);
+      return lifts;
     }
   }
-  return null;
+  return [];
+}
+
+/* Backward-compat — single best lift (or null). Existing callers that
+ * only care about the headline number keep working unchanged. */
+export function computeFtiLift(rows) {
+  const lifts = computeFtiLifts(rows);
+  return lifts[0] || null;
 }
