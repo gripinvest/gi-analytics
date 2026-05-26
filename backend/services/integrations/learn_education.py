@@ -87,6 +87,17 @@ def build_engagement_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
       -- is deduped per-user-per-experiment via localStorage upstream
       -- (gi-client-web utils/experimentBucketing.ts), so each user
       -- appears in exactly one assignment-week row.
+      --
+      -- Variant landscape after the develop-branch experiment refactor:
+      --   - 'control'     — bucket > treatmentPercentage
+      --   - 'treatment'   — binary mode (no variants[] config in Strapi)
+      --   - 'treatmentv1', 'treatmentv2', ...
+      --                   — named-variants mode (variants[] in Strapi)
+      --   - 'gc_excluded' / 'not_eligible' — would only appear if
+      --                   trackExperimentAssignment misroutes; filter
+      --                   defensively. These are surfaced by
+      --                   getExperimentAssignment but never reach the
+      --                   tracking event in the documented call path.
       SELECT
         user_id::text AS user_id,
         experiment_variant AS variant,
@@ -95,6 +106,8 @@ def build_engagement_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
       WHERE experiment_name = 'learn_page'
         AND timestamp >= NOW() - INTERVAL '{weeks} weeks'
         AND user_id::text NOT IN ({test_users_in})
+        AND experiment_variant IS NOT NULL
+        AND experiment_variant NOT IN ('gc_excluded', 'not_eligible')
     ),
 
     visits AS (

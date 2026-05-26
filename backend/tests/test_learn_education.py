@@ -280,6 +280,43 @@ def test_aggregate_rows_computes_rates_correctly():
     assert row["fti_rate_pct"] == 0.0  # 0/5
 
 
+# ─── Multi-variant — develop-branch experiment architecture ───────────────
+def test_aggregate_rows_handles_multi_treatment_variants():
+    """Per gi-client-web develop branch utils/experimentBucketing.ts:
+    getExperimentVariant() can return 'treatment' (binary mode) OR named
+    variants like 'treatmentv1', 'treatmentv2' (when Strapi config has
+    variants[]). The aggregator must pass any variant string through to
+    a per-(week, variant) row without special-casing."""
+    eng = [
+        {"user_id": "1", "variant": "control",     "assigned_week": "2026-05-26",
+         "visit_count": 0, "play_count": 0, "watch_seconds_sum": 0, "first_play_at": None},
+        {"user_id": "2", "variant": "treatmentv1", "assigned_week": "2026-05-26",
+         "visit_count": 1, "play_count": 2, "watch_seconds_sum": 30,
+         "first_play_at": "2026-05-27T10:00:00"},
+        {"user_id": "3", "variant": "treatmentv2", "assigned_week": "2026-05-26",
+         "visit_count": 1, "play_count": 1, "watch_seconds_sum": 15,
+         "first_play_at": "2026-05-27T10:00:00"},
+    ]
+    out = learn_education.aggregate_rows(eng, [])
+    variants = sorted(r["variant"] for r in out)
+    assert variants == ["control", "treatmentv1", "treatmentv2"]
+    # Engagement metrics are per-variant — no cross-arm aggregation.
+    t1 = next(r for r in out if r["variant"] == "treatmentv1")
+    t2 = next(r for r in out if r["variant"] == "treatmentv2")
+    assert t1["total_video_plays"] == 2
+    assert t2["total_video_plays"] == 1
+
+
+def test_engagement_sql_filters_gc_excluded_and_not_eligible():
+    """Defensive filter: trackExperimentAssignment short-circuits before
+    firing for gc_excluded/not_eligible cases, but if any leak through
+    (e.g. an analytics dev wires a different call path) we must not let
+    them pollute the cohort denominator."""
+    sql = learn_education.build_engagement_sql(weeks=8)
+    assert "experiment_variant NOT IN ('gc_excluded', 'not_eligible')" in sql
+    assert "experiment_variant IS NOT NULL" in sql
+
+
 # ─── SQL builder invariants ────────────────────────────────────────────────
 def test_engagement_sql_uses_text_casts_and_excludes_test_users():
     sql = learn_education.build_engagement_sql(weeks=8)

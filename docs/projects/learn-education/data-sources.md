@@ -119,15 +119,31 @@ for the canonical FTI definition.
 ```ts
 {
   experiment_name: 'learn_page',
-  experiment_variant: 'treatment' | 'control',
-  experiment_bucket: number,             // 1-100 deterministic hash
+  experiment_variant: string,             // see "Variant landscape" below
+  experiment_bucket: number,              // 1-100 deterministic hash
   experiment_treatment_percentage: number, // for SRM checks
   user_id: string | number,
-  timestamp: string,                      // ISO
+  timestamp: string,                       // ISO
 }
 ```
 
-This is **the** denominator. Every metric is `count(...) / count(distinct user_id from experiment_assigned where variant = X)` for the chosen week.
+**Variant landscape** — per gi-client-web develop-branch
+`utils/experimentBucketing.ts:getExperimentVariant`:
+
+| Strapi config | Possible `experiment_variant` values |
+|---|---|
+| `treatmentPercentage > 0`, no `variants[]` (binary mode) | `'control'`, `'treatment'` |
+| `treatmentPercentage > 0`, `variants: [{name: 'treatmentv1', ...}, ...]` (named mode) | `'control'`, `'treatmentv1'`, `'treatmentv2'`, … |
+
+For `learn_page` today the experiment runs in binary mode → values are
+`'control'` and `'treatment'`. The analytics pipeline accepts any string
+the Strapi config produces; switching to named variants is a config
+change, not a code change. The cohort CTE defensively filters out
+`'gc_excluded'` and `'not_eligible'` (these come from
+`getExperimentAssignment` early-returns and never reach the tracking
+event in the documented call path, but the filter is cheap insurance).
+
+This is **the** denominator. Every metric is `count(...) / count(distinct user_id from experiment_assigned where variant = X)` for the chosen week, grouped per (week, variant). Multi-variant experiments produce N+1 rows per week (1 Control + N treatments).
 
 ### 2b. `learn_page_viewed` — Learn surface visit
 
