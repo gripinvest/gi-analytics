@@ -179,7 +179,6 @@ export default function AssetSearchOutreachSection({
   liveRows,
   sectionNumber = "VI",
 }) {
-  // liveRows arrives empty until V2 ships the event. Fall back to mock.
   const live = Array.isArray(liveRows) ? liveRows : [];
   const state = dataState(live);
   const sourceRows = state === "live" ? live : outreachMockSample;
@@ -190,10 +189,10 @@ export default function AssetSearchOutreachSection({
   const [search, setSearch] = React.useState("");
   const [sort, setSort] = React.useState({ field: "last_click_at", dir: "desc" });
 
-  // statuses are kept in localStorage; we re-read on demand and force-rerender
-  // via a counter so toggling a status updates the table without a refetch.
-  const [statusTick, setStatusTick] = React.useState(0);
-  const bumpStatus = () => setStatusTick((n) => n + 1);
+  // Status map is hydrated once from localStorage on mount; updates flow
+  // through component state so toggling a status doesn't require a
+  // round-trip re-parse and the memo cascade stays minimal.
+  const [statusMap, setStatusMap] = React.useState(() => getAllStatuses());
 
   // ── derive filtered + sorted rows ───────────────────────────────────────
   const issuers = React.useMemo(
@@ -201,17 +200,14 @@ export default function AssetSearchOutreachSection({
     [sourceRows]
   );
 
-  const enrichedRows = React.useMemo(() => {
-    // Read the full status map once per render rather than calling
-    // getOutreachStatus() per row (each call would re-parse localStorage).
-    const map = getAllStatuses();
-    return sourceRows.map((r) => ({
-      ...r,
-      status: map[statusKey(r)]?.status ?? "new",
-    }));
-    // statusTick intentional — re-evaluates statuses from localStorage on toggle.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceRows, statusTick]);
+  const enrichedRows = React.useMemo(
+    () =>
+      sourceRows.map((r) => ({
+        ...r,
+        status: statusMap[statusKey(r)]?.status ?? "new",
+      })),
+    [sourceRows, statusMap]
+  );
 
   const filteredRows = React.useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -244,33 +240,37 @@ export default function AssetSearchOutreachSection({
     return copy;
   }, [filteredRows, sort]);
 
-  // ── KPIs from filtered view (so the headers track the active filter) ────
+  // KPIs depend on the filter set only — sort order doesn't change totals.
   const kpis = React.useMemo(() => {
-    const totalClicks = sortedRows.reduce((s, r) => s + (r.click_count || 0), 0);
-    const uniqueUsers = new Set(sortedRows.map((r) => r.user_id)).size;
-    const byIssuer = sortedRows.reduce((m, r) => {
+    const totalClicks = filteredRows.reduce(
+      (s, r) => s + (r.click_count || 0),
+      0
+    );
+    const uniqueUsers = new Set(filteredRows.map((r) => r.user_id)).size;
+    const byIssuer = filteredRows.reduce((m, r) => {
       m[r.mapped_issuer] = (m[r.mapped_issuer] || 0) + (r.click_count || 0);
       return m;
     }, {});
     const topIssuer =
       Object.entries(byIssuer).sort(([, a], [, b]) => b - a)[0] || null;
-    const newCount = sortedRows.filter((r) => r.status === "new").length;
+    const newCount = filteredRows.filter((r) => r.status === "new").length;
     return {
       totalClicks,
       uniqueUsers,
-      topIssuer: topIssuer ? { name: topIssuer[0], clicks: topIssuer[1] } : null,
+      topIssuer: topIssuer
+        ? { name: topIssuer[0], clicks: topIssuer[1] }
+        : null,
       newCount,
     };
-  }, [sortedRows]);
+  }, [filteredRows]);
 
   // ── handlers ────────────────────────────────────────────────────────────
-  const handleCopy = async (text, label) => {
-    if (!text || typeof navigator === "undefined" || !navigator.clipboard) return;
+  // Tactile feedback comes from the button's :active state; no toast yet.
+  const handleCopy = async (text) => {
+    if (!text || typeof navigator === "undefined" || !navigator.clipboard)
+      return;
     try {
       await navigator.clipboard.writeText(text);
-      // Lightweight feedback — replace with a real toast once one is wired.
-      // eslint-disable-next-line no-alert
-      // (no-op: rely on the button's :active state for tactile feedback)
     } catch {
       /* clipboard blocked — accept silently */
     }
@@ -280,7 +280,10 @@ export default function AssetSearchOutreachSection({
     const idx = OUTREACH_STATUSES.indexOf(row.status);
     const next = OUTREACH_STATUSES[(idx + 1) % OUTREACH_STATUSES.length];
     setOutreachStatus(row, next);
-    bumpStatus();
+    setStatusMap((prev) => ({
+      ...prev,
+      [statusKey(row)]: { status: next, updated_at: new Date().toISOString() },
+    }));
   };
 
   const handleExportCsv = () => {
@@ -559,40 +562,36 @@ export default function AssetSearchOutreachSection({
                   }}
                 >
                   <td style={cellStyle}>
-                    <div style={{ display: "flex", flexDirection: "column" }}>
-                      <span
-                        style={{
-                          color: "var(--ed-ink, #1b1818)",
-                          fontWeight: 500,
-                        }}
-                      >
-                        {row.email || "—"}
-                      </span>
-                      <span
-                        style={{
-                          color: "var(--ed-ink-muted, #5d5752)",
-                          fontSize: 11,
-                        }}
-                      >
-                        {row.phone || "—"}
-                      </span>
+                    <div
+                      style={{
+                        color: "var(--ed-ink, #1b1818)",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {row.email || "—"}
+                    </div>
+                    <div
+                      style={{
+                        color: "var(--ed-ink-muted, #5d5752)",
+                        fontSize: 11,
+                      }}
+                    >
+                      {row.phone || "—"}
                     </div>
                   </td>
                   <td style={cellStyle}>
-                    <div style={{ display: "flex", flexDirection: "column" }}>
-                      <span>{row.mapped_issuer}</span>
-                      <span
-                        className="ed-caption"
-                        style={{
-                          opacity: 0.65,
-                          fontSize: 10.5,
-                          letterSpacing: 0.5,
-                        }}
-                      >
-                        {row.issuer_category === "catalog_gap"
-                          ? "NOT ON PLATFORM"
-                          : "CYCLING / SOLD OUT"}
-                      </span>
+                    <div>{row.mapped_issuer}</div>
+                    <div
+                      className="ed-caption"
+                      style={{
+                        opacity: 0.65,
+                        fontSize: 10.5,
+                        letterSpacing: 0.5,
+                      }}
+                    >
+                      {row.issuer_category === "catalog_gap"
+                        ? "NOT ON PLATFORM"
+                        : "CYCLING / SOLD OUT"}
                     </div>
                   </td>
                   <td style={{ ...cellStyle, fontStyle: "italic" }}>
@@ -618,13 +617,13 @@ export default function AssetSearchOutreachSection({
                     >
                       <ActionButton
                         ariaLabel={`Copy email for ${row.email}`}
-                        onClick={() => handleCopy(row.email, "email")}
+                        onClick={() => handleCopy(row.email)}
                       >
                         Copy email
                       </ActionButton>
                       <ActionButton
                         ariaLabel={`Copy phone for ${row.email}`}
-                        onClick={() => handleCopy(row.phone, "phone")}
+                        onClick={() => handleCopy(row.phone)}
                       >
                         Copy phone
                       </ActionButton>

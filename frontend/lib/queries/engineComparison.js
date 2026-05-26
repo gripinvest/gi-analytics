@@ -1,15 +1,13 @@
 // V1 vs V2 engine cutover comparison.
 //
-// Every asset_search_* event payload now carries `engine_version`:
-//   - NULL  → V1 (pre-cutover; all historical W1-W{cutover-1} rows)
-//   - 'v2'  → V2 (post-cutover from the gi-client-web PT-37900 release)
+// Every asset_search_* event payload carries `engine_version`:
+//   - NULL  → V1 (pre-cutover)
+//   - 'v2'  → V2 (post-cutover)
 //
-// This module slices headline metrics on that field so leadership can
-// see "did the V2 push move the needle?" as a clean release-cut diff
-// (no A/B traffic split required — the version stamp does the work).
-//
-// Until V2 deploys to prod, the query returns one row (V1 only) and the
-// dashboard strip auto-renders a "Sample data — pending V2 deploy" state.
+// This module slices headline metrics on that field — a clean release-cut
+// diff without A/B traffic routing. engineDataState() classifies the
+// returned rows so the strip can render a pending state until v2 rows
+// appear.
 
 // ── live SQL builders ───────────────────────────────────────────────────────
 
@@ -75,15 +73,13 @@ export function engineOutcomeCutover({ queryTbl, clickTbl }) {
   `;
 }
 
-// ── mock data (used until V2 events flow) ──────────────────────────────────
+// ── mock data ───────────────────────────────────────────────────────────────
 
 /**
- * Mock pre/post-cutover snapshot. V1 numbers are realistic against the
- * W1-W8 baseline (~50K queries, 28% query-level ZRR, 52% session success).
- * V2 numbers are CONSERVATIVE projections — assume ZRR drops to ~19% and
- * dead-end rate halves once the 4-tier engine, alias map, Top Deals
- * fallback, and Notify Me CTA all land. Marked clearly as "projected"
- * in the UI so leadership doesn't mistake them for real measurements.
+ * Pre/post-cutover snapshot. V1 numbers track the W1–W8 baseline (~50K
+ * queries, 28% query-level ZRR, 52% session success). V2 numbers are
+ * CONSERVATIVE projections. The UI labels them "projected" so leadership
+ * never mistakes them for real measurements.
  */
 export const engineHealthMockSample = [
   {
@@ -122,9 +118,8 @@ export const engineOutcomeMockSample = [
 // ── data-state classifier ──────────────────────────────────────────────────
 
 /**
- * Returns 'pending' until at least one row carries `engine_version='v2'`,
- * 'live' otherwise. Used by the dashboard strip to switch from mock data
- * to real data the moment V2 events start flowing.
+ * 'pending' until at least one row carries `engine_version='v2'`,
+ * 'live' otherwise. Drives the mock-to-live cutover in the strip.
  */
 export function engineDataState(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return "pending";

@@ -1,13 +1,10 @@
 "use client";
 // AssetSearchCutoverStrip
 // ─────────────────────────────────────────────────────────────────────────
-// Side-by-side V1 vs V2 comparison strip — sits at the top of the
-// Overview section as the "did the V2 push work?" leadership headline.
-//
-// Reads `engine_version` from asset_search_* event payloads (V1 rows
-// have engine_version IS NULL; V2 rows have 'v2'). Until the V2 release
-// ships, the strip renders a projected/sample state with a pending pill
-// so leadership can see the shape ahead of the cutover.
+// Side-by-side V1 vs V2 comparison strip at the top of Overview. Reads
+// `engine_version` from asset_search_* event payloads (NULL = V1,
+// 'v2' = V2). Renders a projected/sample state with a pending pill
+// while engineDataState() is 'pending'.
 
 import * as React from "react";
 import {
@@ -50,11 +47,7 @@ function num(n) {
   return new Intl.NumberFormat("en-IN").format(n);
 }
 
-/**
- * Single metric row — "Metric  | V1 value | V2 value | delta".
- * Designed to read at a glance; no charts (the dashboard already has
- * a half-dozen of those; this is the headline).
- */
+/** Single metric row — "Metric | V1 | V2 | delta". */
 function MetricRow({ label, v1, v2, formatter = pct, goodIsDown = true, deltaSuffix = "pt", note }) {
   const delta = ppDelta(v1, v2, { goodIsDown });
   return (
@@ -111,8 +104,6 @@ function MetricRow({ label, v1, v2, formatter = pct, goodIsDown = true, deltaSuf
 }
 
 export default function AssetSearchCutoverStrip({ healthRows, outcomeRows }) {
-  // Until V2 events flow, both queries return v1-only — the dataState
-  // helper looks for any v2 row to decide.
   const health = Array.isArray(healthRows) ? healthRows : [];
   const outcome = Array.isArray(outcomeRows) ? outcomeRows : [];
   const combinedState = engineDataState(health) === "live" ? "live" : "pending";

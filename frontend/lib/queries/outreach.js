@@ -1,19 +1,16 @@
 // Outreach query builder + mock dataset for the Asset Search dashboard's
 // CS-facing Outreach section.
 //
-// The `asset_search_notify_me_clicked` event ships on the gi-client-web V2
-// release (PT-37900). Until it lands in Rudderstack:
-//   - The live query returns 0 rows; the dashboard renders mock data with a
-//     "pending" pill so leadership + CS can see the shape ahead of time.
-//   - The moment events start flowing, the same dashboard auto-switches to
-//     real data — no code change required.
+// While `asset_search_notify_me_clicked` is not yet flowing, the live query
+// returns 0 rows and the section renders the mock data below + a pending
+// pill. dataState() drives the cutover; no code change at the boundary.
 //
-// Status tracking (new / contacted / converted) is intentionally kept in
-// localStorage so CS can use the dashboard immediately without a CRM
-// integration. Status keys are scoped per `${user_id}:${issuer}` so the
-// same lead across two issuers tracks separately.
+// Status tracking (new / contacted / converted) lives in localStorage —
+// CS uses the dashboard without a CRM integration. Status keys are scoped
+// per `${user_id}:${issuer}` so the same lead under two issuers tracks
+// separately.
 
-// ── live SQL builders (only used post-V2-deploy) ────────────────────────────
+// ── live SQL builders ───────────────────────────────────────────────────────
 
 /**
  * Per-issuer Notify Me click rollup. Drives the "Demand snapshot" KPI cards
@@ -71,45 +68,46 @@ export const notifyMeOutreachDetail = `
  * Muthoot ~187, Keertana ~140. If 15% of those convert to Notify Me taps
  * once the CTA ships, we'd see ~6-15 clicks per top issuer per week.
  *
- * Names + emails are realistic Indian patterns. Phone numbers are
- * +91 format with sanitised number bodies. Status mix is biased toward
- * 'new' since CS workflow starts fresh each week.
+ * All emails use the RFC 2606 `example.test` sentinel TLD so this mock
+ * never resembles real PII in PII-leak grep audits. Phone bodies are
+ * obvious dummies (`+91 9000000XXX`). Status mix biases toward 'new'
+ * since CS workflow starts fresh each week.
  */
 export const outreachMockSample = [
   // Vedika Credit — catalog_gap; persistent demand, ~100% ZRR in V1
-  { user_id: 1284532, email: 'rohit.kapoor@gmail.com',     phone: '+91 9876543210', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedika credit',     active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-24T09:14:22+05:30', first_click_at: '2026-05-20T16:02:11+05:30' },
-  { user_id: 1538912, email: 'a.menon@outlook.com',         phone: '+91 9123450012', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedika',             active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T11:38:01+05:30', first_click_at: '2026-05-24T11:38:01+05:30' },
-  { user_id: 1612220, email: 'sneha.r@hotmail.com',         phone: '+91 9008711234', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedik',              active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T17:21:47+05:30', first_click_at: '2026-05-23T17:21:47+05:30' },
-  { user_id: 1701445, email: 'arjun.iyer@gmail.com',        phone: '+91 9819007711', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'ved',                active_tab: 'bonds', click_count: 3, last_click_at: '2026-05-25T08:02:09+05:30', first_click_at: '2026-05-19T13:44:33+05:30' },
-  { user_id: 1822903, email: 'priya.shetty@yahoo.com',      phone: '+91 9742056601', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedika credit',     active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-22T20:11:55+05:30', first_click_at: '2026-05-22T20:11:55+05:30' },
+  { user_id: 1284532, email: 'lead001@example.test', phone: '+91 9000000001', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedika credit',  active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-24T09:14:22+05:30', first_click_at: '2026-05-20T16:02:11+05:30' },
+  { user_id: 1538912, email: 'lead002@example.test', phone: '+91 9000000002', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedika',         active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T11:38:01+05:30', first_click_at: '2026-05-24T11:38:01+05:30' },
+  { user_id: 1612220, email: 'lead003@example.test', phone: '+91 9000000003', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedik',          active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T17:21:47+05:30', first_click_at: '2026-05-23T17:21:47+05:30' },
+  { user_id: 1701445, email: 'lead004@example.test', phone: '+91 9000000004', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'ved',            active_tab: 'bonds', click_count: 3, last_click_at: '2026-05-25T08:02:09+05:30', first_click_at: '2026-05-19T13:44:33+05:30' },
+  { user_id: 1822903, email: 'lead005@example.test', phone: '+91 9000000005', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedika credit',  active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-22T20:11:55+05:30', first_click_at: '2026-05-22T20:11:55+05:30' },
 
   // Muthoot — availability; cycles in/out, very high ZRR when offline
-  { user_id: 1455201, email: 'rakesh.j@gmail.com',           phone: '+91 9930221107', mapped_issuer: 'Muthoot Finance',    issuer_category: 'availability', query_text: 'muthoot',           active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T10:55:12+05:30', first_click_at: '2026-05-21T14:22:09+05:30' },
-  { user_id: 1488731, email: 'nisha.patel@outlook.com',      phone: '+91 9619883344', mapped_issuer: 'Muthoot Finance',    issuer_category: 'availability', query_text: 'muth',               active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T16:08:30+05:30', first_click_at: '2026-05-24T16:08:30+05:30' },
-  { user_id: 1601023, email: 'vikram.s@gmail.com',           phone: '+91 9870234511', mapped_issuer: 'Muthoot Finance',    issuer_category: 'availability', query_text: 'muthoot finance',    active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T11:45:01+05:30', first_click_at: '2026-05-23T11:45:01+05:30' },
-  { user_id: 1733009, email: 'd.bhattacharya@hotmail.com',   phone: '+91 9836012245', mapped_issuer: 'Muthoot Finance',    issuer_category: 'availability', query_text: 'muthoot',           active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-22T09:38:44+05:30', first_click_at: '2026-05-22T09:38:44+05:30' },
+  { user_id: 1455201, email: 'lead006@example.test', phone: '+91 9000000006', mapped_issuer: 'Muthoot Finance',     issuer_category: 'availability', query_text: 'muthoot',        active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T10:55:12+05:30', first_click_at: '2026-05-21T14:22:09+05:30' },
+  { user_id: 1488731, email: 'lead007@example.test', phone: '+91 9000000007', mapped_issuer: 'Muthoot Finance',     issuer_category: 'availability', query_text: 'muth',           active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T16:08:30+05:30', first_click_at: '2026-05-24T16:08:30+05:30' },
+  { user_id: 1601023, email: 'lead008@example.test', phone: '+91 9000000008', mapped_issuer: 'Muthoot Finance',     issuer_category: 'availability', query_text: 'muthoot finance',active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T11:45:01+05:30', first_click_at: '2026-05-23T11:45:01+05:30' },
+  { user_id: 1733009, email: 'lead009@example.test', phone: '+91 9000000009', mapped_issuer: 'Muthoot Finance',     issuer_category: 'availability', query_text: 'muthoot',        active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-22T09:38:44+05:30', first_click_at: '2026-05-22T09:38:44+05:30' },
 
   // Keertana — availability; went offline around W3 per V1 data
-  { user_id: 1390887, email: 'manish.t@gmail.com',           phone: '+91 9871045620', mapped_issuer: 'Keertana Finserv',   issuer_category: 'availability', query_text: 'keertana',          active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T07:18:33+05:30', first_click_at: '2026-05-20T18:55:21+05:30' },
-  { user_id: 1502778, email: 'shivani.k@outlook.com',        phone: '+91 9920556677', mapped_issuer: 'Keertana Finserv',   issuer_category: 'availability', query_text: 'keer',               active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T13:42:50+05:30', first_click_at: '2026-05-24T13:42:50+05:30' },
-  { user_id: 1655124, email: 'rajiv.menon@gmail.com',        phone: '+91 9885002233', mapped_issuer: 'Keertana Finserv',   issuer_category: 'availability', query_text: 'keerthana',          active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T15:14:09+05:30', first_click_at: '2026-05-23T15:14:09+05:30' },
+  { user_id: 1390887, email: 'lead010@example.test', phone: '+91 9000000010', mapped_issuer: 'Keertana Finserv',    issuer_category: 'availability', query_text: 'keertana',       active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T07:18:33+05:30', first_click_at: '2026-05-20T18:55:21+05:30' },
+  { user_id: 1502778, email: 'lead011@example.test', phone: '+91 9000000011', mapped_issuer: 'Keertana Finserv',    issuer_category: 'availability', query_text: 'keer',           active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T13:42:50+05:30', first_click_at: '2026-05-24T13:42:50+05:30' },
+  { user_id: 1655124, email: 'lead012@example.test', phone: '+91 9000000012', mapped_issuer: 'Keertana Finserv',    issuer_category: 'availability', query_text: 'keerthana',      active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T15:14:09+05:30', first_click_at: '2026-05-23T15:14:09+05:30' },
 
   // Mufin Green — availability + alias
-  { user_id: 1421099, email: 'aditi.n@yahoo.com',            phone: '+91 9743115522', mapped_issuer: 'Mufin Green Finance', issuer_category: 'availability', query_text: 'mufin',              active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T19:55:00+05:30', first_click_at: '2026-05-24T19:55:00+05:30' },
-  { user_id: 1559013, email: 'p.subramanian@gmail.com',      phone: '+91 9036557788', mapped_issuer: 'Mufin Green Finance', issuer_category: 'availability', query_text: 'mufin green',       active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T11:02:17+05:30', first_click_at: '2026-05-21T10:40:08+05:30' },
+  { user_id: 1421099, email: 'lead013@example.test', phone: '+91 9000000013', mapped_issuer: 'Mufin Green Finance', issuer_category: 'availability', query_text: 'mufin',          active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T19:55:00+05:30', first_click_at: '2026-05-24T19:55:00+05:30' },
+  { user_id: 1559013, email: 'lead014@example.test', phone: '+91 9000000014', mapped_issuer: 'Mufin Green Finance', issuer_category: 'availability', query_text: 'mufin green',    active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T11:02:17+05:30', first_click_at: '2026-05-21T10:40:08+05:30' },
 
   // SBI Bonds — catalog_gap; 100% ZRR in V1, never on platform
-  { user_id: 1377544, email: 'k.venkatesh@gmail.com',        phone: '+91 9444023311', mapped_issuer: 'SBI Bonds',          issuer_category: 'catalog_gap',  query_text: 'sbi',                active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T08:08:08+05:30', first_click_at: '2026-05-24T08:08:08+05:30' },
-  { user_id: 1465701, email: 'tanya.gupta@outlook.com',      phone: '+91 9911445566', mapped_issuer: 'SBI Bonds',          issuer_category: 'catalog_gap',  query_text: 'sbi bonds',         active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T16:33:21+05:30', first_click_at: '2026-05-22T11:25:14+05:30' },
-  { user_id: 1611009, email: 'a.deshmukh@gmail.com',         phone: '+91 9881102233', mapped_issuer: 'SBI Bonds',          issuer_category: 'catalog_gap',  query_text: 'sbi',                active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T20:01:42+05:30', first_click_at: '2026-05-23T20:01:42+05:30' },
+  { user_id: 1377544, email: 'lead015@example.test', phone: '+91 9000000015', mapped_issuer: 'SBI Bonds',           issuer_category: 'catalog_gap',  query_text: 'sbi',            active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T08:08:08+05:30', first_click_at: '2026-05-24T08:08:08+05:30' },
+  { user_id: 1465701, email: 'lead016@example.test', phone: '+91 9000000016', mapped_issuer: 'SBI Bonds',           issuer_category: 'catalog_gap',  query_text: 'sbi bonds',      active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T16:33:21+05:30', first_click_at: '2026-05-22T11:25:14+05:30' },
+  { user_id: 1611009, email: 'lead017@example.test', phone: '+91 9000000017', mapped_issuer: 'SBI Bonds',           issuer_category: 'catalog_gap',  query_text: 'sbi',            active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T20:01:42+05:30', first_click_at: '2026-05-23T20:01:42+05:30' },
 
   // Mahindra Finance — catalog_gap
-  { user_id: 1411212, email: 'sandeep.v@gmail.com',          phone: '+91 9742887766', mapped_issuer: 'Mahindra Finance',   issuer_category: 'catalog_gap',  query_text: 'mahindra',          active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T14:22:55+05:30', first_click_at: '2026-05-24T14:22:55+05:30' },
-  { user_id: 1577488, email: 'meera.rao@hotmail.com',        phone: '+91 9008234455', mapped_issuer: 'Mahindra Finance',   issuer_category: 'catalog_gap',  query_text: 'mahi',               active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-25T09:11:30+05:30', first_click_at: '2026-05-25T09:11:30+05:30' },
+  { user_id: 1411212, email: 'lead018@example.test', phone: '+91 9000000018', mapped_issuer: 'Mahindra Finance',    issuer_category: 'catalog_gap',  query_text: 'mahindra',       active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T14:22:55+05:30', first_click_at: '2026-05-24T14:22:55+05:30' },
+  { user_id: 1577488, email: 'lead019@example.test', phone: '+91 9000000019', mapped_issuer: 'Mahindra Finance',    issuer_category: 'catalog_gap',  query_text: 'mahi',           active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-25T09:11:30+05:30', first_click_at: '2026-05-25T09:11:30+05:30' },
 
   // Bajaj Finance — catalog_gap
-  { user_id: 1499876, email: 'h.bhatia@gmail.com',           phone: '+91 9870556622', mapped_issuer: 'Bajaj Finance',      issuer_category: 'catalog_gap',  query_text: 'bajaj',              active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T12:48:11+05:30', first_click_at: '2026-05-20T15:30:01+05:30' },
-  { user_id: 1632091, email: 'n.choudhury@yahoo.com',        phone: '+91 9836445577', mapped_issuer: 'Bajaj Finance',      issuer_category: 'catalog_gap',  query_text: 'baja',               active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T17:55:44+05:30', first_click_at: '2026-05-24T17:55:44+05:30' },
+  { user_id: 1499876, email: 'lead020@example.test', phone: '+91 9000000020', mapped_issuer: 'Bajaj Finance',       issuer_category: 'catalog_gap',  query_text: 'bajaj',          active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T12:48:11+05:30', first_click_at: '2026-05-20T15:30:01+05:30' },
+  { user_id: 1632091, email: 'lead021@example.test', phone: '+91 9000000021', mapped_issuer: 'Bajaj Finance',       issuer_category: 'catalog_gap',  query_text: 'baja',           active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T17:55:44+05:30', first_click_at: '2026-05-24T17:55:44+05:30' },
 ];
 
 // ── data-state classifier ───────────────────────────────────────────────────
