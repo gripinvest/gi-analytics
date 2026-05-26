@@ -46,7 +46,9 @@ def test_run_refresh_unknown_project_raises():
 
 
 def test_registry_has_both_projects():
-    assert set(REGISTRY) == {"grip_connect", "asset_search", "performance_grip"}
+    assert set(REGISTRY) == {
+        "grip_connect", "asset_search", "performance_grip", "learn_education",
+    }
 
 
 def test_validators_registry_wires_asset_search():

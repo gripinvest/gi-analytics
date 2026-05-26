@@ -25,16 +25,29 @@ import {
 /* Anchored sections. The reader chooses one and the page scrolls there;
  * url ?section=<key> deep-links to a section (matches Asset Search pattern). */
 const SECTIONS = [
-  { key: 'overview',     no: '01', italic: 'The Overview' },
-  { key: 'ledger',       no: '02', italic: 'The Ledger' },
-  { key: 'engagement',   no: '03', italic: 'On Engagement' },
-  { key: 'health',       no: '04', italic: 'On Validity' },
+  { key: 'overview',     no: 'I',   italic: 'The Overview' },
+  { key: 'ledger',       no: 'II',  italic: 'The Ledger' },
+  { key: 'engagement',   no: 'III', italic: 'The Engagement' },
+  { key: 'health',       no: 'IV',  italic: 'The Guardrails' },
 ];
 
 const COHORT_PROSE = {
   control:   'Control',
   treatment: 'Treatment',
 };
+
+/* Engagement columns that are em-dashed for Control. The denominator
+ * (`total_non_invested_users`), the FTI count, and the FTI-rate columns
+ * remain numeric — those are meaningful for both arms. */
+const ENGAGEMENT_ONLY_COLS = new Set([
+  'learn_page_visitors',
+  'learn_visit_rate_pct',
+  'unique_video_players',
+  'total_video_plays',
+  'avg_videos_per_user',
+  'avg_watch_time_sec',
+  'fti_users_who_watched',
+]);
 
 export default function LearnEducationDashboardEditorial({ project }) {
   const { data, loading } = useLearnEducation();
@@ -93,9 +106,8 @@ export default function LearnEducationDashboardEditorial({ project }) {
             <br />
             <em>lift the FTI rate</em>?
           </h2>
-          <p className="ed-prose mt-6 max-w-prose" style={{ fontSize: 18 }}>
-            <span className="ed-dropcap">A</span>
-            n A/B experiment on the non-invested cohort. Treatment users
+          <p className="ed-lede ed-dropcap mt-6 max-w-prose">
+            An A/B experiment on the non-invested cohort. Treatment users
             see a Reels-style education surface at <code className="font-mono">/learn</code>;
             Control sees the existing journey. We measure visit rate, video
             engagement, and the headline outcome — <em>first-time-investor
@@ -129,8 +141,12 @@ export default function LearnEducationDashboardEditorial({ project }) {
                 {lift.delta_pp > 0 ? '+' : ''}{lift.delta_pp}pp
               </div>
               <p className="ed-prose-italic mt-3" style={{ fontSize: 14 }}>
-                FTI rate, Treatment over Control · {lift.week}. A relative
-                gain of <Term>+{lift.relative_pct}%</Term> vs the Control baseline.
+                FTI rate, Treatment over Control · {lift.week}.
+                {lift.relative_pct != null ? (
+                  <> A relative gain of <Term>+{lift.relative_pct}%</Term> vs the Control baseline.</>
+                ) : (
+                  <> Control FTI rate is zero, so the relative figure is undefined.</>
+                )}
               </p>
             </>
           ) : (
@@ -205,15 +221,19 @@ export default function LearnEducationDashboardEditorial({ project }) {
       </section>
 
       {/* ────── SECTIONS NAV — anchored ───────────────────────────────────── */}
+      {/* These are anchor-style section switchers, not tabs. `aria-current`
+          is the right semantic; tab roles without paired tabpanels would
+          mislead screen-readers. The CSS still keys off aria-selected
+          (kept here for visual consistency with sibling editorial dashboards). */}
       <nav
-        role="tablist"
         aria-label="Sections of this issue"
         className="mt-16 flex flex-wrap items-baseline gap-x-7 gap-y-3 ed-set ed-set-delay-3"
       >
         {SECTIONS.map((s) => (
           <button
             key={s.key}
-            role="tab"
+            type="button"
+            aria-current={section === s.key ? 'page' : undefined}
             aria-selected={section === s.key}
             onClick={() => setSection(s.key)}
             className="ed-section-link inline-flex items-baseline gap-2"
@@ -246,8 +266,11 @@ export default function LearnEducationDashboardEditorial({ project }) {
           excluded in every query path.
         </p>
         <p className="ed-prose-italic mt-2" style={{ fontSize: 13 }}>
-          Set in Fraunces &amp; Newsreader on warm paper. The full event spec
-          and SQL live in <Link href="/" className="underline decoration-[var(--ed-ink-faint)] underline-offset-4">docs/projects/learn-education/</Link>.
+          Set in Fraunces, Newsreader, and IBM Plex Mono on warm paper. The
+          full event spec and SQL live in{' '}
+          <Link href="/" className="underline decoration-[var(--ed-ink-muted)] underline-offset-4">
+            docs/projects/learn-education/
+          </Link>.
         </p>
       </footer>
     </article>
@@ -261,7 +284,7 @@ function Masthead({ weekRange, isMock, loading }) {
       <Link href="/" className="ed-caption hover:underline">← BACK TO INDEX</Link>
       <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="ed-caption mb-2">AN A/B FIELD REPORT · INTERNAL EDITION</p>
+          <p className="ed-caption mb-2">AN EDUCATION REVIEW · INTERNAL EDITION</p>
           <h1 className="ed-masthead" style={{ fontSize: 'clamp(44px, 9vw, 96px)' }}>
             Grip Education<br />
             <em>Weekly.</em>
@@ -276,7 +299,7 @@ function Masthead({ weekRange, isMock, loading }) {
         <span>VOL. I</span><span>·</span>
         <span>NO. 01</span><span>·</span>
         <span>{weekRange}</span><span>·</span>
-        <span>{isMock ? 'PREVIEW DATA' : 'LIVE DATA'}</span>
+        <span>{isMock ? 'GALLEY PROOF' : 'LIVE'}</span>
         {loading && (
           <>
             <span>·</span>
@@ -297,29 +320,49 @@ function Masthead({ weekRange, isMock, loading }) {
 
 /* ═══════════════════════════════ SECTIONS ═══════════════════════════════ */
 
-function OverviewSection({ rows, loading }) {
+function OverviewSection({ rows }) {
   const treatment = rows.find((r) => r.variant === 'treatment');
   const control = rows.find((r) => r.variant === 'control');
   return (
     <section>
-      <SectionHead no="01" title="The Overview" />
+      <SectionHead no="I" title="The Overview" />
       <div className="grid gap-10 md:grid-cols-2 mt-8">
-        <ProseColumn
-          heading="Treatment, in one sentence."
-          body={
-            treatment
-              ? `${nf.format(treatment.total_non_invested_users ?? 0)} non-invested users were bucketed into Treatment this week. ${nf.format(treatment.learn_page_visitors ?? 0)} of them reached the Learn page — a visit rate of ${treatment.learn_visit_rate_pct?.toFixed(1) ?? '—'}%. ${nf.format(treatment.unique_video_players ?? 0)} watched at least one video, with ${treatment.avg_videos_per_user ?? '—'} videos per user on average.`
-              : 'Treatment data is not yet available for this issue.'
-          }
-        />
-        <ProseColumn
-          heading="Control, the counterfactual."
-          body={
-            control
-              ? `${nf.format(control.total_non_invested_users ?? 0)} non-invested users in Control. The Learn surface is invisible to them by design, so engagement columns are dashes — that is not missing data, it is the experiment working. Their FTI rate of ${control.fti_rate_pct?.toFixed(1) ?? '—'}% is the baseline against which Treatment is judged.`
-              : 'Control data is not yet available for this issue.'
-          }
-        />
+        <div>
+          <p className="ed-overline mb-3">Treatment</p>
+          <p className="ed-lede ed-dropcap max-w-prose">
+            {treatment ? (
+              <>
+                This week {nf.format(treatment.total_non_invested_users ?? 0)}{' '}
+                non-invested users were bucketed into Treatment.{' '}
+                {nf.format(treatment.learn_page_visitors ?? 0)} reached{' '}
+                <code className="font-mono">/learn</code> — a visit rate of{' '}
+                <Term>{treatment.learn_visit_rate_pct?.toFixed(1) ?? '—'}%</Term>
+                {' '}— and {nf.format(treatment.unique_video_players ?? 0)} watched
+                at least one video, averaging {treatment.avg_videos_per_user ?? '—'}{' '}
+                per engaged user.
+              </>
+            ) : (
+              'Treatment data has not yet been filed for this issue.'
+            )}
+          </p>
+        </div>
+        <div>
+          <p className="ed-overline mb-3">Control · the counterfactual</p>
+          <p className="ed-prose max-w-prose" style={{ fontSize: 17 }}>
+            {control ? (
+              <>
+                {nf.format(control.total_non_invested_users ?? 0)} non-invested
+                users sit in Control. The Learn surface is invisible to them by
+                design — that is not missing data, it is the experiment working.
+                Their FTI rate of{' '}
+                <Term>{control.fti_rate_pct?.toFixed(1) ?? '—'}%</Term> is the
+                baseline against which Treatment is judged.
+              </>
+            ) : (
+              'Control data has not yet been filed for this issue.'
+            )}
+          </p>
+        </div>
       </div>
     </section>
   );
@@ -328,7 +371,7 @@ function OverviewSection({ rows, loading }) {
 function LedgerSection({ rows, loading }) {
   return (
     <section>
-      <SectionHead no="02" title="The Ledger" />
+      <SectionHead no="II" title="The Ledger" />
       <p className="ed-prose-italic mt-3 max-w-prose" style={{ fontSize: 15 }}>
         Week by week, cohort by cohort. The canonical product table.
         Control rows show em-dashes for engagement columns because the
@@ -337,13 +380,19 @@ function LedgerSection({ rows, loading }) {
       </p>
       <div className="mt-6 overflow-x-auto">
         <table className="w-full border-collapse text-left">
+          <caption className="sr-only">
+            Weekly A/B ledger — non-invested cohort, Control versus Treatment,
+            by week. Em-dash signifies "could not happen by design" because the
+            Learn surface is invisible to Control.
+          </caption>
           <thead>
             <tr className="border-b-2 border-[var(--ed-ink)]">
-              <th className="px-2 py-3 ed-caption whitespace-nowrap">Week</th>
-              <th className="px-2 py-3 ed-caption whitespace-nowrap">Cohort</th>
+              <th scope="col" className="px-2 py-3 ed-caption whitespace-nowrap">Week</th>
+              <th scope="col" className="px-2 py-3 ed-caption whitespace-nowrap">Cohort</th>
               {COLUMNS.map((c) => (
                 <th
                   key={c.key}
+                  scope="col"
                   className="px-2 py-3 ed-caption whitespace-nowrap text-right"
                   style={{ minWidth: 110 }}
                 >
@@ -366,22 +415,38 @@ function LedgerSection({ rows, loading }) {
                     className="px-2 py-3 t-num whitespace-nowrap"
                     style={{ fontFamily: 'var(--ed-mono)', fontSize: 14 }}
                   >
-                    {isNewWeek ? r.week : ''}
+                    {/* Visually deduplicate the week label, but keep it on the
+                        row for screen-reader column navigation. The visible
+                        cell stays empty; the SR-only span carries the value. */}
+                    {isNewWeek ? r.week : <span className="sr-only">{r.week}</span>}
                   </td>
-                  <td
-                    className="px-2 py-3 whitespace-nowrap"
+                  <th
+                    scope="row"
+                    className="px-2 py-3 whitespace-nowrap font-normal"
                     style={{
                       fontFamily: 'var(--ed-display)',
                       fontStyle: 'italic',
                       fontSize: 16,
-                      color: isTreatment ? 'var(--ed-gold)' : 'var(--ed-ink-muted)',
+                      color: isTreatment ? 'var(--ed-ink)' : 'var(--ed-ink-muted)',
                     }}
                   >
                     {COHORT_PROSE[r.variant]}
-                  </td>
+                  </th>
                   {COLUMNS.map((c) => {
-                    const v = r[c.key];
-                    const display = formatCell(v, c.kind);
+                    // Editorial choice: render em-dash for Control on
+                    // engagement-only columns. The Learn surface never
+                    // renders for Control by design, so a literal "0" would
+                    // misread as "happened, but zero of it." The em-dash
+                    // distinguishes "could not happen by design" from
+                    // "did happen, and was zero." The cohort denominator
+                    // and FTI columns remain numeric — those are real for
+                    // both arms.
+                    const isControlEngagement =
+                      r.variant === 'control' && ENGAGEMENT_ONLY_COLS.has(c.key);
+                    const raw = r[c.key];
+                    const display = isControlEngagement
+                      ? '—'
+                      : formatCell(raw, c.kind);
                     const muted = display === '—';
                     return (
                       <td
@@ -390,7 +455,9 @@ function LedgerSection({ rows, loading }) {
                         style={{
                           fontFamily: 'var(--ed-mono)',
                           fontSize: 14,
-                          color: muted ? 'var(--ed-ink-faint)' : 'var(--ed-ink)',
+                          // ed-ink-muted (#5d5752, ~7:1 on warm paper) — passes AA;
+                          // ed-ink-faint (#8a847d, ~3.4:1) failed AA for body text.
+                          color: muted ? 'var(--ed-ink-muted)' : 'var(--ed-ink)',
                           fontWeight: isTreatment && !muted ? 500 : 400,
                         }}
                       >
@@ -404,7 +471,7 @@ function LedgerSection({ rows, loading }) {
             {rows.length === 0 && (
               <tr>
                 <td colSpan={COLUMNS.length + 2} className="px-2 py-8">
-                  <p className="ed-prose-italic text-center" style={{ color: 'var(--ed-ink-faint)' }}>
+                  <p className="ed-prose-italic text-center" style={{ color: 'var(--ed-ink-muted)' }}>
                     {loading ? 'On the presses…' : 'No weeks have been issued yet.'}
                   </p>
                 </td>
@@ -422,7 +489,7 @@ function EngagementSection({ rows }) {
   if (!treatment) return <Stub no="03" title="On Engagement" />;
   return (
     <section>
-      <SectionHead no="03" title="On Engagement" />
+      <SectionHead no="III" title="The Engagement" />
       <div className="grid gap-x-10 gap-y-7 sm:grid-cols-3 mt-8">
         <Figure
           stat={`${nf.format(treatment.unique_video_players ?? 0)}`}
@@ -450,7 +517,7 @@ function HealthSection({ meta, rows }) {
   const controlLeakOk = controlLeakValue === 0;
   return (
     <section>
-      <SectionHead no="04" title="On Validity" />
+      <SectionHead no="IV" title="The Guardrails" />
       <p className="ed-prose-italic mt-3 max-w-prose" style={{ fontSize: 15 }}>
         Two cheap guardrails that catch the two classes of bug which
         destroy an experiment silently. Both must pass before drawing
@@ -478,8 +545,8 @@ function Stub({ no, title }) {
   return (
     <section>
       <SectionHead no={no} title={title} />
-      <p className="ed-prose-italic mt-6 max-w-prose" style={{ color: 'var(--ed-ink-faint)' }}>
-        Awaits Treatment data.
+      <p className="ed-prose-italic mt-6 max-w-prose" style={{ color: 'var(--ed-ink-muted)' }}>
+        Treatment data has not yet been filed.
       </p>
     </section>
   );
@@ -521,7 +588,7 @@ function Figure({ stat, label, prose }) {
 
 function HealthBlock({ ok, title, value, prose }) {
   return (
-    <div className="border-t border-[var(--ed-rule-faint)] pt-4">
+    <div className="border-t border-[var(--ed-rule)] pt-4">
       <div className="flex items-center gap-2">
         <span
           className="inline-block"
@@ -531,7 +598,8 @@ function HealthBlock({ ok, title, value, prose }) {
             borderRadius: '50%',
             background: ok ? 'var(--ed-forest)' : 'var(--ed-rust)',
           }}
-          aria-hidden
+          role="img"
+          aria-label={ok ? 'pass' : 'fail'}
         />
         <p className="ed-overline">{title}</p>
       </div>
@@ -553,7 +621,7 @@ function HealthBlock({ ok, title, value, prose }) {
 function Exhibit({ letter, label, value, sub, delta, loading }) {
   return (
     <div>
-      <p className="ed-caption mb-1">{letter}.</p>
+      <p className="ed-caption mb-1">EXHIBIT {letter}</p>
       <div className="ed-stat-num" style={{ fontSize: 'clamp(32px, 4.5vw, 48px)' }}>
         {loading ? <span className="ed-skeleton ed-skeleton-num" aria-hidden /> : value}
       </div>

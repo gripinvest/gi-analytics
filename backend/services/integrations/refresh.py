@@ -116,7 +116,10 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  - {e}", file=sys.stderr)
                 return 1
             print(f"validation: ok ({project_id})")
-    return 0 if result["status"] in ("ok", "partial") else 1
+    # `awaiting_first_event` is a successful idle for pre-launch projects —
+    # treat it as success so the daily cron does not page until live data
+    # actually exists. (Used by learn_education pre-launch.)
+    return 0 if result["status"] in ("ok", "partial", "awaiting_first_event") else 1
 
 
 if __name__ == "__main__":

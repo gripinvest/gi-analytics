@@ -5,9 +5,10 @@ name: Refresh Learn Education data
 # (Rudder Prod) and commits the result.
 #
 # Pre-launch behaviour: the fetch module (services/integrations/learn_education.py)
-# probes for learn_page_viewed first and exits cleanly if zero rows have
-# fired yet (status: awaiting_first_event). The cron stays harmless until
-# the gi-client-web feature ships and starts producing events.
+# probes for learn_page_viewed AND experiment_assigned(learn_page) first.
+# Both must be > 0 before the main SQL runs. The cron stays harmless and
+# emits zero alerts until the gi-client-web feature ships and starts
+# producing events.
 #
 # Security: only secrets via env:, no untrusted github.event.* in run:.
 
@@ -44,25 +45,35 @@ jobs:
           METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
         run: python -m services.integrations.refresh learn_education
       - name: Commit refreshed data if changed
+        # Track success across retries — bare `git push && break || sleep`
+        # exits 0 on the final iteration even when the push failed (because
+        # the trailing `sleep` succeeds). We need an explicit success flag
+        # so the failure step below actually fires.
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Retry the pull-and-push loop — sibling refresh workflows
-          # (asset-search, grip-connect, fra-youtube, performance-grip)
-          # push to main concurrently and a single push can lose the race.
+          success=0
           for i in 1 2 3; do
             git pull --rebase --autostash
             git add backend/data/learn_education/
-            git diff --staged --quiet && break
+            if git diff --staged --quiet; then
+              success=1
+              break
+            fi
             git commit -m "chore: refresh Learn Education data"
-            git push && break || sleep $((i * 10))
+            if git push; then
+              success=1
+              break
+            fi
+            sleep $((i * 10))
           done
+          [ "$success" -eq 1 ]
       - name: Notify on failure
         if: failure()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
-          echo "::error::Learn Education refresh failed — weekly A/B tracker may be stale."
+          echo "::error::Learn Education refresh failed - weekly A/B tracker may be stale."
           if [ -n "$SLACK_WEBHOOK_URL" ]; then
             curl -sf -X POST -H 'Content-type: application/json' \
               --data '{"text":"Learn Education refresh failed - see GitHub Actions."}' \

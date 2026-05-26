@@ -111,11 +111,15 @@ export function formatCell(value, kind) {
 }
 
 /* Compute the cohort-vs-cohort lift for the FTI rate. Used by both the
- * headline strip and the editorial verdict. Returns null when either side
- * is missing or when treatment <= control (no lift to surface). */
+ * headline strip and the editorial verdict. Returns the most recent week
+ * with both arms populated, or null when no such week exists.
+ *
+ * `relative_pct` is null when Control's FTI rate is 0 — a tiny W1 Control
+ * cohort with no investors is entirely plausible and dividing by it
+ * would yield Infinity. The display layer renders `—` in that case;
+ * `delta_pp` is still meaningful and is always returned. */
 export function computeFtiLift(rows) {
   if (!rows || rows.length === 0) return null;
-  // Group by variant — take the most recent week with both sides populated.
   const byWeek = {};
   for (const r of rows) {
     byWeek[r.week] = byWeek[r.week] || {};
@@ -126,12 +130,17 @@ export function computeFtiLift(rows) {
     const c = byWeek[weeks[i]].control;
     const t = byWeek[weeks[i]].treatment;
     if (c && t && c.fti_rate_pct != null && t.fti_rate_pct != null) {
+      const delta_pp = +(t.fti_rate_pct - c.fti_rate_pct).toFixed(2);
+      const relative_pct =
+        c.fti_rate_pct > 0
+          ? +(((t.fti_rate_pct - c.fti_rate_pct) / c.fti_rate_pct) * 100).toFixed(0)
+          : null;
       return {
         week: weeks[i],
-        control_pct: c.control_pct ?? c.fti_rate_pct,
+        control_pct: c.fti_rate_pct,
         treatment_pct: t.fti_rate_pct,
-        delta_pp: +(t.fti_rate_pct - c.fti_rate_pct).toFixed(2),
-        relative_pct: +(((t.fti_rate_pct - c.fti_rate_pct) / c.fti_rate_pct) * 100).toFixed(0),
+        delta_pp,
+        relative_pct,
       };
     }
   }
