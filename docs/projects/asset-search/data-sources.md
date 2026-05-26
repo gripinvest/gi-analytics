@@ -107,6 +107,46 @@ User lands on /assets
 
 ¹ Row-count estimate corrected against W1–W6 local data (see §0).
 
+### 2d. V2 additions — new events shipped on the gi-client-web PT-37900 release
+
+These start flowing once `feature/PT-37543-search-v2` lands in prod. Until
+then, no rows exist; dashboard panels that consume them render mock data
+with a "pending" pill (`engineDataState()` / `dataState()` helpers).
+
+| Table | Rows W{cutover}+ | Key columns | Notes |
+|-------|-----------------:|-------------|-------|
+| `asset_search_notify_me_clicked` | TBD | `query_text`, `mapped_issuer`, `issuer_category`, `active_tab` | Tap on the "Notify me when it's back" CTA on a zero-result query. Feeds the **Outreach** section (CS workbench) + the "Issuer Demand" KPI exhibits. |
+| `asset_search_alias_substituted` | TBD | `original_query`, `alias_used`, `results_count`, `active_tab` | Fires once per debounced query that hits the FE alias map (`ISSUER_REGISTRY` shortcuts: `muth→muthoot`, `rbi→goi`, …). Lets us validate which aliases are pulling weight and which are dead-weight to trim. |
+| `asset_search_chip_clicked` | TBD | `query_text`, `chip_issuer`, `chip_position`, `active_tab` | Tap on an issuer-suggestion chip surfaced under the empty state. Measures the chip-rescue path on otherwise-dead-end searches. |
+
+### 2e. `engine_version` field — V1 vs V2 release-cut split (all asset_search_* events)
+
+Every `asset_search_*` event payload now carries an `engine_version` field
+(stamped by `SEARCH_ENGINE_VERSION` in `gi-client-web/events/constants.ts`):
+
+- `NULL` — V1 (pre-cutover; all historical W1–W{cutover-1} rows)
+- `'v2'` — V2 (post-cutover from the gi-client-web PT-37900 release)
+
+No event-schema migration is needed — Rudderstack tolerates new fields.
+Existing query builders work unchanged for historical V1 data; the new
+**Engine Cutover** strip on the Overview section adds a `GROUP BY engine_version`
+to surface the diff.
+
+**How to use it in a query:**
+
+```sql
+SELECT
+  COALESCE(engine_version, 'v1') AS engine,
+  COUNT(*)                       AS queries,
+  100.0 * SUM(CASE WHEN results_count = 0 THEN 1 ELSE 0 END) / COUNT(*) AS zrr_pct
+FROM asset_search_query
+GROUP BY 1;
+```
+
+**Bumping the version**: when V3 (or a future engine change) ships, bump
+the constant. No event-schema migration; the warehouse picks up the new
+value automatically.
+
 ### 2b. Browse denominator ✅
 
 | Table | Rows W1–W7 | Key columns |

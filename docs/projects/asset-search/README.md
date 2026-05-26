@@ -18,6 +18,22 @@ show identical numbers; keep them in sync when a metric changes.
 - **Editorial** ("Grip Weekly") — `components/dashboards/AssetSearchDashboardEditorial.jsx`
 - **Classic** — `components/dashboards/AssetSearchDashboard.jsx`
 
+### Sections (Editorial)
+
+The Editorial dashboard ships six anchored sections, deep-linkable via
+`?section=<key>`:
+
+1. **The Overview** — leadership headline metrics + the **Engine Cutover**
+   strip (V1 vs V2 release-cut comparison).
+2. **The Conversion** *(only if conversion tables present)* — search → invest funnel.
+3. **The Issuers** — per-issuer health (sessions, ZRR, refinement), with
+   curated `ISSUER_MAP` annotations.
+4. **The Terms** — top search terms, top zero-result queries, position bias.
+5. **The Instrumentation** — clear events + tracker integrity.
+6. **The Outreach** *(CS-facing)* — per-user Notify Me queue from the
+   `asset_search_notify_me_clicked` event. Filter / sort / status-track
+   leads, copy email/phone, export CSV. Deep-link: `?section=outreach`.
+
 ## Primary metric — the session-outcome funnel
 
 Every searched session is classified once into one of three mutually-exclusive

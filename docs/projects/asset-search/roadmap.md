@@ -13,6 +13,21 @@
 - **Interactive issuer sort** — SORT BY: Searches (default) / Worst success /
   Failed searches / Zero-result rate.
 - Masthead reporting period + feature-week glossary.
+- **V2 instrumentation hooks landed in the dashboard ahead of the
+  gi-client-web PT-37900 release** (see [`data-sources.md`](./data-sources.md)
+  §§ 2d, 2e for event schemas):
+  - **Engine Cutover strip** in Overview — V1 vs V2 side-by-side on
+    success rate, dead-end rate, ZRR, refinement, total queries.
+    Renders projected sample numbers until events flow; auto-switches
+    to live data on first V2 row arrival (`engineDataState()` helper).
+  - **Outreach section** (CS-facing, §VI) — per-user Notify Me queue
+    from `asset_search_notify_me_clicked`. Filter / status / search
+    bar + sortable contact table + CSV export. localStorage-backed
+    status tracking (`new → contacted → converted`) so CS works
+    without a CRM integration. Deep-link `?section=outreach`.
+  - Query builders for the new events in `lib/queries/outreach.js`
+    + `lib/queries/engineComparison.js`. Both follow the same
+    "mock until events flow, then auto-switch" pattern.
 
 ## Why the metric changed — keep this context
 

@@ -35,8 +35,12 @@ export const notifyMeByIssuer = `
 
 /**
  * Per-user outreach detail. Drives the main table. The join to `users`
- * happens server-side (Metabase native question, parameterized by date
+ * happens server-side (Metabase native question parameterised by date
  * range + optional issuer). FE only filters/sorts what comes back.
+ *
+ * `[[AND … {{issuer}}]]` is Metabase's optional-parameter syntax — the
+ * whole bracketed clause drops out when the param is missing. Using a
+ * plain `{{issuer}} IS NULL OR …` would error on an empty parameter.
  */
 export const notifyMeOutreachDetail = `
   SELECT
@@ -54,9 +58,7 @@ export const notifyMeOutreachDetail = `
   LEFT JOIN users u ON u.user_id = n.user_id
   WHERE n.engine_version = 'v2'
     AND n.timestamp >= {{from_date}}
-    AND (
-      {{issuer}} IS NULL OR n.mapped_issuer = {{issuer}}
-    )
+    [[AND n.mapped_issuer = {{issuer}}]]
   GROUP BY 1, 2, 3, 4, 5, 6, 7
   ORDER BY last_click_at DESC;
 `;

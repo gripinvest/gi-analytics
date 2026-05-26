@@ -22,8 +22,9 @@ import * as React from "react";
 import {
   outreachMockSample,
   dataState,
-  getOutreachStatus,
+  getAllStatuses,
   setOutreachStatus,
+  statusKey,
   OUTREACH_STATUSES,
 } from "@/lib/queries/outreach";
 
@@ -86,6 +87,12 @@ function MiniExhibit({ label, value, sub }) {
 function HeaderCell({ field, label, sort, setSort, align = "left" }) {
   const active = sort.field === field;
   const dir = active ? sort.dir : "none";
+  const toggle = () =>
+    setSort((s) =>
+      s.field === field
+        ? { field, dir: s.dir === "asc" ? "desc" : "asc" }
+        : { field, dir: "desc" }
+    );
   return (
     <th
       scope="col"
@@ -93,28 +100,42 @@ function HeaderCell({ field, label, sort, setSort, align = "left" }) {
       className="ed-caption"
       style={{
         textAlign: align,
-        padding: "10px 12px",
+        padding: 0,
         borderBottom: "1px solid var(--ed-rule-faint, #c8bfa9)",
         whiteSpace: "nowrap",
-        cursor: "pointer",
         userSelect: "none",
         color: active ? "var(--ed-ink, #1b1818)" : "var(--ed-ink-muted, #5d5752)",
         background: "transparent",
       }}
-      onClick={() =>
-        setSort((s) =>
-          s.field === field
-            ? { field, dir: s.dir === "asc" ? "desc" : "asc" }
-            : { field, dir: "desc" }
-        )
-      }
     >
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {/* Keyboard-accessible sort trigger — using a real <button> instead
+          of an onClick on the <th> so Tab + Enter/Space both work for
+          screen-reader and keyboard users. */}
+      <button
+        type="button"
+        onClick={toggle}
+        className="ed-caption"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          width: "100%",
+          padding: "10px 12px",
+          textAlign: align,
+          justifyContent: align === "right" ? "flex-end" : "flex-start",
+          background: "transparent",
+          border: "none",
+          color: "inherit",
+          font: "inherit",
+          letterSpacing: "inherit",
+          cursor: "pointer",
+        }}
+      >
         {label}
         <span aria-hidden="true" style={{ opacity: active ? 0.9 : 0.35 }}>
           {dir === "asc" ? "▲" : dir === "desc" ? "▼" : "↕"}
         </span>
-      </span>
+      </button>
     </th>
   );
 }
@@ -147,7 +168,17 @@ function ActionButton({ children, onClick, ariaLabel, title }) {
 
 const ALL_ISSUER = "__all__";
 
-export default function AssetSearchOutreachSection({ liveRows }) {
+// Lifecycle ordinal so sorting on "status" produces new → contacted →
+// converted instead of alphabetical (contacted < converted < new).
+const STATUS_RANK = OUTREACH_STATUSES.reduce((m, s, i) => {
+  m[s] = i;
+  return m;
+}, {});
+
+export default function AssetSearchOutreachSection({
+  liveRows,
+  sectionNumber = "VI",
+}) {
   // liveRows arrives empty until V2 ships the event. Fall back to mock.
   const live = Array.isArray(liveRows) ? liveRows : [];
   const state = dataState(live);
@@ -170,16 +201,17 @@ export default function AssetSearchOutreachSection({ liveRows }) {
     [sourceRows]
   );
 
-  const enrichedRows = React.useMemo(
-    () =>
-      sourceRows.map((r) => ({
-        ...r,
-        status: getOutreachStatus(r),
-      })),
-    // statusTick intentional — re-evaluates statuses from localStorage on toggle
+  const enrichedRows = React.useMemo(() => {
+    // Read the full status map once per render rather than calling
+    // getOutreachStatus() per row (each call would re-parse localStorage).
+    const map = getAllStatuses();
+    return sourceRows.map((r) => ({
+      ...r,
+      status: map[statusKey(r)]?.status ?? "new",
+    }));
+    // statusTick intentional — re-evaluates statuses from localStorage on toggle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sourceRows, statusTick]
-  );
+  }, [sourceRows, statusTick]);
 
   const filteredRows = React.useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -199,9 +231,10 @@ export default function AssetSearchOutreachSection({ liveRows }) {
     const copy = filteredRows.slice();
     const { field, dir } = sort;
     copy.sort((a, b) => {
-      const av = a[field];
-      const bv = b[field];
-      // dates come as ISO strings — string compare works correctly for ISO
+      // Status sort uses lifecycle ordinal (new → contacted → converted),
+      // not alphabetical. Date sorts use ISO string compare (correct ordering).
+      const av = field === "status" ? STATUS_RANK[a.status] ?? 99 : a[field];
+      const bv = field === "status" ? STATUS_RANK[b.status] ?? 99 : b[field];
       if (av === bv) return 0;
       if (av == null) return 1;
       if (bv == null) return -1;
@@ -302,7 +335,7 @@ export default function AssetSearchOutreachSection({ liveRows }) {
   return (
     <section className="ed-set">
       <hr className="ed-rule-thick mb-6" />
-      <p className="ed-overline mb-2">VI. The Outreach</p>
+      <p className="ed-overline mb-2">{sectionNumber}. The Outreach</p>
       <h2 className="ed-headline" style={{ fontSize: "clamp(34px, 5vw, 56px)" }}>
         <em>The Queue</em>
       </h2>

@@ -26,6 +26,7 @@ import { METRIC_DEFS, ISSUER_MAP, ISSUER_CATEGORY } from "@/lib/queries/assetSea
 import * as C from "@/lib/queries/conversion";
 import { CONV_METRIC_DEFS } from "@/lib/queries/conversion";
 import AssetSearchOutreachSection from "./AssetSearchOutreachSection";
+import AssetSearchCutoverStrip from "./AssetSearchCutoverStrip";
 
 /* ── data loading (mirrors the classic dashboard's hook) ──────────────────── */
 
@@ -654,8 +655,12 @@ export default function AssetSearchDashboardEditorial({ project }) {
       {section === "outreach" && (
         // liveRows arrives empty until the asset_search_notify_me_clicked
         // event ships on V2; the section auto-renders mock data + a
-        // pending pill until then.
-        <AssetSearchOutreachSection liveRows={[]} />
+        // pending pill until then. sectionNumber stays in sync with
+        // the dynamic nav numbering (V/VI based on convOk).
+        <AssetSearchOutreachSection
+          liveRows={[]}
+          sectionNumber={sections.find((s) => s.key === "outreach")?.no ?? "VI"}
+        />
       )}
 
       {/* ── FOOTNOTES ─────────────────────────────────────────────────────── */}
@@ -691,6 +696,13 @@ function OverviewSection({ loading, data, adoptionSeries, healthSeries, funnelSe
         italic="The Overview"
         deck={`Six feature weeks of asset-search data, ${weeks[0]}–${lastWeek}. The adoption trend is the lead story; everything below it qualifies or extends it.`}
       />
+
+      {/* V1 vs V2 release-cut comparison. Reads `engine_version` from
+          asset_search_* event payloads (NULL = V1, 'v2' = V2). Renders
+          projected sample numbers until the V2 release ships and the
+          cutover query starts returning v2 rows. No new query wired
+          yet — strip falls back to its own mock. */}
+      <AssetSearchCutoverStrip healthRows={[]} outcomeRows={[]} />
 
       {showAdoption && (
         <Figure
