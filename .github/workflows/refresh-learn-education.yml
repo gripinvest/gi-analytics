@@ -1,0 +1,70 @@
+name: Refresh Learn Education data
+
+# Daily refresh of the Learn (Grip Education) weekly A/B tracker. Pulls
+# the cohort-vs-cohort weekly rollup from Metabase against client_web
+# (Rudder Prod) and commits the result.
+#
+# Pre-launch behaviour: the fetch module (services/integrations/learn_education.py)
+# probes for learn_page_viewed first and exits cleanly if zero rows have
+# fired yet (status: awaiting_first_event). The cron stays harmless until
+# the gi-client-web feature ships and starts producing events.
+#
+# Security: only secrets via env:, no untrusted github.event.* in run:.
+
+on:
+  schedule:
+    - cron: "45 18 * * *"   # 00:15 IST — staggered after Asset Search (00:00)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-learn-education
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install -r backend/requirements.txt
+      - name: Run refresh
+        working-directory: backend
+        env:
+          METABASE_URL: https://metabase.gripinvest.in
+          METABASE_API_KEY: ${{ secrets.METABASE_API_KEY }}
+          METABASE_EMAIL: ${{ secrets.METABASE_EMAIL }}
+          METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
+        run: python -m services.integrations.refresh learn_education
+      - name: Commit refreshed data if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Retry the pull-and-push loop — sibling refresh workflows
+          # (asset-search, grip-connect, fra-youtube, performance-grip)
+          # push to main concurrently and a single push can lose the race.
+          for i in 1 2 3; do
+            git pull --rebase --autostash
+            git add backend/data/learn_education/
+            git diff --staged --quiet && break
+            git commit -m "chore: refresh Learn Education data"
+            git push && break || sleep $((i * 10))
+          done
+      - name: Notify on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          echo "::error::Learn Education refresh failed — weekly A/B tracker may be stale."
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -sf -X POST -H 'Content-type: application/json' \
+              --data '{"text":"Learn Education refresh failed - see GitHub Actions."}' \
+              "$SLACK_WEBHOOK_URL" || true
+          fi

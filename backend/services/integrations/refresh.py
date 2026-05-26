@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import asset_search, grip_connect, performance_grip
+from . import asset_search, grip_connect, learn_education, performance_grip
 from .metabase import MetabaseClient
 
 # project_id -> run callable. Signature: run(client, data_dir) -> dict.
@@ -18,6 +18,7 @@ REGISTRY = {
     "grip_connect": grip_connect.run,
     "asset_search": asset_search.run,
     "performance_grip": performance_grip.run,
+    "learn_education": learn_education.run,
 }
 
 # project_id -> post-fetch validator. Signature: validate(data_dir) -> list[str]
