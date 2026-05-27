@@ -265,6 +265,16 @@ export default function LearnEducationDashboardEditorial({ project }) {
           the component renders nothing — keeping page layout consistent. */}
       <MarginNotes marginNotes={project.manifest?.margin_notes} />
 
+      {/* ────── THE READING — deterministic inferences from the data ─────── */}
+      {/* Computed at render-time from the same rows the Ledger uses.
+          No runtime LLM (per CLAUDE.md data-discipline). Each inference is
+          clearly labelled with its evidence + a citation pointing into our
+          own docs. Renders nothing if no rows have landed. */}
+      <TheReading
+        rows={sortedRows}
+        marginNotes={project.manifest?.margin_notes}
+      />
+
       {/* ────── SECTIONS NAV — anchored ───────────────────────────────────── */}
       {/* These are anchor-style section switchers, not tabs. `aria-current`
           is the right semantic; tab roles without paired tabpanels would
@@ -380,89 +390,134 @@ function Masthead({ weekRange, isEmpty, loading }) {
  * When marginNotes is undefined the section renders nothing — graceful
  * degradation for pre-V2 backend or projects without this block.
  */
+/* Margin Notes (the A/B-integrity dispatch) — collapsible by default at
+ * page load so it doesn't dominate the masthead. Title pulls the user-
+ * facing phrase "Editor's Note on Confidence" up front; "Margin Notes"
+ * lives as a sub-label, signalling provenance to readers who know the
+ * statistical convention but staying out of the way for those who don't.
+ *
+ * Each indicator has a `<details>` per-card that expands to a paragraph
+ * of plain-English explanation + a reference link to the project glossary.
+ * The full section also collapses as a single `<details>`.
+ */
 function MarginNotes({ marginNotes }) {
   if (!marginNotes) return null;
   const { srm, control_leak, fti_lift_ci, mde, as_of_week } = marginNotes;
 
   return (
-    <section className="ed-set mt-12">
-      <hr className="ed-rule-thick" />
-      <div className="mt-8 flex items-baseline justify-between flex-wrap gap-3">
-        <p className="ed-overline">MARGIN NOTES · AS OF {as_of_week ?? '—'}</p>
-        <p className="ed-caption" style={{ color: 'var(--ed-ink-faint)' }}>
-          A/B INTEGRITY · §IV
+    <section className="ed-set mt-10">
+      <details className="group">
+        <summary
+          className="flex items-baseline justify-between flex-wrap gap-3 cursor-pointer list-none border-b border-[var(--ed-rule-faint)] pb-2"
+          style={{ outline: 'none' }}
+        >
+          <div className="flex items-baseline gap-3 flex-wrap">
+            <span
+              className="font-normal"
+              style={{
+                fontFamily: 'var(--ed-display)',
+                fontSize: 'clamp(18px, 2vw, 22px)',
+              }}
+            >
+              Editor’s Note on Confidence
+            </span>
+            <span
+              className="ed-caption"
+              style={{ fontSize: 11, color: 'var(--ed-ink-faint)' }}
+            >
+              MARGIN NOTES · AS OF {as_of_week ?? '—'}
+            </span>
+          </div>
+          <span
+            className="ed-caption select-none"
+            style={{ fontSize: 11, color: 'var(--ed-ink-muted)' }}
+            aria-hidden
+          >
+            <span className="group-open:hidden">▸ expand</span>
+            <span className="hidden group-open:inline">▾ collapse</span>
+          </span>
+        </summary>
+
+        <p
+          className="ed-prose-italic mt-3 max-w-prose"
+          style={{ fontSize: 14, color: 'var(--ed-ink-muted)' }}
+        >
+          Four numbers that tell you whether the headline lift is worth
+          believing yet. Click any one for plain-English context.
         </p>
-      </div>
-      <p
-        className="ed-prose-italic mt-3 max-w-prose"
-        style={{ fontSize: 15, color: 'var(--ed-ink-muted)' }}
-      >
-        Where the numbers admit what they can — and can&rsquo;t — claim. The
-        dashboard tells you what it sees; the margin tells you whether to
-        believe it yet.
-      </p>
-      <div className="mt-7 grid gap-x-8 gap-y-7 grid-cols-2 lg:grid-cols-4">
-        <MarginNote
-          label="Sample-ratio mismatch"
-          verdict={srm.verdict}
-          value={
-            srm.control_n != null
-              ? `${nf.format(srm.control_n)} / ${nf.format(srm.treatment_n)}`
-              : '—'
-          }
-          sub={
-            srm.p_value != null
-              ? `p = ${srm.p_value.toFixed(3)} · ${srm.verdict === 'fail' ? 'investigate bucketing' : 'within tolerance'}`
-              : 'no cohort yet'
-          }
-        />
-        <MarginNote
-          label="Control surface leak"
-          verdict={control_leak.verdict}
-          value={
-            control_leak.leak_pct != null
-              ? `${control_leak.leak_pct.toFixed(2)}%`
-              : '—'
-          }
-          sub={
-            control_leak.control_visitors != null
-              ? `${control_leak.control_visitors} of ${nf.format(control_leak.control_cohort)} · ideal 0`
-              : 'no Control cohort yet'
-          }
-        />
-        <MarginNote
-          label="FTI lift · 95% CI"
-          verdict={fti_lift_ci.verdict}
-          value={
-            fti_lift_ci.ci_lower_pp != null && fti_lift_ci.ci_upper_pp != null
-              ? `[${fti_lift_ci.ci_lower_pp.toFixed(1)}, ${fti_lift_ci.ci_upper_pp.toFixed(1)}] pp`
-              : fti_lift_ci.delta_pp != null
-              ? `Δ ${fti_lift_ci.delta_pp >= 0 ? '+' : ''}${fti_lift_ci.delta_pp.toFixed(1)}pp`
-              : '—'
-          }
-          sub={
-            fti_lift_ci.verdict === 'insufficient_data'
-              ? 'need ≥ 10 conversions in both arms'
-              : fti_lift_ci.ci_lower_pp != null && fti_lift_ci.ci_lower_pp > 0
-              ? 'CI excludes zero — lift is significant'
-              : 'CI brackets zero — inconclusive'
-          }
-        />
-        <MarginNote
-          label="MDE at current N"
-          verdict="ok"
-          value={
-            mde.mde_abs_pp != null
-              ? `±${mde.mde_abs_pp.toFixed(1)} pp`
-              : '—'
-          }
-          sub={
-            mde.n_per_arm
-              ? `N = ${nf.format(mde.n_per_arm)} / arm · 80% power, α = 0.05`
-              : 'need cohort to compute'
-          }
-        />
-      </div>
+
+        <ul
+          className="mt-5 grid gap-x-6 gap-y-3"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+        >
+          <MarginNote
+            label="Sample-ratio mismatch"
+            verdict={srm.verdict}
+            value={
+              srm.control_n != null
+                ? `${nf.format(srm.control_n)} / ${nf.format(srm.treatment_n)}`
+                : '—'
+            }
+            short={
+              srm.p_value != null
+                ? `p = ${srm.p_value.toFixed(3)}`
+                : 'no cohort'
+            }
+            explainer="Are Control and Treatment evenly split? A two-proportion z-test against the 50/50 target. If drift is real (p < 0.001), the bucketing is leaking and downstream comparisons can't be trusted. Today's split is read as ‘balanced’ when p > 0.001."
+            citation="See glossary.md → SRM, decisions.md → D-11."
+          />
+          <MarginNote
+            label="Control surface leak"
+            verdict={control_leak.verdict}
+            value={
+              control_leak.leak_pct != null
+                ? `${control_leak.leak_pct.toFixed(2)}%`
+                : '—'
+            }
+            short={
+              control_leak.control_visitors != null
+                ? `${control_leak.control_visitors} of ${nf.format(control_leak.control_cohort)}`
+                : 'no Control cohort'
+            }
+            explainer="Control users should never reach /learn — the surface is conditional-rendered. Any number above 0 indicates the gate is failing somewhere (deep-link, useShowLearnPage edge case, UTM bypass). Tolerated under 1% as operational noise."
+            citation="See data-sources.md §3a → ‘Control surface leak’."
+          />
+          <MarginNote
+            label="FTI lift, 95% CI"
+            verdict={fti_lift_ci.verdict}
+            value={
+              fti_lift_ci.ci_lower_pp != null && fti_lift_ci.ci_upper_pp != null
+                ? `[${fti_lift_ci.ci_lower_pp.toFixed(1)}, ${fti_lift_ci.ci_upper_pp.toFixed(1)}] pp`
+                : fti_lift_ci.delta_pp != null
+                ? `Δ ${fti_lift_ci.delta_pp >= 0 ? '+' : ''}${fti_lift_ci.delta_pp.toFixed(1)} pp`
+                : '—'
+            }
+            short={
+              fti_lift_ci.delta_pp != null
+                ? `Δ ${fti_lift_ci.delta_pp >= 0 ? '+' : ''}${fti_lift_ci.delta_pp.toFixed(1)} pp`
+                : '—'
+            }
+            explainer="The 95% confidence interval on Treatment minus Control FTI rate. If the bracket excludes zero, the lift is statistically significant — the experiment can claim causal credit. If the bracket includes zero, lift is consistent with noise; wait for more data."
+            citation="See specs/2026-05-27 §2.2 → ‘FTI Lift CI’ and glossary.md → confidence interval."
+          />
+          <MarginNote
+            label="Minimum detectable effect"
+            verdict="ok"
+            value={
+              mde.mde_abs_pp != null
+                ? `±${mde.mde_abs_pp.toFixed(1)} pp`
+                : '—'
+            }
+            short={
+              mde.n_per_arm
+                ? `N = ${nf.format(mde.n_per_arm)}/arm`
+                : 'need cohort'
+            }
+            explainer="The smallest absolute effect we can statistically detect at the current sample size, with 80% power and α = 0.05. A high MDE means the experiment is underpowered: a real-but-small lift would slip past undetected. MDE shrinks as N grows."
+            citation="See specs/2026-05-27 §2.2 → ‘MDE’ and glossary.md → power."
+          />
+        </ul>
+      </details>
     </section>
   );
 }
@@ -474,35 +529,279 @@ const VERDICT_TO_STYLE = {
   insufficient_data:  { glyph: '—', color: 'var(--ed-ink-faint)' },
 };
 
-function MarginNote({ label, verdict, value, sub }) {
+/* Per-indicator card. Compact closed state (one line: label · value · glyph)
+ * expands on click to reveal a paragraph of plain-English context + a
+ * citation pointing into our own docs.
+ */
+function MarginNote({ label, verdict, value, short, explainer, citation }) {
   const style = VERDICT_TO_STYLE[verdict] ?? VERDICT_TO_STYLE.insufficient_data;
   return (
-    <div className="border-t border-[var(--ed-rule-faint)] pt-3">
-      <p className="ed-caption" style={{ fontSize: 11 }}>
-        {label}
-      </p>
+    <li className="border-t border-[var(--ed-rule-faint)] pt-3">
+      <details>
+        <summary className="cursor-pointer list-none" style={{ outline: 'none' }}>
+          <div className="flex items-baseline justify-between gap-3">
+            <p
+              className="ed-caption"
+              style={{ fontSize: 10.5, letterSpacing: '0.08em' }}
+            >
+              {label}
+            </p>
+            <span
+              style={{ fontSize: 12, color: style.color }}
+              aria-hidden
+            >
+              {style.glyph}
+            </span>
+          </div>
+          <p
+            className="mt-1 tabular-nums"
+            style={{
+              fontFamily: 'var(--ed-mono)',
+              fontSize: 18,
+              fontVariantNumeric: 'tabular-nums',
+              color: 'var(--ed-ink)',
+              lineHeight: 1.15,
+            }}
+          >
+            {value}
+          </p>
+          {short && (
+            <p
+              className="ed-prose-italic"
+              style={{ fontSize: 12, color: 'var(--ed-ink-muted)' }}
+            >
+              {short}
+            </p>
+          )}
+        </summary>
+        {explainer && (
+          <div className="mt-3 pl-3 border-l-2 border-[var(--ed-rule-faint)]">
+            <p
+              className="ed-prose"
+              style={{ fontSize: 13, color: 'var(--ed-ink-muted)', lineHeight: 1.5 }}
+            >
+              {explainer}
+            </p>
+            {citation && (
+              <p
+                className="ed-caption mt-2"
+                style={{ fontSize: 10.5, color: 'var(--ed-ink-faint)' }}
+              >
+                ¶ {citation}
+              </p>
+            )}
+          </div>
+        )}
+      </details>
+    </li>
+  );
+}
+
+/* ═══════════════════════════════ THE READING ════════════════════════════════ */
+/* Computed inferences from the current cohort data. Each inference is
+ * deterministically derived (no runtime LLM — see CLAUDE.md data-discipline
+ * rule), but labeled as an INFERENCE with the claim, the supporting data
+ * point, and a citation. Bias for honest framing over confident claims.
+ *
+ * Reads from the same rows the Ledger uses. Lives below Margin Notes so
+ * the reader has the confidence calibration before they read the inferences.
+ */
+function TheReading({ rows, marginNotes }) {
+  const inferences = React.useMemo(
+    () => deriveInferences({ rows, marginNotes }),
+    [rows, marginNotes]
+  );
+
+  if (inferences.length === 0) return null;
+
+  return (
+    <section className="ed-set mt-10">
+      <div className="flex items-baseline justify-between flex-wrap gap-3 border-b border-[var(--ed-ink)] pb-2">
+        <div className="flex items-baseline gap-3 flex-wrap">
+          <h3
+            className="font-normal"
+            style={{
+              fontFamily: 'var(--ed-display)',
+              fontSize: 'clamp(22px, 2.5vw, 28px)',
+            }}
+          >
+            The Reading
+          </h3>
+          <span
+            className="ed-caption"
+            style={{ fontSize: 11, color: 'var(--ed-ink-faint)' }}
+          >
+            DERIVED INFERENCES · NOT EDITORIALISED
+          </span>
+        </div>
+      </div>
       <p
-        className="font-mono mt-2"
+        className="ed-prose-italic mt-3 max-w-prose"
+        style={{ fontSize: 14, color: 'var(--ed-ink-muted)' }}
+      >
+        What the dashboard data implies, computed deterministically from the
+        latest cron. Each reading carries its own citation; none are
+        editorial opinion.
+      </p>
+      <ol className="mt-6 space-y-5">
+        {inferences.map((inf, i) => (
+          <ReadingItem key={i} number={i + 1} inference={inf} />
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function ReadingItem({ number, inference }) {
+  const toneColor = {
+    positive: 'var(--ed-forest)',
+    cautious: 'var(--ed-gold)',
+    negative: 'var(--ed-rust)',
+    neutral: 'var(--ed-ink)',
+  }[inference.tone] ?? 'var(--ed-ink)';
+
+  return (
+    <li className="grid grid-cols-[auto_1fr] gap-x-4 items-baseline">
+      <span
+        className="ed-caption"
         style={{
-          fontSize: 'clamp(22px, 2.5vw, 32px)',
-          lineHeight: 1.05,
-          fontVariantNumeric: 'tabular-nums',
-          color: 'var(--ed-ink)',
+          fontFamily: 'var(--ed-mono)',
+          fontSize: 11,
+          color: 'var(--ed-ink-faint)',
         }}
       >
-        {value}{' '}
-        <span style={{ fontSize: '0.7em', color: style.color }} aria-hidden>
-          {style.glyph}
-        </span>
-      </p>
-      <p
-        className="ed-prose-italic mt-2"
-        style={{ fontSize: 12.5, color: 'var(--ed-ink-muted)' }}
-      >
-        {sub}
-      </p>
-    </div>
+        №{String(number).padStart(2, '0')}
+      </span>
+      <div>
+        <p
+          className="ed-prose"
+          style={{
+            fontSize: 16,
+            lineHeight: 1.5,
+            color: 'var(--ed-ink)',
+          }}
+        >
+          <span
+            className="ed-caption mr-2"
+            style={{
+              fontSize: 10,
+              color: toneColor,
+              letterSpacing: '0.1em',
+            }}
+          >
+            ◆ INFERENCE
+          </span>
+          {inference.claim}
+        </p>
+        <p
+          className="mt-1.5 ed-caption"
+          style={{
+            fontSize: 11,
+            color: 'var(--ed-ink-faint)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          BASED ON: {inference.evidence}
+          {inference.caveat && <> · CAVEAT: {inference.caveat}</>}
+        </p>
+      </div>
+    </li>
   );
+}
+
+/* Inference engine — pure function, no I/O. Reads the same data the rest
+ * of the dashboard uses and emits a list of {claim, evidence, caveat, tone}
+ * objects. Each rule is intentionally conservative: prefer "consistent
+ * with X" over "X". A real LLM at runtime is explicitly out of scope —
+ * see CLAUDE.md data-discipline. */
+function deriveInferences({ rows, marginNotes }) {
+  const out = [];
+  if (!rows || rows.length === 0) return out;
+
+  const latestWeek = rows.reduce(
+    (acc, r) => (r.week_start && r.week_start > acc ? r.week_start : acc),
+    ''
+  );
+  const control = rows.find(
+    (r) => r.week_start === latestWeek && isControlVariant(r.variant)
+  );
+  const treatment = rows.find(
+    (r) => r.week_start === latestWeek && isTreatmentVariant(r.variant)
+  );
+
+  // 1. FTI lift inference — the headline claim.
+  if (control && treatment && control.fti_rate_pct != null && treatment.fti_rate_pct != null) {
+    const delta = treatment.fti_rate_pct - control.fti_rate_pct;
+    const ci = marginNotes?.fti_lift_ci;
+    if (ci && ci.ci_lower_pp != null && ci.ci_upper_pp != null) {
+      const crossesZero = ci.ci_lower_pp <= 0 && ci.ci_upper_pp >= 0;
+      out.push({
+        tone: crossesZero ? 'cautious' : delta > 0 ? 'positive' : 'negative',
+        claim: crossesZero
+          ? `Treatment FTI rate is ${treatment.fti_rate_pct.toFixed(2)}% vs Control ${control.fti_rate_pct.toFixed(2)}%, a difference of ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} pp. The 95% confidence interval brackets zero, so the lift is consistent with random variation — we cannot yet claim a real effect.`
+          : `Treatment FTI rate exceeds Control by ${Math.abs(delta).toFixed(2)} pp with a 95% confidence interval that ${delta > 0 ? 'excludes' : 'lies below'} zero. The lift is statistically significant at this sample size.`,
+        evidence: `Ledger § THE INVESTOR · FTI rate row. 95% CI = [${ci.ci_lower_pp.toFixed(2)}, ${ci.ci_upper_pp.toFixed(2)}] pp via two-proportion z-test, normal approximation.`,
+        caveat: 'Causal inference relies on random assignment, validated by SRM check in the Editor’s Note.',
+      });
+    } else {
+      out.push({
+        tone: 'cautious',
+        claim: `Treatment FTI rate is ${treatment.fti_rate_pct.toFixed(2)}% vs Control ${control.fti_rate_pct.toFixed(2)}%. A confidence interval cannot yet be computed because at least one arm has fewer than 10 conversions.`,
+        evidence: 'Ledger § THE INVESTOR · FTI rate row. Margin Notes → FTI lift, 95% CI (insufficient_data).',
+        caveat: 'Pre-W2 reading. Numbers will stabilise as the cohort grows.',
+      });
+    }
+  }
+
+  // 2. Engagement inference — does Treatment actually use the surface?
+  if (treatment && treatment.learn_visit_rate_pct != null && treatment.engaged_visitor_rate_pct != null) {
+    out.push({
+      tone: treatment.engaged_visitor_rate_pct >= 25 ? 'positive' : 'cautious',
+      claim: `${treatment.learn_visit_rate_pct.toFixed(2)}% of Treatment users visited /learn this week, and ${treatment.engaged_visitor_rate_pct.toFixed(1)}% of those visitors went on to play at least one video. The surface is reaching users and converting attention into engagement at a ${treatment.engaged_visitor_rate_pct >= 25 ? 'healthy' : 'modest'} rate.`,
+      evidence: 'Ledger § THE SURFACE · visit rate and engaged-visitor rate rows. learn_video_viewed events with total_watched_seconds > 0.',
+    });
+  }
+
+  // 3. Watch-time inference — content quality signal.
+  if (treatment && treatment.completion_rate_pct != null && treatment.avg_watch_time_sec != null) {
+    out.push({
+      tone: treatment.completion_rate_pct >= 50 ? 'positive' : 'cautious',
+      claim: `Treatment watchers stayed ${treatment.avg_watch_time_sec.toFixed(1)}s per play on average, and ${treatment.completion_rate_pct.toFixed(1)}% of plays crossed the 75% completion threshold. This is ${treatment.completion_rate_pct >= 50 ? 'a strong content-quality signal' : 'mixed — content holds attention partially but does not consistently finish'}.`,
+      evidence: 'Ledger § THE WATCH · avg watch time and completion rate rows.',
+      caveat: 'Completion threshold of 75% is a configurable constant; see decisions.md → D-15 alternates.',
+    });
+  }
+
+  // 4. Causal-vs-correlation caveat — always included to maintain hygiene.
+  if (treatment && treatment.fti_users_who_watched != null && treatment.fti_users != null) {
+    const watchedRate = treatment.fti_users > 0
+      ? (treatment.fti_users_who_watched / treatment.fti_users) * 100
+      : null;
+    out.push({
+      tone: 'neutral',
+      claim: watchedRate != null
+        ? `Of Treatment users who became first-time investors, ${watchedRate.toFixed(0)}% had watched at least one video before their first order. This is suggestive but not causal: watchers self-select into a pre-existing intent to invest, so the watching may correlate with — but not cause — the conversion.`
+        : 'No causal claim can be made yet about watching causing investment; the within-Treatment comparison of watchers vs non-watchers is a selection effect, not a randomised contrast.',
+      evidence: 'Ledger § THE INVESTOR · FTI users who watched row. Per-user causal-ordering filter (first_play_at < fti_date).',
+      caveat: 'The only causal claim available is Treatment-vs-Control at the arm level — see The Reading №01.',
+    });
+  }
+
+  // 5. Cohort hygiene observation — based on Margin Notes.
+  if (marginNotes && marginNotes.srm) {
+    const verdict = marginNotes.srm.verdict;
+    out.push({
+      tone: verdict === 'fail' ? 'negative' : verdict === 'ok' ? 'positive' : 'neutral',
+      claim: verdict === 'ok'
+        ? `The Control–Treatment split (${nf.format(marginNotes.srm.control_n)}/${nf.format(marginNotes.srm.treatment_n)}) is balanced within statistical tolerance. Randomisation is operating as designed; downstream comparisons are valid.`
+        : verdict === 'fail'
+        ? `The Control–Treatment split (${nf.format(marginNotes.srm.control_n)}/${nf.format(marginNotes.srm.treatment_n)}) deviates from 50/50 significantly (p = ${marginNotes.srm.p_value}). Bucketing is potentially leaking; treat downstream lift numbers as provisional until SRM clears.`
+        : 'Sample-ratio mismatch status is indeterminate due to small cohort. Numbers will stabilise as N grows.',
+      evidence: 'Editor’s Note → Sample-ratio mismatch indicator.',
+    });
+  }
+
+  return out;
 }
 
 /* ═══════════════════════════════ SECTIONS ═══════════════════════════════ */
