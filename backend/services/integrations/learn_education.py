@@ -795,11 +795,14 @@ def _funnel_for_week(
         #
         # Returns a list of FLOAT days (e.g., 0.5 = invested 12h after
         # bucketing). Median preserves fractional precision; we round
-        # to 1 decimal for display.
+        # Store 2-decimal precision so the frontend can choose to render
+        # in hours (when sub-day) or days (when ≥ 1 day). Today's median
+        # is hours, not days; rounding to 1 decimal floors many real
+        # sub-day medians to 0.0 — uninformative.
         days_list = _collect_days_to_fti(variant_rows, fti_by_user, target_week)
         if days_list:
             from statistics import median as _stat_median
-            days_to_fti_median = round(_stat_median(days_list), 1)
+            days_to_fti_median = round(_stat_median(days_list), 2)
         else:
             days_to_fti_median = None
 

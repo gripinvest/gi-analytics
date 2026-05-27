@@ -2140,9 +2140,7 @@ function ConversionFunnel({ funnel }) {
                     color: row.value != null ? 'var(--ed-ink)' : 'var(--ed-ink-muted)',
                   }}
                 >
-                  {row.value != null
-                    ? `${Number.isInteger(row.value) ? row.value : row.value.toFixed(1)}d`
-                    : '—'}
+                  {row.value != null ? formatDaysOrHours(row.value) : '—'}
                 </p>
                 <p
                   className="ed-prose-italic"
@@ -2249,6 +2247,23 @@ function prettifyEntrySource(src) {
     unknown: 'Unknown source',
   };
   return map[src] ?? src;
+}
+
+/* Days-to-FTI display: at sub-day values the reader wants hours, not
+ * decimal days. "9.6 hrs" is concrete; "0.4d" is opaque. Switches to
+ * days at exactly 1.0d so "1d", "2d", "7d" all read naturally. */
+function formatDaysOrHours(value) {
+  if (value == null || isNaN(value)) return '—';
+  if (value < 1) {
+    const hours = value * 24;
+    if (hours < 1) {
+      const minutes = Math.round(hours * 60);
+      return `${minutes} min`;
+    }
+    return `${hours.toFixed(1)} hrs`;
+  }
+  if (Number.isInteger(value)) return `${value}d`;
+  return `${value.toFixed(1)}d`;
 }
 
 function EngagementFunnel({ treatment }) {
