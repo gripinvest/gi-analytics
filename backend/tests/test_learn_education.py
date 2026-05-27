@@ -973,8 +973,8 @@ def test_days_to_fti_regression_does_not_anchor_on_week_monday():
     fti = {"1": "2026-05-27T22:00:00"}  # 9h later, same Wed
     funnel = learn_education.build_conversion_funnel(eng, fti)
     t = funnel["variants"]["treatment"]
-    # 9 hours = 0.375 days, rounded to 1 decimal = 0.4
-    assert t["days_to_fti_median"] == 0.4
+    # 9 hours = 0.375 days, rounded to 2 decimals = 0.38
+    assert t["days_to_fti_median"] == 0.38
     assert t["days_to_fti_n"] == 1
 
 
