@@ -100,8 +100,28 @@ WHERE experiment_name = 'learn_page'
 # Aggregation up to (week, variant) happens in Python so we can also merge
 # with the FTI list from DB 24 at user-level (causal-ordering for
 # fti_users_who_watched requires user-level join keys).
-def build_engagement_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
+def build_engagement_sql(
+    weeks: int = WEEKS_OF_HISTORY,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> str:
+    """Build the engagement query.
+
+    `limit` and `offset` are appended to the final SELECT for
+    pagination — see fetch_engagement_paginated() for the walker.
+    Pass `limit=None` (default) to return the unbounded query (used by
+    tests and SQL-shape pinning).
+
+    The query orders by `user_id` so pagination produces stable,
+    non-overlapping slices. Earlier versions ordered by
+    (assigned_week, variant, user_id) which silently biased cap-
+    truncated results toward Control (alphabetically before Treatment).
+    """
     test_users_in = ",".join(f"'{u}'" for u in TEST_USERS)
+    pagination = ""
+    if limit is not None:
+        pagination = f"\n    LIMIT {limit} OFFSET {offset}"
     return f"""
     WITH cohort AS (
       -- One row per (user, assignment-week, variant). experiment_assigned
@@ -232,8 +252,36 @@ def build_engagement_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
     LEFT JOIN video_opens vo    ON vo.user_id = c.user_id
     LEFT JOIN outbound ob       ON ob.user_id = c.user_id
     LEFT JOIN banner_on_learn bn ON bn.user_id = c.user_id
-    ORDER BY c.assigned_week, c.variant, c.user_id
+    ORDER BY c.user_id{pagination}
     """
+
+
+def fetch_engagement_paginated(client, weeks: int = WEEKS_OF_HISTORY) -> list[dict]:
+    """Walk the engagement query in METABASE_ROW_CAP-sized pages.
+
+    Metabase's /api/dataset caps response at 2000 rows by default. With
+    today's cohort already at ~2500 users, a single unpaginated call
+    truncates Treatment users (the ORDER BY user_id keeps cohort
+    distribution unbiased across the cap boundary, vs the old
+    ORDER BY variant which silently biased toward Control).
+
+    Stops on the first short read. Returns the flat list of per-user
+    engagement rows for downstream aggregation.
+    """
+    out: list[dict] = []
+    offset = 0
+    while True:
+        sql = build_engagement_sql(
+            weeks=weeks, limit=METABASE_ROW_CAP, offset=offset
+        )
+        rows, _ = client.run_sql(RUDDER_DB_ID, sql)
+        if not rows:
+            break
+        out.extend(rows)
+        if len(rows) < METABASE_ROW_CAP:
+            break
+        offset += METABASE_ROW_CAP
+    return out
 
 
 # ─── FTI query (DB 24 — transactions) ──────────────────────────────────────
@@ -637,15 +685,25 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
         f"experiment_assigned in last 90 days"
     )
 
-    # ─── Engagement query (DB 8 — Rudder) ──────────────────────────────────
+    # ─── Engagement query (DB 8 — Rudder, paginated) ───────────────────────
+    # Paginated since the cohort already exceeds Metabase's 2000-row cap.
+    # See fetch_engagement_paginated() for the walker.
     try:
-        engagement_rows, _ = client.run_sql(
-            RUDDER_DB_ID, build_engagement_sql(weeks=WEEKS_OF_HISTORY)
-        )
+        engagement_rows = fetch_engagement_paginated(client, weeks=WEEKS_OF_HISTORY)
     except MetabaseError as e:
         log.append(f"engagement query failed (DB {RUDDER_DB_ID}) — {e}")
         return {"status": "error", "log": log, "refreshed_at": _now()}
     log.append(f"engagement: {len(engagement_rows)} per-user rows from Rudder")
+
+    # Diagnostic: cohort-side variant breakdown — surfaces SRM at the
+    # source data level. Useful for catching pagination/order bugs and
+    # actual experiment bucketing drift.
+    from collections import Counter
+    variant_counts = Counter(r.get("variant") for r in engagement_rows)
+    log.append(
+        f"cohort by variant: " +
+        ", ".join(f"{v}={n}" for v, n in sorted(variant_counts.items()))
+    )
 
     # ─── Daily-order volume probe (DB 24 — transactions) ──────────────────
     # Surfaces "BUY orders yesterday" so the operator can sanity-check
@@ -672,6 +730,27 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
         f"fti: {len(fti_rows)} FTI rows from {TRANSACTIONS_TABLE} "
         f"(scoped to {len(cohort_ids)} cohort users)"
     )
+
+    # Diagnostic: how many FTI rows have fti_date in the current cohort
+    # week vs earlier. If most are earlier, that's the gate-leak signal
+    # (cohort users who were pre-existing investors). If many are recent,
+    # the experiment is converting users. This breakdown distinguishes
+    # the two cases for operators reading the log.
+    if engagement_rows and fti_rows:
+        weeks_in_data = sorted({r.get("assigned_week") for r in engagement_rows
+                                if r.get("assigned_week")})
+        latest_week = weeks_in_data[-1] if weeks_in_data else None
+        if latest_week:
+            recent = sum(
+                1 for r in fti_rows
+                if _to_iso(r.get("fti_date") or "") >= latest_week
+            )
+            log.append(
+                f"fti breakdown: {recent} have fti_date >= {latest_week} "
+                f"(would count as post-assignment FTI); "
+                f"{len(fti_rows) - recent} are pre-experiment "
+                f"(gate-leak signal — these users were already invested when bucketed)"
+            )
 
     # ─── Merge ─────────────────────────────────────────────────────────────
     summary_rows = aggregate_rows(engagement_rows, fti_rows)

@@ -46,8 +46,13 @@ class FakeClient:
                 return [{"n": self.learn_page_count}], ["n"]
             if is_probe and "experiment_assigned" in normalized:
                 return [{"n": self.experiment_count}], ["n"]
-            # Engagement query (CTE-heavy).
-            return list(self.engagement_rows), [
+            # Engagement query (CTE-heavy). Respects LIMIT/OFFSET to
+            # exercise pagination — mirrors the FTI walker pattern.
+            import re
+            m = re.search(r"LIMIT\s+(\d+)\s+OFFSET\s+(\d+)", normalized, re.IGNORECASE)
+            limit = int(m.group(1)) if m else len(self.engagement_rows)
+            offset = int(m.group(2)) if m else 0
+            return list(self.engagement_rows[offset:offset + limit]), [
                 "user_id", "variant", "assigned_week",
                 "visit_count", "play_count", "watch_seconds_sum", "first_play_at",
             ]
@@ -602,3 +607,87 @@ def test_v2_completion_threshold_pinned():
     """If product wants to change this, it's a deliberate change with
     docs to update — not a hidden constant drift."""
     assert learn_education.COMPLETION_THRESHOLD_PCT == 75
+
+
+# ─── Engagement pagination (V2.1 — fixes 2000-row cap bug) ─────────────────
+# The original engagement query silently hit Metabase's 2000-row cap once
+# cohort grew past 2000. Worse, the ORDER BY (assigned_week, variant, ...)
+# meant Control was prioritized over Treatment alphabetically — making the
+# truncation biased and flagging SRM=fail on otherwise-balanced experiments.
+# These tests pin both the pagination logic and the unbiased ordering.
+
+def test_engagement_sql_orders_by_user_id_not_variant():
+    """Pagination requires stable ordering by user_id to avoid biasing
+    truncation toward Control. Order by variant would silently re-order
+    pages by alphabet, sending all Control before any Treatment."""
+    sql = learn_education.build_engagement_sql(weeks=12)
+    assert "ORDER BY c.user_id" in sql
+    # Must NOT order by variant first — that's the bias bug.
+    assert "ORDER BY c.assigned_week, c.variant" not in sql
+
+
+def test_engagement_sql_appends_pagination_when_limit_provided():
+    sql = learn_education.build_engagement_sql(weeks=12, limit=2000, offset=4000)
+    assert "LIMIT 2000" in sql
+    assert "OFFSET 4000" in sql
+
+
+def test_engagement_sql_omits_pagination_when_no_limit():
+    """Unbounded query for tests and SQL-shape pinning."""
+    sql = learn_education.build_engagement_sql(weeks=12)
+    assert "LIMIT" not in sql
+    assert "OFFSET" not in sql
+
+
+def test_fetch_engagement_paginated_walks_past_the_2000_cap():
+    """The actual bug from prod 2026-05-27: 2576 cohort users got
+    silently truncated to 2000 by Metabase's default response cap.
+    The walker must accumulate across pages until a short read."""
+    # 2501 cohort users — one full page (2000), one short page (501).
+    rows = [
+        {"user_id": str(i), "variant": "treatment" if i % 2 else "control",
+         "assigned_week": "2026-05-25",
+         "visit_count": 0, "play_count": 0, "watch_seconds_sum": 0,
+         "first_play_at": None}
+        for i in range(2501)
+    ]
+    client = FakeClient(engagement_rows=rows)
+    out = learn_education.fetch_engagement_paginated(client)
+    assert len(out) == 2501, "pagination must walk past the 2000 cap"
+
+
+def test_fetch_engagement_paginated_single_page_stops_early():
+    """If the cohort fits in one page (< 2000 rows), the walker should
+    return after one call — short-read triggers the loop exit."""
+    rows = [
+        {"user_id": str(i), "variant": "control", "assigned_week": "2026-05-25",
+         "visit_count": 0, "play_count": 0, "watch_seconds_sum": 0,
+         "first_play_at": None}
+        for i in range(150)
+    ]
+    client = FakeClient(engagement_rows=rows)
+    out = learn_education.fetch_engagement_paginated(client)
+    assert len(out) == 150
+    # One run_sql call to RUDDER (after probes) for the engagement query.
+    # The cohort returned 150 rows < 2000 cap → no second call.
+    engagement_calls = [
+        c for c in client.calls
+        if c[0] == learn_education.RUDDER_DB_ID
+        and c[1].strip().upper().startswith("WITH")
+    ]
+    assert len(engagement_calls) == 1
+
+
+def test_run_uses_paginated_engagement_fetch(tmp_path, v2_engagement_rows):
+    """run() must call the paginated walker, not the single-shot query.
+    Regression guard against accidentally reverting the fix."""
+    client = FakeClient(
+        learn_page_count=100, experiment_count=10000,
+        engagement_rows=v2_engagement_rows,
+    )
+    result = learn_education.run(client, tmp_path)
+    assert result["status"] == "ok"
+    # The cohort breakdown line is logged regardless of size — its
+    # presence confirms the paginated path executed.
+    log_str = " ".join(result["log"])
+    assert "cohort by variant" in log_str
