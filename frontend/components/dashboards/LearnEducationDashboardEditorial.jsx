@@ -15,6 +15,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { RefreshControl, useProjectRefresh } from '@/components/RefreshControl';
 import {
   useLearnEducation,
   COLUMNS,
@@ -50,7 +51,8 @@ const ENGAGEMENT_ONLY_COLS = new Set([
 ]);
 
 export default function LearnEducationDashboardEditorial({ project }) {
-  const { data, loading } = useLearnEducation();
+  const refreshState = useProjectRefresh(project);
+  const { data, loading } = useLearnEducation(refreshState.nonce);
   const rows = data?.rows ?? [];
   const meta = data?.meta ?? {};
   const lifts = React.useMemo(() => computeFtiLifts(rows), [rows]);
@@ -115,9 +117,13 @@ export default function LearnEducationDashboardEditorial({ project }) {
     <article className="ed-article">
       <Masthead
         weekRange={weekRange}
-        isMock={meta.is_mock}
+        isEmpty={meta.is_empty}
         loading={loading}
       />
+
+      {/* Refresh button — same control shared with sibling editorial
+          dashboards; renders nothing for projects with refreshable=false. */}
+      <RefreshControl project={project} state={refreshState} variant="editorial" />
 
       {/* ────── LEDE — the headline + pull-quote lift ─────────────────────── */}
       <section className="ed-set ed-set-delay-1 mt-10 grid gap-10 md:grid-cols-[1.5fr_1fr] md:gap-12">
@@ -309,7 +315,7 @@ export default function LearnEducationDashboardEditorial({ project }) {
 }
 
 /* ═══════════════════════════════ MASTHEAD ═══════════════════════════════ */
-function Masthead({ weekRange, isMock, loading }) {
+function Masthead({ weekRange, isEmpty, loading }) {
   return (
     <header className="ed-set">
       <Link href="/" className="ed-caption hover:underline">← BACK TO INDEX</Link>
@@ -330,7 +336,7 @@ function Masthead({ weekRange, isMock, loading }) {
         <span>VOL. I</span><span>·</span>
         <span>NO. 01</span><span>·</span>
         <span>{weekRange}</span><span>·</span>
-        <span>{isMock ? 'GALLEY PROOF' : 'LIVE'}</span>
+        <span>{isEmpty ? 'AWAITING FIRST EDITION' : 'LIVE'}</span>
         {loading && (
           <>
             <span>·</span>

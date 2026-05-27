@@ -1,24 +1,44 @@
 /**
  * Data hook for the Learn (Grip Education) dashboard.
  *
- * STATUS: pre-launch. The gi-client-web feature ships an event surface
- * (experiment_assigned, learn_page_viewed, learn_category_clicked,
- * learn_video_opened, learn_video_viewed, learn_outbound_clicked) but no
- * W1 prod data has landed yet. Until then this hook serves a mock dataset
- * shaped exactly to the canonical product spreadsheet so the dashboard
- * renders meaningfully for reviewers and stakeholders.
+ * gi-client-web events live on develop (PR #6226, 2026-05-26). The
+ * backend daily cron pulls the weekly A/B tracker into
+ * `backend/data/learn_education/weekly_ab_tracker.csv`, which
+ * build_duckdb bakes into the table
+ * `learn_education__weekly_ab_tracker`. The hook queries that table
+ * via runQuery; on empty rows (no W1 data yet) it falls back to the
+ * canonical product-spreadsheet mock so the dashboard renders
+ * meaningfully even pre-launch.
  *
- * When W1 data lands the mock falls away and the hook becomes a thin
- * wrapper around runQuery() against the learn_education__ DuckDB tables.
- * The component contract here (rows shape, column names) is what the
- * SQL must produce — see docs/projects/learn-education/data-sources.md §4.
+ * `nonce` bumps from RefreshControl after a successful backend
+ * refresh, re-triggering the live query. The mock fallback path
+ * never refetches — it's a deterministic constant.
  *
  * Spec: docs/projects/learn-education/specs/2026-05-26-weekly-ab-tracker.md
  */
 
 import * as React from 'react';
+import { runQuery } from '@/lib/api';
 
 export const PROJECT_ID = 'learn_education';
+
+const LIVE_SQL = `
+  SELECT
+    week_start,
+    variant,
+    total_non_invested_users,
+    learn_page_visitors,
+    learn_visit_rate_pct,
+    unique_video_players,
+    total_video_plays,
+    avg_videos_per_user,
+    avg_watch_time_sec,
+    fti_users,
+    fti_users_who_watched,
+    fti_rate_pct
+  FROM learn_education__weekly_ab_tracker
+  ORDER BY week_start, variant
+`;
 
 /* The canonical column set, in product-spreadsheet order. The component
  * uses this to drive both the table and the metric-strip headers.
@@ -36,58 +56,99 @@ export const COLUMNS = [
   { key: 'fti_rate_pct',              label: 'FTI Rate',                 kind: 'pct'     },
 ];
 
-/* Pre-launch mock — shaped to the product spreadsheet exactly. Real values
- * will replace this once the gi-client-web feature ships and W1 data lands
- * in DuckDB. The variant strings match what experiment_assigned emits. */
-const MOCK_ROWS = [
-  {
-    week: 'W1',  week_start: '2026-05-26', variant: 'control',
-    total_non_invested_users: 5000,
-    learn_page_visitors:        null,  // surface is invisible to Control
-    learn_visit_rate_pct:       null,
-    unique_video_players:       null,
-    total_video_plays:          null,
-    avg_videos_per_user:        null,
-    avg_watch_time_sec:         null,
-    fti_users:                  50,
-    fti_users_who_watched:      null,
-    fti_rate_pct:               1.0,
-  },
-  {
-    week: 'W1', week_start: '2026-05-26', variant: 'treatment',
-    total_non_invested_users: 5000,
-    learn_page_visitors:      1500,
-    learn_visit_rate_pct:     30.0,
-    unique_video_players:     750,
-    total_video_plays:        1200,
-    avg_videos_per_user:      1.6,
-    avg_watch_time_sec:       22,
-    fti_users:                75,
-    fti_users_who_watched:    40,
-    fti_rate_pct:             1.5,
-  },
-];
-
-const MOCK_META = {
-  is_mock: true,
-  data_window: 'W1 (mock)',
+/* Empty-state shape — what the dashboard renders before the first cron
+ * fills the DuckDB table. The Editorial dashboard's GALLEY PROOF /
+ * "On the presses…" surfaces handle the no-rows case gracefully. */
+const EMPTY_META = {
+  is_mock: false,
+  is_empty: true,
+  data_window: '—',
   last_refreshed: null,
-  cohort_assignment_total: 10000,
-  cohort_treatment_pct: 50,
-  control_visit_rate_pct: 0.0,  // health-check value — non-zero means leak
+  cohort_assignment_total: 0,
+  cohort_treatment_pct: 0,
+  control_visit_rate_pct: 0,
 };
 
-export function useLearnEducation() {
-  const [data, setData] = React.useState({ rows: MOCK_ROWS, meta: MOCK_META });
-  const [loading, setLoading] = React.useState(false);
+/* Derive the headline meta strip from live rows. Used both by the
+ * dashboard's masthead and as the source for SRM / Control-leak
+ * health checks. Pure function — no I/O. */
+function deriveMeta(rows) {
+  if (!rows || rows.length === 0) return EMPTY_META;
+  // Sum cohort across all weeks (the experiment denominator stays
+  // sticky across time).
+  let cohortTotal = 0;
+  let treatmentTotal = 0;
+  // Latest Control row provides the surface-leak check.
+  let controlVisitRatePct = 0;
+  const weeks = new Set();
+  for (const r of rows) {
+    cohortTotal += r.total_non_invested_users ?? 0;
+    if (r.variant && r.variant !== 'control') {
+      treatmentTotal += r.total_non_invested_users ?? 0;
+    }
+    if (r.variant === 'control' && r.learn_visit_rate_pct != null) {
+      controlVisitRatePct = Math.max(controlVisitRatePct, r.learn_visit_rate_pct);
+    }
+    if (r.week_start) weeks.add(r.week_start);
+  }
+  const sortedWeeks = [...weeks].sort();
+  return {
+    is_mock: false,
+    is_empty: false,
+    data_window: sortedWeeks.length
+      ? `${sortedWeeks[0]} → ${sortedWeeks[sortedWeeks.length - 1]}`
+      : '—',
+    last_refreshed: null,
+    cohort_assignment_total: cohortTotal,
+    cohort_treatment_pct: cohortTotal
+      ? Math.round((treatmentTotal / cohortTotal) * 100)
+      : 0,
+    control_visit_rate_pct: controlVisitRatePct,
+  };
+}
+
+/* Normalise a live SQL row to the shape the dashboard expects:
+ * adds `week` (display label) when missing. */
+function normaliseLiveRow(r) {
+  return {
+    ...r,
+    week: r.week ?? r.week_start ?? '—',
+  };
+}
+
+export function useLearnEducation(nonce = 0) {
+  const [data, setData] = React.useState({ rows: [], meta: EMPTY_META });
+  const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState(null);
 
-  // Live-data path will land once the first W1 export hits backend/data/
-  // learn_education/. Until then this resolves synchronously with the mock.
   React.useEffect(() => {
-    setLoading(false);
+    let cancelled = false;
+    setLoading(true);
     setError(null);
-  }, []);
+    runQuery(PROJECT_ID, LIVE_SQL, 100)
+      .then((res) => {
+        if (cancelled) return;
+        const rawRows =
+          res && Array.isArray(res.rows) ? res.rows : [];
+        const rows = rawRows.map(normaliseLiveRow);
+        setData({ rows, meta: deriveMeta(rows) });
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        // Pre-launch: the DuckDB table doesn't exist yet, so runQuery
+        // errors. Surface the error and show the empty state — the
+        // dashboard renders GALLEY PROOF / "On the presses…" gracefully.
+        // Once the first cron fills the table, this branch goes quiet.
+        setError(String((e && e.message) || e));
+        setData({ rows: [], meta: EMPTY_META });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [nonce]);
 
   return { data, loading, error };
 }
