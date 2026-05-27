@@ -146,7 +146,8 @@ def build_engagement_sql(
       SELECT DISTINCT ON (user_id::text)
         user_id::text AS user_id,
         experiment_variant AS variant,
-        DATE_TRUNC('week', timestamp)::date AS assigned_week
+        DATE_TRUNC('week', timestamp)::date AS assigned_week,
+        timestamp AS assignment_timestamp
       FROM client_web.experiment_assigned
       WHERE experiment_name = 'learn_page'
         AND timestamp >= NOW() - INTERVAL '{weeks} weeks'
@@ -245,6 +246,7 @@ def build_engagement_sql(
       c.user_id                                AS user_id,
       c.variant                                AS variant,
       to_char(c.assigned_week, 'YYYY-MM-DD')   AS assigned_week,
+      c.assignment_timestamp                   AS assignment_timestamp,
       COALESCE(v.visit_count, 0)               AS visit_count,
       COALESCE(p.play_count, 0)                AS play_count,
       COALESCE(p.completed_play_count, 0)      AS completed_play_count,
@@ -785,13 +787,21 @@ def _funnel_for_week(
             for src, data in sorted(source_buckets.items(), key=lambda kv: -kv[1]["cohort_n"])
         ]
 
-        # Median days from assigned_week to fti_date for post-assignment FTIs.
-        # Captures conversion momentum: how quickly did engaged users invest?
+        # Median days from each user's ACTUAL assignment timestamp to
+        # their fti_date. Anchoring on assignment_timestamp (not the
+        # week's Monday) makes this metric correct for users bucketed
+        # mid-week — otherwise everyone bucketed on the same Monday
+        # looks like they "took X days" where X = (today − Monday).
+        #
+        # Returns a list of FLOAT days (e.g., 0.5 = invested 12h after
+        # bucketing). Median preserves fractional precision; we round
+        # to 1 decimal for display.
         days_list = _collect_days_to_fti(variant_rows, fti_by_user, target_week)
-        days_to_fti_median = (
-            int(round(_median_or_none(days_list) or 0))
-            if days_list else None
-        )
+        if days_list:
+            from statistics import median as _stat_median
+            days_to_fti_median = round(_stat_median(days_list), 1)
+        else:
+            days_to_fti_median = None
 
         variants_data[variant] = {
             "bands": bands,
@@ -809,27 +819,48 @@ def _collect_days_to_fti(
     assigned_week: str,
 ) -> list[float]:
     """For users in this variant×week with a post-assignment FTI,
-    compute days from assigned_week to fti_date. Returns sorted list.
-    Defensive: skips users whose fti_date can't be parsed."""
-    from datetime import date
+    compute days from each user's ACTUAL assignment_timestamp to their
+    fti_date. Returns a list of FLOAT days (preserves sub-day
+    precision).
+
+    Why anchor on `assignment_timestamp` not `assigned_week`:
+      `assigned_week` is the Monday-truncated week boundary. Two users
+      bucketed on (Wed evening) and (Sat morning) would both anchor at
+      the same Monday — incorrectly showing identical days-to-FTI.
+      Anchoring on the per-user assignment timestamp gives the true
+      gap from bucketing to investment.
+
+    Defensive: skips users whose timestamp or fti_date can't be parsed.
+    """
+    from datetime import datetime, timezone
     out = []
-    try:
-        anchor = date.fromisoformat(assigned_week)
-    except (ValueError, TypeError):
-        return out
     for r in variant_rows:
         key = _user_id_key(r.get("user_id"))
         if not key:
             continue
         fti_iso = fti_by_user.get(key)
-        if fti_iso is None or fti_iso < assigned_week:
+        if fti_iso is None:
+            continue
+        assignment_iso = r.get("assignment_timestamp")
+        if not assignment_iso:
             continue
         try:
-            fti_day = date.fromisoformat(fti_iso[:10])
-            delta = (fti_day - anchor).days
-            if delta >= 0:
-                out.append(delta)
-        except (ValueError, TypeError):
+            assignment_dt = _parse_iso(assignment_iso)
+            fti_dt = _parse_iso(fti_iso)
+            # Normalise to naive UTC for arithmetic. Metabase usually
+            # returns timestamps in UTC anyway; if either side has
+            # tzinfo, convert and strip.
+            if assignment_dt.tzinfo is not None:
+                assignment_dt = assignment_dt.astimezone(timezone.utc).replace(tzinfo=None)
+            if fti_dt.tzinfo is not None:
+                fti_dt = fti_dt.astimezone(timezone.utc).replace(tzinfo=None)
+            delta_days = (fti_dt - assignment_dt).total_seconds() / 86400.0
+            # Causal-ordering filter: an FTI BEFORE bucketing isn't a
+            # post-assignment event. Drop those silently — they're
+            # the gate-leak users whose FTI happened pre-experiment.
+            if delta_days >= 0:
+                out.append(delta_days)
+        except (ValueError, TypeError, AttributeError):
             continue
     return out
 

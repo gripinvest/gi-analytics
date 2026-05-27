@@ -881,6 +881,18 @@ def test_engagement_sql_pulls_entry_source():
     assert "first_entry_source" in sql, "SELECT must expose first_entry_source"
 
 
+def test_engagement_sql_pulls_assignment_timestamp():
+    """The conversion funnel's days-to-FTI metric must anchor on the
+    per-user experiment_assigned.timestamp, not the week's Monday.
+    Pin this so a future refactor doesn't accidentally drop the field."""
+    sql = learn_education.build_engagement_sql(weeks=12)
+    assert "assignment_timestamp" in sql, (
+        "Cohort CTE must emit assignment_timestamp so days-to-FTI "
+        "can anchor correctly. Anchoring on assigned_week's Monday "
+        "inflates the metric for users bucketed mid-week."
+    )
+
+
 # ─── Conversion funnel — prior week + days-to-FTI ──────────────────────────
 # Added for the WoW pull-quote delta + a "how fast did they invest" signal.
 
@@ -914,38 +926,90 @@ def test_conversion_funnel_prior_week_none_with_one_week():
     assert funnel["prior_variants"] is None
 
 
-def test_days_to_fti_median_computed_for_post_assignment_ftis():
-    """Users FTI'd 2 / 5 / 7 days after assignment → median = 5."""
+def test_days_to_fti_median_anchored_on_assignment_timestamp():
+    """Three users bucketed at different timestamps within the same week.
+    days_to_fti must anchor on each user's ACTUAL bucketing time, not on
+    the week's Monday (which would conflate users bucketed Wed and Sat).
+    Median should be 5.0 days."""
     eng = [
         {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-27T10:00:00",  # Wed
          "visit_count": 1, "play_count": 1, "completed_play_count": 0,
          "first_entry_source": "top_chip"},
         {"user_id": "2", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-25T10:00:00",  # Mon
          "visit_count": 1, "play_count": 0, "completed_play_count": 0,
          "first_entry_source": "bottom_nav"},
         {"user_id": "3", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-26T10:00:00",  # Tue
          "visit_count": 1, "play_count": 0, "completed_play_count": 0,
          "first_entry_source": "direct"},
     ]
     fti = {
-        "1": "2026-05-27T10:00:00",  # +2 days
-        "2": "2026-05-30T10:00:00",  # +5 days
-        "3": "2026-06-01T10:00:00",  # +7 days
+        "1": "2026-05-29T10:00:00",  # 2.0 days after Wed bucketing
+        "2": "2026-05-30T10:00:00",  # 5.0 days after Mon bucketing
+        "3": "2026-06-02T10:00:00",  # 7.0 days after Tue bucketing
     }
     funnel = learn_education.build_conversion_funnel(eng, fti)
     t = funnel["variants"]["treatment"]
-    assert t["days_to_fti_median"] == 5
+    assert t["days_to_fti_median"] == 5.0
     assert t["days_to_fti_n"] == 3
+
+
+def test_days_to_fti_regression_does_not_anchor_on_week_monday():
+    """Regression for the 2026-05-28 bug: when the experiment launches
+    mid-week, days-to-FTI must NOT anchor on the week's Monday (which
+    would inflate every median to (today - Monday) days regardless of
+    when individual users were actually bucketed).
+
+    User bucketed Wed 13:00 (launch moment), FTI'd Wed 22:00 (9h later).
+    Monday anchor would give 2 days. Timestamp anchor gives ~0.4 days."""
+    eng = [
+        {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-27T13:00:00",  # Wed 1pm — launch
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+    ]
+    fti = {"1": "2026-05-27T22:00:00"}  # 9h later, same Wed
+    funnel = learn_education.build_conversion_funnel(eng, fti)
+    t = funnel["variants"]["treatment"]
+    # 9 hours = 0.375 days, rounded to 1 decimal = 0.4
+    assert t["days_to_fti_median"] == 0.4
+    assert t["days_to_fti_n"] == 1
+
+
+def test_days_to_fti_skips_users_with_missing_assignment_timestamp():
+    """Defensive: a row missing assignment_timestamp is dropped silently
+    rather than crashing the funnel build."""
+    eng = [
+        {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         # NO assignment_timestamp field — should be skipped
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+        {"user_id": "2", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-25T10:00:00",
+         "visit_count": 1, "play_count": 0, "completed_play_count": 0,
+         "first_entry_source": "bottom_nav"},
+    ]
+    fti = {
+        "1": "2026-05-27T10:00:00",  # missing timestamp → dropped silently
+        "2": "2026-05-26T10:00:00",  # +1.0 day
+    }
+    funnel = learn_education.build_conversion_funnel(eng, fti)
+    t = funnel["variants"]["treatment"]
+    assert t["days_to_fti_n"] == 1, "user 1 dropped silently due to missing timestamp"
+    assert t["days_to_fti_median"] == 1.0
 
 
 def test_days_to_fti_median_none_when_no_post_assignment_ftis():
     """Pre-experiment FTIs should not contribute to the median."""
     eng = [
         {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-27T10:00:00",
          "visit_count": 1, "play_count": 1, "completed_play_count": 0,
          "first_entry_source": "top_chip"},
     ]
-    fti = {"1": "2026-05-20T10:00:00"}  # BEFORE assigned_week
+    fti = {"1": "2026-05-20T10:00:00"}  # BEFORE assignment_timestamp
     funnel = learn_education.build_conversion_funnel(eng, fti)
     t = funnel["variants"]["treatment"]
     assert t["days_to_fti_median"] is None
