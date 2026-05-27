@@ -37,9 +37,10 @@ SRM_FAIL_P_VALUE = 0.001
 # the normal approximation misbehaves, so we render an em-dash instead.
 MIN_SUCCESSES_FOR_CI = 10
 
-# Control surface leak thresholds. Ideal: 0%. Up to 1% is acceptable
-# (network race conditions, deep-links). Above that is a real bug.
-CONTROL_LEAK_WARN_PCT = 0.0
+# Control surface leak threshold. 0% is ideal, 0 < leak ≤ 1% is `warn`
+# (network race conditions, deep-link bypass), > 1% is `fail` (real bug).
+# Single threshold because the verdict logic compares only against this
+# upper bound; 0 vs >0 is the implicit second threshold.
 CONTROL_LEAK_FAIL_PCT = 1.0
 
 
