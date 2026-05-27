@@ -146,10 +146,10 @@ export default function LearnEducationDashboardEditorial({ project }) {
             below for week-by-week movement; consult{' '}
             <a
               href="#"
-              onClick={(e) => { e.preventDefault(); setSection('health'); }}
+              onClick={(e) => { e.preventDefault(); setSection('reading'); }}
               className="underline decoration-[var(--ed-ink-faint)] underline-offset-4"
             >
-              §04 On Validity
+              §IV The Reading
             </a>
             {' '}before drawing conclusions.
           </p>
@@ -1101,7 +1101,9 @@ function OverviewSection({ rows, meta, marginNotes, loading }) {
               {' '}The minimum detectable effect (MDE) at the current sample size
               is{' '}
               <Term>
-                ±{(marginNotes?.mde?.mde_abs_pp ?? 0).toFixed(1)} pp
+                {marginNotes?.mde?.mde_abs_pp != null
+                  ? `±${marginNotes.mde.mde_abs_pp.toFixed(1)} pp`
+                  : '—'}
               </Term>
               {' '}— a real effect smaller than that would slip past undetected.
               Reaching <Term>~12,000 users per arm</Term> (around W4) brings the
@@ -1112,11 +1114,19 @@ function OverviewSection({ rows, meta, marginNotes, loading }) {
             <>
               {weekCount} weeks of data are now on file. The lift is{' '}
               <Term>
-                {(marginNotes?.fti_lift_ci?.delta_pp ?? 0).toFixed(2)} pp
-              </Term>{' '}
-              with a 95% CI of [{(marginNotes?.fti_lift_ci?.ci_lower_pp ?? 0).toFixed(2)},
-              {' '}{(marginNotes?.fti_lift_ci?.ci_upper_pp ?? 0).toFixed(2)}] pp.
-              See §IV · The Reading for a structured interpretation.
+                {marginNotes?.fti_lift_ci?.delta_pp != null
+                  ? `${marginNotes.fti_lift_ci.delta_pp.toFixed(2)} pp`
+                  : '—'}
+              </Term>
+              {marginNotes?.fti_lift_ci?.ci_lower_pp != null &&
+                marginNotes?.fti_lift_ci?.ci_upper_pp != null && (
+                  <>
+                    {' '}with a 95% CI of [
+                    {marginNotes.fti_lift_ci.ci_lower_pp.toFixed(2)},
+                    {' '}{marginNotes.fti_lift_ci.ci_upper_pp.toFixed(2)}] pp
+                  </>
+                )}
+              . See §IV · The Reading for a structured interpretation.
             </>
           )}
         </p>
