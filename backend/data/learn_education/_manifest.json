@@ -1,37 +1,37 @@
 {
-  "refreshed_at": "2026-05-27T21:44:42Z",
+  "refreshed_at": "2026-05-27T22:08:33Z",
   "tables": {
     "weekly_ab_tracker": {
-      "last_refreshed_at": "2026-05-27T21:44:42Z"
+      "last_refreshed_at": "2026-05-27T22:08:33Z"
     }
   },
   "margin_notes": {
     "as_of_week": "2026-05-25",
     "srm": {
-      "control_n": 1393,
-      "treatment_n": 1374,
-      "p_value": 0.7179,
+      "control_n": 1400,
+      "treatment_n": 1378,
+      "p_value": 0.6764,
       "verdict": "ok"
     },
     "control_leak": {
       "control_visitors": 1,
-      "control_cohort": 1393,
+      "control_cohort": 1400,
       "leak_pct": 0.07,
       "verdict": "warn"
     },
     "fti_lift_ci": {
-      "control_pct": 3.8,
-      "treatment_pct": 4.0,
-      "delta_pp": 0.2,
-      "ci_lower_pp": -1.25,
+      "control_pct": 3.79,
+      "treatment_pct": 3.99,
+      "delta_pp": 0.21,
+      "ci_lower_pp": -1.23,
       "ci_upper_pp": 1.64,
       "verdict": "ok"
     },
     "mde": {
-      "n_per_arm": 1374,
-      "pooled_rate_pct": 3.9,
-      "mde_abs_pp": 2.07,
-      "mde_rel_pct": 53.0
+      "n_per_arm": 1378,
+      "pooled_rate_pct": 3.89,
+      "mde_abs_pp": 2.06,
+      "mde_rel_pct": 53.1
     }
   },
   "conversion_funnel": {
@@ -43,9 +43,9 @@
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 1393,
+            "cohort_n": 1400,
             "fti_n": 53,
-            "fti_rate_pct": 3.8
+            "fti_rate_pct": 3.79
           },
           {
             "depth": "visited",
@@ -84,17 +84,17 @@
             "fti_rate_pct": 0.0
           }
         ],
-        "days_to_fti_median": 2,
-        "days_to_fti_n": 53
+        "days_to_fti_median": 0.0,
+        "days_to_fti_n": 15
       },
       "treatment": {
         "bands": [
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 1374,
+            "cohort_n": 1378,
             "fti_n": 55,
-            "fti_rate_pct": 4.0
+            "fti_rate_pct": 3.99
           },
           {
             "depth": "visited",
@@ -145,8 +145,8 @@
             "fti_rate_pct": 0.0
           }
         ],
-        "days_to_fti_median": 2,
-        "days_to_fti_n": 55
+        "days_to_fti_median": 0.0,
+        "days_to_fti_n": 21
       }
     },
     "prior_variants": null
