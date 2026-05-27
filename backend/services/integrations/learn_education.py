@@ -43,17 +43,24 @@ from .metabase import MetabaseError
 # Rudder Prod, schema client_web — same as Asset Search / cohort + engagement.
 RUDDER_DB_ID = 8
 
-# Production transactions DB — Postgres, source of truth for tblorders.
-# Reference Metabase question 2672 (FTI DoD non-PII) and the verified
-# table-browser URL both target database_id 2.
+# Transactions DB — Metabase database_id 24 (ClickHouse warehouse).
+# Source: business-analyst dashboards reference this same warehouse, so
+# keeping our FTI numbers aligned to it eliminates cross-dashboard drift.
 #
-# Important: there's also a Metabase database_id 24 which is a ClickHouse
-# warehouse mirror of the same data. That mirror has column-level GRANT
-# restrictions our service account doesn't have, while DB 2 (Postgres
-# source) is readable. The earlier ACCESS_DENIED on `prodgripdb.tblorders`
-# came from DB 24's stricter ClickHouse permissioning — moot once we hit
-# the Postgres source directly.
-TRANSACTIONS_DB_ID = 2
+# `prodgripdb.tblorders` itself has column-level GRANT restrictions our
+# service account can't satisfy, but `prodgripdb.ur_tblorders` is the
+# unrestricted_user-role view that the role CAN read — analyst-grade
+# access without the column-level perm hassle.
+#
+# (We were briefly on DB 2 / Postgres source-of-truth which also reads
+# cleanly. Switched to DB 24 / ur_tblorders so our dashboard's numbers
+# match what business analysts publish in their reports.)
+TRANSACTIONS_DB_ID = 24
+TRANSACTIONS_TABLE = "prodgripdb.ur_tblorders"
+
+# Metabase /api/dataset endpoint caps each response at 2000 rows by default.
+# Pagination keys on user_id and walks pages until a short read.
+METABASE_ROW_CAP = 2000
 
 # Test users excluded from every query path. Single-sourced across projects.
 TEST_USERS = (3, 4, 207871, 207875, 207878, 207879)
@@ -164,19 +171,83 @@ def build_engagement_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
 # first BUY order per user where status indicates a successful purchase
 # (1 = placed, 7 = success, 8 = settled). Other statuses are interim or
 # failed and do not count.
-def build_fti_sql() -> str:
+#
+# The query is **scoped to cohort user_ids** (passed in as `cohort_ids`)
+# for two reasons:
+#   1. Result size — without scoping, we'd return the full FTI universe
+#      (~2000+ users) and silently hit Metabase's 2000-row cap. Scoping
+#      keeps the result under a few hundred FTI rows for a single week
+#      of cohort, well under cap.
+#   2. Cost — querying ur_tblorders unscoped is a full table scan; with
+#      `user_id IN (...)` ClickHouse uses the user_id index.
+#
+# A `LIMIT/OFFSET` pagination loop in fetch_fti_for_cohort() walks the
+# result anyway as belt-and-suspenders against future cohort growth past
+# 2000 FTI matches.
+def build_fti_sql(cohort_ids: list[int], *, limit: int, offset: int) -> str:
     test_users_in = ",".join(str(u) for u in TEST_USERS)
     statuses_in = ",".join(str(s) for s in FTI_ORDER_STATUSES)
+    cohort_in = ",".join(str(i) for i in cohort_ids)
     return f"""
     SELECT
       user_id,
       MIN(created_at) AS fti_date
-    FROM tblorders
+    FROM {TRANSACTIONS_TABLE}
     WHERE status IN ({statuses_in})
       AND order_type = 'BUY'
       AND user_id NOT IN ({test_users_in})
+      AND user_id IN ({cohort_in})
     GROUP BY user_id
+    ORDER BY user_id
+    LIMIT {limit} OFFSET {offset}
     """
+
+
+# Daily-order COUNT probe — gives an empirical floor for the cap-vs-truth
+# question and surfaces the order volume to the operator on every run.
+DAILY_ORDER_PROBE_SQL = f"""
+SELECT COUNT(*) AS n
+FROM {TRANSACTIONS_TABLE}
+WHERE status IN ({','.join(str(s) for s in FTI_ORDER_STATUSES)})
+  AND order_type = 'BUY'
+  AND created_at >= toStartOfDay(now() - INTERVAL 1 DAY)
+  AND created_at <  toStartOfDay(now())
+"""
+
+
+def fetch_fti_for_cohort(client, cohort_ids: list[int]) -> list[dict]:
+    """Paginated FTI fetch — scoped to cohort users only.
+
+    Walks Metabase's 2000-row paging by ORDER BY user_id LIMIT 2000
+    OFFSET n, stopping on a short read. Returns a flat list of
+    {user_id, fti_date} dicts.
+
+    The cohort_ids list is converted to int on the way in — Rudder
+    stores user_id as varchar but ur_tblorders / tblorders use the
+    integer primary key. Non-integer cohort ids (anonymous_id leakage)
+    are silently dropped; we can only attribute FTI to logged-in users.
+    """
+    int_ids: list[int] = []
+    for uid in cohort_ids:
+        try:
+            int_ids.append(int(uid))
+        except (ValueError, TypeError):
+            continue
+    if not int_ids:
+        return []
+
+    out: list[dict] = []
+    offset = 0
+    while True:
+        sql = build_fti_sql(int_ids, limit=METABASE_ROW_CAP, offset=offset)
+        rows, _ = client.run_sql(TRANSACTIONS_DB_ID, sql)
+        if not rows:
+            break
+        out.extend(rows)
+        if len(rows) < METABASE_ROW_CAP:
+            break
+        offset += METABASE_ROW_CAP
+    return out
 
 
 # ─── Output schema ─────────────────────────────────────────────────────────
@@ -387,13 +458,31 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
         return {"status": "error", "log": log, "refreshed_at": _now()}
     log.append(f"engagement: {len(engagement_rows)} per-user rows from Rudder")
 
-    # ─── FTI query (DB 24 — transactions) ──────────────────────────────────
+    # ─── Daily-order volume probe (DB 24 — transactions) ──────────────────
+    # Surfaces "BUY orders yesterday" so the operator can sanity-check
+    # the FTI numerator's universe size on every run. Errors here are
+    # non-fatal — just log and continue.
     try:
-        fti_rows, _ = client.run_sql(TRANSACTIONS_DB_ID, build_fti_sql())
+        probe_rows, _ = client.run_sql(TRANSACTIONS_DB_ID, DAILY_ORDER_PROBE_SQL)
+        if probe_rows:
+            daily_orders = int(probe_rows[0].get("n", 0))
+            log.append(f"daily-order probe: {daily_orders} BUY orders yesterday")
+    except MetabaseError as e:
+        log.append(f"daily-order probe failed (non-fatal) — {e}")
+
+    # ─── FTI query (DB 24 — transactions) ──────────────────────────────────
+    # Scoped to cohort user_ids only. Pagination loop handles the 2000
+    # /api/dataset row cap.
+    cohort_ids = [r["user_id"] for r in engagement_rows if r.get("user_id") is not None]
+    try:
+        fti_rows = fetch_fti_for_cohort(client, cohort_ids)
     except MetabaseError as e:
         log.append(f"FTI query failed (DB {TRANSACTIONS_DB_ID}) — {e}")
         return {"status": "error", "log": log, "refreshed_at": _now()}
-    log.append(f"fti: {len(fti_rows)} FTI rows from transactions DB")
+    log.append(
+        f"fti: {len(fti_rows)} FTI rows from {TRANSACTIONS_TABLE} "
+        f"(scoped to {len(cohort_ids)} cohort users)"
+    )
 
     # ─── Merge ─────────────────────────────────────────────────────────────
     summary_rows = aggregate_rows(engagement_rows, fti_rows)

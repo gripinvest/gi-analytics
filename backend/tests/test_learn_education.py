@@ -25,15 +25,17 @@ class FakeClient:
     """Mirrors MetabaseClient.run_sql(database_id, sql) -> (rows, cols)."""
 
     def __init__(self, *, learn_page_count=0, experiment_count=0,
-                 engagement_rows=None, fti_rows=None):
+                 engagement_rows=None, fti_rows=None, daily_orders=0):
         self.learn_page_count = learn_page_count
         self.experiment_count = experiment_count
         self.engagement_rows = engagement_rows or []
         self.fti_rows = fti_rows or []
+        self.daily_orders = daily_orders
         self.calls = []
 
     def run_sql(self, database_id, sql, raw_columns=False):
-        self.calls.append((database_id, sql[:120]))
+        # Store the full SQL so cohort-scope tests can assert on the IN clause.
+        self.calls.append((database_id, sql))
         normalized = sql.strip()
 
         # Rudder DB — distinguish probes (no CTEs, return COUNT) from the
@@ -50,9 +52,18 @@ class FakeClient:
                 "visit_count", "play_count", "watch_seconds_sum", "first_play_at",
             ]
 
-        # Transactions DB
+        # Transactions DB — distinguish:
+        #   · daily-order COUNT(*) probe → returns {n: daily_order_count}
+        #   · paginated FTI fetch        → returns the canned fti_rows
         if database_id == learn_education.TRANSACTIONS_DB_ID:
-            return list(self.fti_rows), ["user_id", "fti_date"]
+            if "COUNT(*)" in normalized and "INTERVAL 1 DAY" in normalized:
+                return [{"n": getattr(self, "daily_orders", 0)}], ["n"]
+            # FTI query — respects LIMIT/OFFSET to exercise pagination.
+            import re
+            m = re.search(r"LIMIT\s+(\d+)\s+OFFSET\s+(\d+)", normalized, re.IGNORECASE)
+            limit = int(m.group(1)) if m else len(self.fti_rows)
+            offset = int(m.group(2)) if m else 0
+            return list(self.fti_rows[offset:offset + limit]), ["user_id", "fti_date"]
 
         raise AssertionError(f"unexpected database_id: {database_id}")
 
@@ -325,47 +336,89 @@ def test_engagement_sql_uses_text_casts_and_excludes_test_users():
         assert f"'{u}'" in sql
 
 
+def _sample_fti_sql():
+    """The cohort-scoped FTI SQL with sentinel values for builder tests."""
+    return learn_education.build_fti_sql([12345, 67890], limit=2000, offset=0)
+
+
 def test_fti_sql_filters_to_buy_orders_with_settled_status():
-    sql = learn_education.build_fti_sql()
+    sql = _sample_fti_sql()
     assert "order_type = 'BUY'" in sql
-    # Status whitelist per Metabase q2672: 1, 7, 8
     for status in (1, 7, 8):
         assert str(status) in sql
-    # Verify the exact IN clause; whitespace stays exactly as the builder emits it.
     assert "status IN (1,7,8)" in sql
 
 
 def test_fti_sql_excludes_test_users():
-    sql = learn_education.build_fti_sql()
+    sql = _sample_fti_sql()
     for u in learn_education.TEST_USERS:
         assert str(u) in sql
-    # tblorders.user_id is int natively, so no ::text cast required here.
 
 
 def test_fti_sql_uses_min_created_at():
     """First-time investor = MIN(created_at) per user_id."""
-    sql = learn_education.build_fti_sql()
+    sql = _sample_fti_sql()
     assert "MIN(created_at)" in sql
     assert "GROUP BY user_id" in sql
 
 
-def test_fti_sql_references_tblorders_not_rudder():
-    """FTI source is tblorders in DB 24, NOT client_web.new_user_order in DB 8."""
-    sql = learn_education.build_fti_sql()
-    assert "tblorders" in sql
+def test_fti_sql_scopes_to_cohort_user_ids():
+    """The query must IN-filter to the cohort to stay under the 2000 cap
+    and use ur_tblorders' user_id index efficiently."""
+    sql = learn_education.build_fti_sql([12345, 67890], limit=2000, offset=0)
+    assert "user_id IN (12345,67890)" in sql
+    assert "ORDER BY user_id" in sql
+    assert "LIMIT 2000" in sql
+    assert "OFFSET 0" in sql
+
+
+def test_fti_sql_references_ur_tblorders_not_rudder():
+    """FTI source is prodgripdb.ur_tblorders on DB 24 (ClickHouse warehouse).
+    This is the analyst-canonical view; not Rudder, not tblorders directly."""
+    sql = _sample_fti_sql()
+    assert "prodgripdb.ur_tblorders" in sql
     assert "new_user_order" not in sql
     assert "client_web" not in sql
+
+
+def test_fetch_fti_for_cohort_paginates_past_the_2000_cap(tmp_path):
+    """Walking pagination must accumulate across calls until short read."""
+    # 2501 FTI rows: requires 2 full pages (2000+501) and a third stop check.
+    fti = [{"user_id": i, "fti_date": "2026-05-26T00:00:00"} for i in range(2501)]
+    client = FakeClient(fti_rows=fti)
+    out = learn_education.fetch_fti_for_cohort(client, [str(i) for i in range(2501)])
+    assert len(out) == 2501
+
+
+def test_fetch_fti_for_cohort_returns_empty_for_empty_cohort():
+    """No cohort → no FTI query at all (would otherwise return everything)."""
+    client = FakeClient(fti_rows=[{"user_id": 1, "fti_date": "x"}])
+    assert learn_education.fetch_fti_for_cohort(client, []) == []
+    assert client.calls == [], "must not issue any SQL when cohort is empty"
+
+
+def test_fetch_fti_for_cohort_drops_non_integer_cohort_ids():
+    """Rudder anonymous_id leakage shouldn't make it into the IN clause."""
+    client = FakeClient(fti_rows=[])
+    learn_education.fetch_fti_for_cohort(client, ["123", "abc", "", "456"])
+    # Should have issued one call; the SQL should contain only the int ids.
+    assert len(client.calls) == 1
+    sql = client.calls[0][1]
+    assert "123" in sql and "456" in sql
+    assert "abc" not in sql
 
 
 def test_database_ids_are_pinned():
     """Pin the IDs so an accidental swap stays caught by CI.
 
-    RUDDER_DB_ID = 8         — client_web schema, cohort + engagement events.
-    TRANSACTIONS_DB_ID = 2   — Postgres source-of-truth for tblorders.
-                               Note: Metabase database_id 24 is a ClickHouse
-                               warehouse mirror with stricter column-level
-                               GRANTs the service account doesn't have. Do
-                               NOT swap back to 24.
+    RUDDER_DB_ID = 8           — client_web schema, cohort + engagement events.
+    TRANSACTIONS_DB_ID = 24    — ClickHouse warehouse (prodgripdb.ur_tblorders).
+                                 Aligned with what business analysts use, so
+                                 our numbers match what's published elsewhere.
+                                 Note: the underlying `tblorders` has
+                                 column-level GRANTs we lack; ur_tblorders is
+                                 the unrestricted_user role's view.
     """
     assert learn_education.RUDDER_DB_ID == 8
-    assert learn_education.TRANSACTIONS_DB_ID == 2
+    assert learn_education.TRANSACTIONS_DB_ID == 24
+    assert learn_education.TRANSACTIONS_TABLE == "prodgripdb.ur_tblorders"

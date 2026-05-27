@@ -1,10 +1,11 @@
 # Learn (Grip Education) — data source mapping
 
 **DBs:** Rudder Prod (DB 8, `client_web` schema) for engagement events ·
-production transactions DB (DB 2, `tblorders`) for FTI.
-**Status:** **LIVE on `develop`** as of 2026-05-26 (gi-client-web PR #6226).
-First W1 production data pending — daily cron idles cleanly until both
-probes return rows.
+ClickHouse warehouse (DB 24, `prodgripdb.ur_tblorders` — the analyst-canonical
+view) for FTI. Aligning to DB 24 keeps our numbers consistent with what
+business analysts publish in their own dashboards.
+**Status:** **LIVE.** Cron is producing weekly_ab_tracker.csv on schedule;
+first commit landed 2026-05-27 with 932 Control + 937 Treatment users in W1.
 **Source repo:** `gi-client-web` — event constants in `events/constants.ts`,
 typed payloads in `events/types.ts`, call sites listed in §0 below.
 
@@ -52,7 +53,7 @@ Validation steps still to do once W1 prod data lands:
 2. Run one-week sample row-count + payload-shape validation via a
    harness modelled on
    `backend/services/integrations/validate_asset_search.py`.
-3. Spot-check `tblorders` (DB 2) FTI counts against
+3. Spot-check `ur_tblorders` (DB 24) FTI counts against
    [Metabase q2672](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch).
 
 ---
@@ -121,8 +122,8 @@ not Learn-fork queries):
   banner widget). page = '/learn' filters them.
 ```
 
-The funnel closes against `tblorders` (FTI conversion) using same-user
-joins. `tblorders` lives in DB 2 (transactions); the fetch module runs
+The funnel closes against `ur_tblorders` (FTI conversion) using same-user
+joins. `ur_tblorders` lives in DB 24 (warehouse); the fetch module runs
 the join client-side in Python because Metabase doesn't support
 cross-database joins in native SQL. See §4 for the exact SQL and
 [Metabase q2672](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch)
@@ -486,26 +487,25 @@ WHERE lvv.total_watched_seconds > 0
 GROUP BY 1, 2;
 ```
 
-### FTI source — `tblorders`, NOT `new_user_order`
-
-**Important — corrected 2026-05-26.** An earlier revision of this doc
-pointed at the Rudder event `client_web.new_user_order`. That is **not**
-the canonical source. Use the production transactions database:
+### FTI source — `prodgripdb.ur_tblorders` on DB 24
 
 | Aspect | Value |
 |---|---|
-| Database | **DB 2** (Postgres source of truth) |
-| Table | `tblorders` |
+| Database | **Metabase database_id 24** (ClickHouse warehouse) |
+| Table | **`prodgripdb.ur_tblorders`** — the unrestricted_user role's view |
 | Filter | `status IN (1, 7, 8) AND order_type = 'BUY'` |
+| Scoping | **`user_id IN (<cohort user_ids>)`** — see "Cohort scoping" below |
 | FTI per user | `MIN(created_at)` grouped by `user_id` |
-| Reference | [Metabase question 2672 — FTI DoD non-PII](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch) (database_id confirmed via the Metabase table-browser URL — database=2, source-table=6) |
+| Pagination | `ORDER BY user_id LIMIT 2000 OFFSET n` — walks Metabase's 2000-row response cap |
+| Reference | [Metabase question 2672 — FTI DoD non-PII](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch) |
 
-> **Do not use Metabase database_id 24** for FTI. DB 24 is a ClickHouse
-> warehouse mirror with column-level `GRANT` restrictions our service
-> account does not have (`prodgripdb` schema). The earlier
-> `ACCESS_DENIED` on `SELECT(user_id, created_at, status, order_type) ON
-> prodgripdb.tblorders` came from DB 24. DB 2 is the Postgres origin and
-> reads cleanly.
+**Why DB 24 / `ur_tblorders` and not the Postgres source?** Business
+analysts already publish dashboards off DB 24's warehouse. Using the
+same warehouse keeps our FTI numbers identically reconcilable with what
+the team ships elsewhere — no "but the source-of-truth says X and your
+dashboard says Y" drift. `tblorders` directly has column-level GRANT
+restrictions the service account can't satisfy (the role is
+`unrestricted_user`; `ur_tblorders` is its purpose-built view).
 
 Status codes per Metabase question 2672:
 - `1` — order placed
@@ -514,12 +514,26 @@ Status codes per Metabase question 2672:
 
 Other statuses (2–6) are interim/failed and do not count toward FTI.
 
+**Cohort scoping** — the FTI query filters `user_id IN (<cohort ids>)`
+rather than scanning the full FTI universe. Two reasons:
+
+1. **Result size.** Without scoping, an unbounded `SELECT user_id, MIN(created_at) FROM ur_tblorders GROUP BY user_id` returns ~2000+ rows and silently hits Metabase's `/api/dataset` response cap (we saw exactly 2000 rows in an earlier run — that was the cap, not the true count). Scoping to ~1,800 cohort users/week brings the result to ≤cohort size.
+2. **Cost.** ClickHouse uses the `user_id` index on the IN clause; the
+   unbounded query is a full table scan.
+
+The fetch loop in `fetch_fti_for_cohort()` paginates with
+`ORDER BY user_id LIMIT 2000 OFFSET n` anyway, as belt-and-suspenders
+against future cohort growth past the cap.
+
 Because Metabase cannot JOIN across databases in native SQL, the fetch
-module runs **two queries** and merges in Python (see
+module runs **three queries** and merges in Python (see
 `backend/services/integrations/learn_education.py`):
 1. **Engagement query** (DB 8) — per-user cohort + visits + plays.
-2. **FTI query** (DB 2) — per-user `MIN(created_at)`.
-3. **Python merge** — aggregate to (week × variant) with sticky bucketing.
+2. **Daily-order probe** (DB 24) — `COUNT(*)` of yesterday's BUY orders,
+   logged for the operator to sanity-check FTI universe size.
+3. **Cohort-scoped FTI fetch** (DB 24, paginated) — per-user
+   `MIN(created_at)` for the cohort users from step 1.
+4. **Python merge** — aggregate to (week × variant) with sticky bucketing.
 
 ### FTI Users / FTI Rate — engagement side (DB 8)
 
@@ -536,19 +550,25 @@ WHERE experiment_name = 'learn_page'
   AND user_id::text NOT IN ('3','4','207871','207875','207878','207879')
 ```
 
-### FTI Users / FTI Rate — FTI side (DB 2)
+### FTI Users / FTI Rate — FTI side (DB 24, cohort-scoped)
 
 ```sql
--- DB 2 (transactions / production)
+-- DB 24 (ClickHouse warehouse, prodgripdb schema)
 SELECT
   user_id,
   MIN(created_at) AS fti_date
-FROM tblorders
+FROM prodgripdb.ur_tblorders
 WHERE status IN (1, 7, 8)
   AND order_type = 'BUY'
   AND user_id NOT IN (3, 4, 207871, 207875, 207878, 207879)
+  AND user_id IN (<cohort user_ids from DB 8>)
 GROUP BY user_id
+ORDER BY user_id
+LIMIT 2000 OFFSET 0
 ```
+
+Pagination loop in Python walks `OFFSET 2000`, `OFFSET 4000`, … until a
+short read.
 
 ### Python merge — sticky bucketing
 
