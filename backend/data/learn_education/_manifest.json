@@ -1,8 +1,8 @@
 {
-  "refreshed_at": "2026-05-27T22:08:33Z",
+  "refreshed_at": "2026-05-27T22:14:13Z",
   "tables": {
     "weekly_ab_tracker": {
-      "last_refreshed_at": "2026-05-27T22:08:33Z"
+      "last_refreshed_at": "2026-05-27T22:14:13Z"
     }
   },
   "margin_notes": {
@@ -84,7 +84,7 @@
             "fti_rate_pct": 0.0
           }
         ],
-        "days_to_fti_median": 0.0,
+        "days_to_fti_median": 0.01,
         "days_to_fti_n": 15
       },
       "treatment": {
@@ -145,7 +145,7 @@
             "fti_rate_pct": 0.0
           }
         ],
-        "days_to_fti_median": 0.0,
+        "days_to_fti_median": 0.01,
         "days_to_fti_n": 21
       }
     },
