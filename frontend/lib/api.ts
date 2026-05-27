@@ -44,23 +44,29 @@ export interface Project {
      *  entry-source breakdown for visitors. */
     conversion_funnel?: {
       as_of_week: string;
-      variants: Record<string, {
-        bands: Array<{
-          depth: string;
-          label: string;
-          cohort_n: number;
-          fti_n: number;
-          fti_rate_pct: number | null;
-        }>;
-        by_entry_source: Array<{
-          source: string;
-          cohort_n: number;
-          fti_n: number;
-          fti_rate_pct: number | null;
-        }>;
-      }>;
+      prior_week: string | null;
+      variants: Record<string, FunnelVariantData>;
+      prior_variants?: Record<string, FunnelVariantData> | null;
     };
   } | null;
+}
+
+interface FunnelVariantData {
+  bands: Array<{
+    depth: string;
+    label: string;
+    cohort_n: number;
+    fti_n: number;
+    fti_rate_pct: number | null;
+  }>;
+  by_entry_source: Array<{
+    source: string;
+    cohort_n: number;
+    fti_n: number;
+    fti_rate_pct: number | null;
+  }>;
+  days_to_fti_median: number | null;
+  days_to_fti_n: number;
 }
 
 export interface QueryResult {

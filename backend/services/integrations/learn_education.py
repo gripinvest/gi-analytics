@@ -681,40 +681,75 @@ def build_conversion_funnel(
     engagement_rows: list[dict],
     fti_by_user: dict[str, str],
 ) -> dict | None:
-    """Build the cumulative engagement-depth × FTI funnel for the latest
-    week per variant. Returns `None` if no engagement rows.
+    """Build the cumulative engagement-depth × FTI funnel.
 
-    For each variant in the latest week, produce:
-      - bands: cumulative depth bands (bucketed → completed) with
-               cohort_n, fti_n, fti_rate_pct.
-      - by_entry_source: among visitors (depth >= visited), break out
-               cohort_n / fti_n / fti_rate by first_entry_source.
+    Returns the funnel for the LATEST assigned_week, plus the PRIOR
+    week's same data (when available) so the dashboard can render WoW
+    deltas. Also includes a `days_to_fti_median` per variant: median
+    days from assigned_week to fti_date among post-assignment FTIs.
 
-    Causally honest framing: the deeper bands are SELF-SELECTED. The
+    Causally honest framing: deeper bands are SELF-SELECTED. The
     funnel is descriptive — it tells you who in Treatment converted,
     not what caused them to convert.
+
+    Shape:
+        {
+          as_of_week: "2026-05-25",
+          prior_week: "2026-05-18" | None,
+          variants: { control: {...}, treatment: {...} },
+          prior_variants: { control: {...}, treatment: {...} } | None,
+        }
     """
     if not engagement_rows:
         return None
 
-    # Pick the latest assigned_week present in the data.
     weeks = sorted({r.get("assigned_week") for r in engagement_rows if r.get("assigned_week")})
     if not weeks:
         return None
     latest_week = weeks[-1]
-    latest_rows = [r for r in engagement_rows if r.get("assigned_week") == latest_week]
+    prior_week = weeks[-2] if len(weeks) >= 2 else None
 
+    latest_variants = _funnel_for_week(engagement_rows, fti_by_user, latest_week)
+    prior_variants = (
+        _funnel_for_week(engagement_rows, fti_by_user, prior_week)
+        if prior_week else None
+    )
+
+    return {
+        "as_of_week": latest_week,
+        "prior_week": prior_week,
+        "variants": latest_variants,
+        "prior_variants": prior_variants,
+    }
+
+
+def _funnel_for_week(
+    engagement_rows: list[dict],
+    fti_by_user: dict[str, str],
+    target_week: str,
+) -> dict:
+    """Build the per-variant funnel for ONE specific assigned_week.
+
+    Encapsulates the band classification, entry-source breakdown, and
+    days-to-FTI median. Pure-function — called twice from
+    build_conversion_funnel() to produce latest + prior week data.
+    """
+    week_rows = [
+        r for r in engagement_rows if r.get("assigned_week") == target_week
+    ]
     variants_data: dict[str, dict] = {}
-    for variant in sorted({r["variant"] for r in latest_rows}):
-        variant_rows = [r for r in latest_rows if r["variant"] == variant]
 
+    for variant in sorted({r["variant"] for r in week_rows}):
+        variant_rows = [r for r in week_rows if r["variant"] == variant]
+
+        # Cumulative depth bands.
         bands = []
         for band_def in CONVERSION_DEPTH_BANDS:
             in_band = [r for r in variant_rows if band_def["predicate"](r)]
             cohort_n = len(in_band)
             fti_n = sum(
                 1 for r in in_band
-                if _has_post_assignment_fti(r, fti_by_user, latest_week)
+                if _has_post_assignment_fti(r, fti_by_user, target_week)
             )
             fti_rate = (100.0 * fti_n / cohort_n) if cohort_n > 0 else None
             bands.append({
@@ -725,11 +760,9 @@ def build_conversion_funnel(
                 "fti_rate_pct": round(fti_rate, 2) if fti_rate is not None else None,
             })
 
-        # Entry-source breakdown — among users at the visited band or
-        # deeper. Source is the FIRST entry source per user (sticky).
+        # Entry-source breakdown — visited+ users only.
         visited_rows = [
-            r for r in variant_rows
-            if int(r.get("visit_count") or 0) > 0
+            r for r in variant_rows if int(r.get("visit_count") or 0) > 0
         ]
         source_buckets: dict[str, dict] = {}
         for r in visited_rows:
@@ -737,7 +770,7 @@ def build_conversion_funnel(
             if src not in source_buckets:
                 source_buckets[src] = {"cohort_n": 0, "fti_n": 0}
             source_buckets[src]["cohort_n"] += 1
-            if _has_post_assignment_fti(r, fti_by_user, latest_week):
+            if _has_post_assignment_fti(r, fti_by_user, target_week):
                 source_buckets[src]["fti_n"] += 1
         by_entry_source = [
             {
@@ -752,15 +785,53 @@ def build_conversion_funnel(
             for src, data in sorted(source_buckets.items(), key=lambda kv: -kv[1]["cohort_n"])
         ]
 
+        # Median days from assigned_week to fti_date for post-assignment FTIs.
+        # Captures conversion momentum: how quickly did engaged users invest?
+        days_list = _collect_days_to_fti(variant_rows, fti_by_user, target_week)
+        days_to_fti_median = (
+            int(round(_median_or_none(days_list) or 0))
+            if days_list else None
+        )
+
         variants_data[variant] = {
             "bands": bands,
             "by_entry_source": by_entry_source,
+            "days_to_fti_median": days_to_fti_median,
+            "days_to_fti_n": len(days_list),
         }
 
-    return {
-        "as_of_week": latest_week,
-        "variants": variants_data,
-    }
+    return variants_data
+
+
+def _collect_days_to_fti(
+    variant_rows: list[dict],
+    fti_by_user: dict[str, str],
+    assigned_week: str,
+) -> list[float]:
+    """For users in this variant×week with a post-assignment FTI,
+    compute days from assigned_week to fti_date. Returns sorted list.
+    Defensive: skips users whose fti_date can't be parsed."""
+    from datetime import date
+    out = []
+    try:
+        anchor = date.fromisoformat(assigned_week)
+    except (ValueError, TypeError):
+        return out
+    for r in variant_rows:
+        key = _user_id_key(r.get("user_id"))
+        if not key:
+            continue
+        fti_iso = fti_by_user.get(key)
+        if fti_iso is None or fti_iso < assigned_week:
+            continue
+        try:
+            fti_day = date.fromisoformat(fti_iso[:10])
+            delta = (fti_day - anchor).days
+            if delta >= 0:
+                out.append(delta)
+        except (ValueError, TypeError):
+            continue
+    return out
 
 
 def _has_post_assignment_fti(

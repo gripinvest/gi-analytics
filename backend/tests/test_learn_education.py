@@ -879,3 +879,74 @@ def test_engagement_sql_pulls_entry_source():
     sql = learn_education.build_engagement_sql(weeks=12)
     assert "entry_source" in sql, "page_views CTE must capture entry_source"
     assert "first_entry_source" in sql, "SELECT must expose first_entry_source"
+
+
+# ─── Conversion funnel — prior week + days-to-FTI ──────────────────────────
+# Added for the WoW pull-quote delta + a "how fast did they invest" signal.
+
+def test_conversion_funnel_includes_prior_week_when_available():
+    """When ≥2 assigned_weeks exist, the funnel includes both latest
+    and prior so the dashboard can compute WoW deltas."""
+    eng = [
+        {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-18",
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+        {"user_id": "2", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "bottom_nav"},
+    ]
+    funnel = learn_education.build_conversion_funnel(eng, {})
+    assert funnel["as_of_week"] == "2026-05-25"
+    assert funnel["prior_week"] == "2026-05-18"
+    assert "treatment" in funnel["variants"]
+    assert "treatment" in funnel["prior_variants"]
+
+
+def test_conversion_funnel_prior_week_none_with_one_week():
+    """Single week of data → prior_week is None, prior_variants is None."""
+    eng = [
+        {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+    ]
+    funnel = learn_education.build_conversion_funnel(eng, {})
+    assert funnel["prior_week"] is None
+    assert funnel["prior_variants"] is None
+
+
+def test_days_to_fti_median_computed_for_post_assignment_ftis():
+    """Users FTI'd 2 / 5 / 7 days after assignment → median = 5."""
+    eng = [
+        {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+        {"user_id": "2", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 0, "completed_play_count": 0,
+         "first_entry_source": "bottom_nav"},
+        {"user_id": "3", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 0, "completed_play_count": 0,
+         "first_entry_source": "direct"},
+    ]
+    fti = {
+        "1": "2026-05-27T10:00:00",  # +2 days
+        "2": "2026-05-30T10:00:00",  # +5 days
+        "3": "2026-06-01T10:00:00",  # +7 days
+    }
+    funnel = learn_education.build_conversion_funnel(eng, fti)
+    t = funnel["variants"]["treatment"]
+    assert t["days_to_fti_median"] == 5
+    assert t["days_to_fti_n"] == 3
+
+
+def test_days_to_fti_median_none_when_no_post_assignment_ftis():
+    """Pre-experiment FTIs should not contribute to the median."""
+    eng = [
+        {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+    ]
+    fti = {"1": "2026-05-20T10:00:00"}  # BEFORE assigned_week
+    funnel = learn_education.build_conversion_funnel(eng, fti)
+    t = funnel["variants"]["treatment"]
+    assert t["days_to_fti_median"] is None
+    assert t["days_to_fti_n"] == 0
