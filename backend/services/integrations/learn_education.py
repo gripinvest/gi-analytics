@@ -752,6 +752,26 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
                 f"(gate-leak signal — these users were already invested when bucketed)"
             )
 
+            # Diagnostic: sample user_ids from BOTH sides + actual match
+            # count. If matches << expected, the join is broken (most
+            # likely Rudder text vs ur_tblorders int formatting mismatch).
+            eng_sample = [(str(r.get("user_id")), type(r.get("user_id")).__name__)
+                          for r in engagement_rows[:3]]
+            fti_sample = [(str(r.get("user_id")), type(r.get("user_id")).__name__)
+                          for r in fti_rows[:3]]
+            log.append(f"engagement user_id sample: {eng_sample}")
+            log.append(f"fti user_id sample: {fti_sample}")
+
+            # Direct match count — confirms whether the str(uid) keying
+            # actually finds rows.
+            fti_keys = {str(r.get("user_id")) for r in fti_rows}
+            eng_user_ids = {str(r.get("user_id")) for r in engagement_rows}
+            overlap = fti_keys & eng_user_ids
+            log.append(
+                f"user_id overlap: {len(overlap)} engagement∩FTI matches "
+                f"(of {len(eng_user_ids)} engagement, {len(fti_keys)} FTI)"
+            )
+
     # ─── Merge ─────────────────────────────────────────────────────────────
     summary_rows = aggregate_rows(engagement_rows, fti_rows)
     log.append(f"merged into {len(summary_rows)} (week, variant) rows")
