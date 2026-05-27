@@ -40,7 +40,10 @@ def test_build_sql_windows_and_excludes_test_users():
     sql = a_s.build_sql("asset_search_query", date(2026, 5, 14), date(2026, 5, 21))
     assert "FROM client_web.asset_search_query" in sql
     assert "timestamp >= '2026-05-14' AND timestamp < '2026-05-21'" in sql
-    assert "user_id NOT IN (3,4,207871,207875,207878,207879)" in sql
+    # `user_id::text NOT IN (...)` makes the exclusion tolerant to user_id
+    # being `integer` on some Rudderstack tables and `text` on others.
+    assert ("user_id::text NOT IN "
+            "('3','4','207871','207875','207878','207879')") in sql
 
 
 def test_build_sql_omits_user_filter_when_table_has_no_user_id():

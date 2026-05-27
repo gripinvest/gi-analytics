@@ -65,12 +65,19 @@ class Event:
                         enabled with roadmap #2 — spec D8).
     has_user_id: whether the source table carries a `user_id` column, i.e.
                  whether the test-user exclusion clause applies.
+    columns: optional curated SELECT list. None = SELECT *. Used to prune
+             Rudderstack-context bloat on high-volume tables that the dashboard
+             only reads a few columns from — without this, `assets_page_views`
+             balloons from ~10 MB (W1-W6 hand-export) to >100 MB (GitHub's
+             single-file limit) because the live schema has ~126 columns and
+             only six are consumed downstream.
     """
     key: str
     source_table: str
     stem: str
     cadence: str
     has_user_id: bool = True
+    columns: tuple[str, ...] | None = None
 
 
 # The event registry — spec §6.2. `stem` MUST match the on-disk CSV names for
@@ -83,7 +90,12 @@ EVENTS: dict[str, Event] = {e.key: e for e in [
     Event("empty_state",        "asset_search_empty_state",        "asset_search_empty_state",        "daily"),
     Event("cleared",            "asset_search_cleared",            "asset_search_cleared",            "daily"),
     Event("suggestion_clicked", "asset_search_suggestion_clicked", "asset_search_suggestion_clicked", "daily"),
-    Event("assets_page_views",  "view_assets",                     "assets_page_views",               "weekly"),
+    Event("assets_page_views",  "view_assets",                     "assets_page_views",               "weekly",
+          # Identity + when only. The W1–W6 hand-export carried `path`/`title`
+          # too, but the live Rudder schema renamed both away and no dashboard
+          # query reads them — keep the fetch minimal so the CSV stays under
+          # GitHub's 100 MB single-file cap (full SELECT * was 104 MB).
+          columns=("user_id", "anonymous_id", "context_session_id", "timestamp")),
     Event("invest_now",         "invest_now_button_clicked",       "invest_now_button_clicked",       "weekly"),
     Event("quick_checkout",     "quick_checkout_invest_clicked",   "quick_checkout_invest_clicked",   "daily"),
     # D8 — registered, fetched only once roadmap #2 flips these to "weekly"/"daily".
@@ -96,19 +108,27 @@ EVENTS: dict[str, Event] = {e.key: e for e in [
 
 
 def build_sql(source_table: str, start: date, end: date,
-              has_user_id: bool = True) -> str:
+              has_user_id: bool = True,
+              columns: tuple[str, ...] | None = None) -> str:
     """The per-event fetch SQL (spec §6.3) — one feature week of raw rows.
 
     `start`/`end` are the half-open feature-week bounds. They come from
     `feature_week.bounds()` (not user input), so interpolating them carries no
-    injection surface. `SELECT *` keeps the export column-complete; the
-    validator (validate.py) is the schema-drift guard.
+    injection surface. `columns` is an optional curated SELECT list — pass it
+    for high-volume tables where the live Rudderstack schema is wider than the
+    dashboard consumes. Defaults to `SELECT *`; the validator (validate.py) is
+    the schema-drift guard either way.
     """
+    select_list = ", ".join(columns) if columns else "*"
     where = f"timestamp >= '{start}' AND timestamp < '{end}'"
     if has_user_id:
-        excl = ",".join(str(u) for u in TEST_USERS)
-        where += f"\n  AND (user_id IS NULL OR user_id NOT IN ({excl}))"
-    return f"SELECT *\nFROM client_web.{source_table}\nWHERE {where}"
+        # `user_id` is `integer` on most asset_search_* tables but `text` on
+        # assets_page_views / invest_now_button_clicked. Cast to text on both
+        # sides so the NOT IN works under either schema — Rudderstack schema
+        # drift across event tables would otherwise break the fetch silently.
+        excl = ",".join(f"'{u}'" for u in TEST_USERS)
+        where += f"\n  AND (user_id IS NULL OR user_id::text NOT IN ({excl}))"
+    return f"SELECT {select_list}\nFROM client_web.{source_table}\nWHERE {where}"
 
 
 def _active_events(include_weekly: bool) -> list[Event]:
@@ -122,7 +142,8 @@ def _active_events(include_weekly: bool) -> list[Event]:
 
 
 def _fetch_paginated(client, source_table: str, start: date, end: date,
-                     has_user_id: bool, database_id: int) -> list[dict]:
+                     has_user_id: bool, database_id: int,
+                     columns: tuple[str, ...] | None = None) -> list[dict]:
     """Fetch one (event, feature-week) by walking /api/dataset in pages.
 
     Each page is `LIMIT PAGE_SIZE OFFSET n` ordered by `id` — Rudder's unique
@@ -131,7 +152,7 @@ def _fetch_paginated(client, source_table: str, start: date, end: date,
     page comes back shorter than PAGE_SIZE (so the last page is also the
     natural terminator). Raises MetabaseError if MAX_PAGES is hit, which is
     sized well above any plausible feature-week volume."""
-    base = build_sql(source_table, start, end, has_user_id)
+    base = build_sql(source_table, start, end, has_user_id, columns)
     rows: list[dict] = []
     for page in range(MAX_PAGES):
         sql = f"{base}\nORDER BY id\nLIMIT {PAGE_SIZE} OFFSET {page * PAGE_SIZE}"
@@ -167,7 +188,8 @@ def build_layer1(client, weeks: list[int], *, include_weekly: bool = False,
             stem = f"{feature_week.label(n)}_{ev.stem}"
             try:
                 rows = _fetch_paginated(client, ev.source_table, start, end,
-                                        ev.has_user_id, database_id)
+                                        ev.has_user_id, database_id,
+                                        columns=ev.columns)
             except (MetabaseError, httpx.HTTPError) as exc:
                 # Narrowed from `except Exception` so programming bugs (KeyError,
                 # TypeError, etc.) propagate as a crash with a real traceback,
@@ -249,8 +271,14 @@ def validate_data_dir(data_dir, *, today: date | None = None) -> list[str]:
             rows = _read_csv_rows(path)
             errors += validate_asset_search_week(stem, rows, start, end)
             counts.setdefault(ev.key, {})[n] = len(rows)
+    current_week = feature_week.week_of(today)
+    week_start, _ = feature_week.bounds(current_week)
+    days_elapsed = (today - week_start).days + 1
     for ev_key, by_week in counts.items():
-        errors += validate_asset_search_row_counts(ev_key, by_week)
+        errors += validate_asset_search_row_counts(
+            ev_key, by_week,
+            current_week=current_week,
+            current_week_days_elapsed=days_elapsed)
     return errors
 
 
