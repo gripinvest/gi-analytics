@@ -189,11 +189,15 @@ def build_engagement_sql(
     ),
 
     page_views AS (
-      -- Earliest page view per user — feeds time-to-first-play
-      -- (Tier 2 #5). Distinct from the `visits` CTE above which counts.
+      -- Earliest page view per user — feeds time-to-first-play (Tier 2 #5)
+      -- AND the entry-source breakdown for the conversion funnel.
+      -- `first_entry_source` captures the source of the FIRST visit (top_chip,
+      -- bottom_nav, deep_link, direct) so we can attribute downstream
+      -- conversions to where the user first arrived.
       SELECT
         user_id::text AS user_id,
-        MIN(timestamp) AS first_page_viewed_at
+        MIN(timestamp) AS first_page_viewed_at,
+        (array_agg(entry_source ORDER BY timestamp ASC))[1] AS first_entry_source
       FROM client_web.learn_page_viewed
       WHERE timestamp >= NOW() - INTERVAL '{weeks} weeks'
         AND user_id IS NOT NULL
@@ -247,6 +251,7 @@ def build_engagement_sql(
       COALESCE(p.watch_seconds_sum, 0)         AS watch_seconds_sum,
       p.first_play_at                          AS first_play_at,
       pv.first_page_viewed_at                  AS first_page_viewed_at,
+      pv.first_entry_source                    AS first_entry_source,
       vo.first_video_opened_at                 AS first_video_opened_at,
       CASE WHEN ob.user_id IS NOT NULL THEN 1 ELSE 0 END AS outbound_clicked,
       CASE WHEN bn.user_id IS NOT NULL THEN 1 ELSE 0 END AS learn_banner_clicked
@@ -649,12 +654,134 @@ def _probe(client, sql: str) -> tuple[int | None, str | None]:
         return None, str(e)
 
 
+# ─── Conversion funnel — engagement-depth × FTI breakdown ──────────────────
+# DESCRIPTIVE, NOT CAUSAL. This breaks Treatment users down by how deep
+# they engaged with /learn and reports FTI rate at each depth band. The
+# bands are CUMULATIVE: a "completed" user also counts as "played",
+# "visited", and "bucketed".
+#
+# Within Treatment, FTI rate at deeper depths is typically MUCH higher
+# than the overall ITT rate — but this is a selection effect, not a
+# causal claim. Users who choose to watch may already be more
+# invest-ready. The dashboard's framing makes this caveat explicit.
+#
+# Output shape (one block per variant) is consumed by the frontend's
+# §III Engagement section's Conversion Funnel viz.
+
+CONVERSION_DEPTH_BANDS = [
+    {"depth": "bucketed",     "label": "Bucketed (all)",      "predicate": lambda r: True},
+    {"depth": "visited",      "label": "Visited /learn",      "predicate": lambda r: int(r.get("visit_count") or 0) > 0},
+    {"depth": "played",       "label": "Played ≥1 video",     "predicate": lambda r: int(r.get("play_count") or 0) > 0},
+    {"depth": "multi_played", "label": "Played multiple",     "predicate": lambda r: int(r.get("play_count") or 0) > 1},
+    {"depth": "completed",    "label": "Completed (≥75%)",    "predicate": lambda r: int(r.get("completed_play_count") or 0) > 0},
+]
+
+
+def build_conversion_funnel(
+    engagement_rows: list[dict],
+    fti_by_user: dict[str, str],
+) -> dict | None:
+    """Build the cumulative engagement-depth × FTI funnel for the latest
+    week per variant. Returns `None` if no engagement rows.
+
+    For each variant in the latest week, produce:
+      - bands: cumulative depth bands (bucketed → completed) with
+               cohort_n, fti_n, fti_rate_pct.
+      - by_entry_source: among visitors (depth >= visited), break out
+               cohort_n / fti_n / fti_rate by first_entry_source.
+
+    Causally honest framing: the deeper bands are SELF-SELECTED. The
+    funnel is descriptive — it tells you who in Treatment converted,
+    not what caused them to convert.
+    """
+    if not engagement_rows:
+        return None
+
+    # Pick the latest assigned_week present in the data.
+    weeks = sorted({r.get("assigned_week") for r in engagement_rows if r.get("assigned_week")})
+    if not weeks:
+        return None
+    latest_week = weeks[-1]
+    latest_rows = [r for r in engagement_rows if r.get("assigned_week") == latest_week]
+
+    variants_data: dict[str, dict] = {}
+    for variant in sorted({r["variant"] for r in latest_rows}):
+        variant_rows = [r for r in latest_rows if r["variant"] == variant]
+
+        bands = []
+        for band_def in CONVERSION_DEPTH_BANDS:
+            in_band = [r for r in variant_rows if band_def["predicate"](r)]
+            cohort_n = len(in_band)
+            fti_n = sum(
+                1 for r in in_band
+                if _has_post_assignment_fti(r, fti_by_user, latest_week)
+            )
+            fti_rate = (100.0 * fti_n / cohort_n) if cohort_n > 0 else None
+            bands.append({
+                "depth": band_def["depth"],
+                "label": band_def["label"],
+                "cohort_n": cohort_n,
+                "fti_n": fti_n,
+                "fti_rate_pct": round(fti_rate, 2) if fti_rate is not None else None,
+            })
+
+        # Entry-source breakdown — among users at the visited band or
+        # deeper. Source is the FIRST entry source per user (sticky).
+        visited_rows = [
+            r for r in variant_rows
+            if int(r.get("visit_count") or 0) > 0
+        ]
+        source_buckets: dict[str, dict] = {}
+        for r in visited_rows:
+            src = r.get("first_entry_source") or "unknown"
+            if src not in source_buckets:
+                source_buckets[src] = {"cohort_n": 0, "fti_n": 0}
+            source_buckets[src]["cohort_n"] += 1
+            if _has_post_assignment_fti(r, fti_by_user, latest_week):
+                source_buckets[src]["fti_n"] += 1
+        by_entry_source = [
+            {
+                "source": src,
+                "cohort_n": data["cohort_n"],
+                "fti_n": data["fti_n"],
+                "fti_rate_pct": (
+                    round(100.0 * data["fti_n"] / data["cohort_n"], 2)
+                    if data["cohort_n"] > 0 else None
+                ),
+            }
+            for src, data in sorted(source_buckets.items(), key=lambda kv: -kv[1]["cohort_n"])
+        ]
+
+        variants_data[variant] = {
+            "bands": bands,
+            "by_entry_source": by_entry_source,
+        }
+
+    return {
+        "as_of_week": latest_week,
+        "variants": variants_data,
+    }
+
+
+def _has_post_assignment_fti(
+    engagement_row: dict, fti_by_user: dict[str, str], assigned_week: str,
+) -> bool:
+    """Did this engagement-row user FTI after their assignment week?
+    Same causal-ordering filter the aggregator uses for fti_users."""
+    key = _user_id_key(engagement_row.get("user_id"))
+    if not key:
+        return False
+    fti_date = fti_by_user.get(key)
+    return fti_date is not None and fti_date >= assigned_week
+
+
 def _write_manifest(
     data_dir: Path,
     *,
     refreshed_at: str,
     tables: list[str],
     margin_notes: dict | None = None,
+    conversion_funnel: dict | None = None,
 ) -> None:
     """Mirror the asset_search / grip_connect _manifest.json convention so
     the frontend `Project.manifest` shape is populated and the dashboard
@@ -679,6 +806,8 @@ def _write_manifest(
         manifest["tables"][t] = {"last_refreshed_at": refreshed_at}
     if margin_notes is not None:
         manifest["margin_notes"] = margin_notes
+    if conversion_funnel is not None:
+        manifest["conversion_funnel"] = conversion_funnel
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
@@ -825,6 +954,28 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
             f"mde={margin_notes['mde'].get('mde_abs_pp')}pp"
         )
 
+    # ─── Conversion Funnel (V2 — engagement-depth → FTI breakdown) ──────────
+    # Descriptive (NOT causal) view of how FTI rate evolves as we
+    # condition on deeper engagement. Cumulative depth bands per variant.
+    # Surfaces a richer story than the ITT lift alone, with a built-in
+    # selection-effect caveat in the dashboard's framing.
+    fti_by_user_for_funnel = {}
+    for r in fti_rows:
+        key = _user_id_key(r.get("user_id"))
+        if key and r.get("fti_date") is not None:
+            fti_by_user_for_funnel[key] = _to_iso(r["fti_date"])
+    conversion_funnel = build_conversion_funnel(
+        engagement_rows, fti_by_user_for_funnel
+    )
+    if conversion_funnel:
+        log.append(
+            f"conversion funnel (as_of_week={conversion_funnel['as_of_week']}): "
+            + " · ".join(
+                f"{v}={data['bands'][0]['cohort_n']}→{data['bands'][-1]['cohort_n']}"
+                for v, data in conversion_funnel['variants'].items()
+            )
+        )
+
     out_path = data_dir / "weekly_ab_tracker.csv"
     n_written = write_csv_atomic(out_path, summary_rows, CANONICAL_COLUMNS)
     log.append(f"wrote {n_written} rows → {out_path.relative_to(data_dir.parent)}")
@@ -835,6 +986,7 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
         refreshed_at=refreshed_at,
         tables=["weekly_ab_tracker"],
         margin_notes=margin_notes,
+        conversion_funnel=conversion_funnel,
     )
 
     return {

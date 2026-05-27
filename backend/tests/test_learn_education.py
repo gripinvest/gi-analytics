@@ -755,3 +755,127 @@ def test_run_uses_paginated_engagement_fetch(tmp_path, v2_engagement_rows):
     # presence confirms the paginated path executed.
     log_str = " ".join(result["log"])
     assert "cohort by variant" in log_str
+
+
+# ─── Conversion funnel — engagement-depth × FTI ────────────────────────────
+# Descriptive (NOT causal) view of how FTI rate evolves as we condition on
+# deeper engagement. Cumulative depth bands per variant.
+
+def test_conversion_funnel_returns_none_for_empty_engagement():
+    """No engagement rows → no funnel to build."""
+    assert learn_education.build_conversion_funnel([], {}) is None
+
+
+def test_conversion_funnel_classifies_depth_bands_cumulatively():
+    """A user who played multiple videos counts in EVERY band from
+    'bucketed' through 'played' through 'multi_played'."""
+    eng = [
+        {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 0, "play_count": 0, "completed_play_count": 0,
+         "first_entry_source": None},
+        {"user_id": "2", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 0, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+        {"user_id": "3", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "bottom_nav"},
+        {"user_id": "4", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 3, "completed_play_count": 1,
+         "first_entry_source": "bottom_nav"},
+    ]
+    funnel = learn_education.build_conversion_funnel(eng, {})
+    t = funnel["variants"]["treatment"]
+    bands = {b["depth"]: b for b in t["bands"]}
+    assert bands["bucketed"]["cohort_n"] == 4       # all 4
+    assert bands["visited"]["cohort_n"] == 3        # u2, u3, u4
+    assert bands["played"]["cohort_n"] == 2         # u3, u4
+    assert bands["multi_played"]["cohort_n"] == 1   # u4 only
+    assert bands["completed"]["cohort_n"] == 1      # u4 only
+
+
+def test_conversion_funnel_attributes_fti_by_band():
+    """An FTI'd user shows up in fti_n of every band they qualify for."""
+    eng = [
+        {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 0, "play_count": 0, "completed_play_count": 0,
+         "first_entry_source": None},
+        {"user_id": "2", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 2, "completed_play_count": 1,
+         "first_entry_source": "top_chip"},
+    ]
+    fti = {"1": "2026-05-27T10:00:00", "2": "2026-05-27T11:00:00"}
+    funnel = learn_education.build_conversion_funnel(eng, fti)
+    t = funnel["variants"]["treatment"]
+    bands = {b["depth"]: b for b in t["bands"]}
+    assert bands["bucketed"]["fti_n"] == 2
+    assert bands["visited"]["fti_n"] == 1
+    assert bands["played"]["fti_n"] == 1
+    assert bands["multi_played"]["fti_n"] == 1
+    assert bands["completed"]["fti_n"] == 1
+    assert bands["completed"]["fti_rate_pct"] == 100.0
+
+
+def test_conversion_funnel_entry_source_breakdown():
+    """Source breakdown only counts visited+ users, ordered by cohort_n desc."""
+    eng = [
+        {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 0, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+        {"user_id": "2", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+        {"user_id": "3", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 0, "completed_play_count": 0,
+         "first_entry_source": "bottom_nav"},
+        # No-visit user should NOT appear in source breakdown
+        {"user_id": "4", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 0, "play_count": 0, "completed_play_count": 0,
+         "first_entry_source": None},
+    ]
+    funnel = learn_education.build_conversion_funnel(eng, {})
+    sources = funnel["variants"]["treatment"]["by_entry_source"]
+    assert len(sources) == 2  # top_chip + bottom_nav only
+    # Ordered by cohort_n desc.
+    assert sources[0]["source"] == "top_chip"
+    assert sources[0]["cohort_n"] == 2
+    assert sources[1]["source"] == "bottom_nav"
+    assert sources[1]["cohort_n"] == 1
+
+
+def test_conversion_funnel_handles_unknown_entry_source():
+    """A visited user with no entry_source gets bucketed as 'unknown'."""
+    eng = [
+        {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 0, "completed_play_count": 0,
+         "first_entry_source": None},
+    ]
+    funnel = learn_education.build_conversion_funnel(eng, {})
+    sources = funnel["variants"]["treatment"]["by_entry_source"]
+    assert len(sources) == 1
+    assert sources[0]["source"] == "unknown"
+
+
+def test_conversion_funnel_handles_both_arms():
+    """Funnel is built per-variant; Control should also appear, with
+    deeper bands at 0 (Control can't engage by design)."""
+    eng = [
+        {"user_id": "c1", "variant": "control", "assigned_week": "2026-05-25",
+         "visit_count": 0, "play_count": 0, "completed_play_count": 0,
+         "first_entry_source": None},
+        {"user_id": "t1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+    ]
+    funnel = learn_education.build_conversion_funnel(eng, {})
+    assert "control" in funnel["variants"]
+    assert "treatment" in funnel["variants"]
+    control_bands = {b["depth"]: b for b in funnel["variants"]["control"]["bands"]}
+    assert control_bands["bucketed"]["cohort_n"] == 1
+    assert control_bands["played"]["cohort_n"] == 0
+
+
+def test_engagement_sql_pulls_entry_source():
+    """The funnel needs first_entry_source from learn_page_viewed."""
+    sql = learn_education.build_engagement_sql(weeks=12)
+    assert "entry_source" in sql, "page_views CTE must capture entry_source"
+    assert "first_entry_source" in sql, "SELECT must expose first_entry_source"
