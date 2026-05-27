@@ -1014,3 +1014,92 @@ def test_days_to_fti_median_none_when_no_post_assignment_ftis():
     t = funnel["variants"]["treatment"]
     assert t["days_to_fti_median"] is None
     assert t["days_to_fti_n"] == 0
+
+
+# ─── D-24: FTI causal-filter tightening to assignment_timestamp ─────────────
+# fti_users in aggregate_rows now uses the per-user assignment_timestamp
+# (not the week's Monday) as the causal-ordering anchor. The previous
+# week-granularity check counted gate-leak users (already-invested users
+# bucketed during the same calendar week as their pre-experiment FTI).
+
+def test_aggregate_rows_fti_users_filters_by_assignment_timestamp_not_week():
+    """Regression for D-24. A user assigned Wed 16:00 who FTI'd Wed 13:00
+    (3h BEFORE bucketing) was previously counted as an FTI because their
+    fti_date (2026-05-27T13:00) >= assigned_week ('2026-05-25'). That's a
+    gate-leak user, not an experiment FTI. Must be excluded."""
+    eng = [{
+        "user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+        "assignment_timestamp": "2026-05-27T16:00:00",  # Wed 4pm
+        "visit_count": 1, "play_count": 1, "watch_seconds_sum": 30,
+        "completed_play_count": 0,
+        "first_play_at": "2026-05-27T17:00:00",
+        "first_entry_source": "top_chip",
+    }]
+    fti = [{"user_id": 1, "fti_date": "2026-05-27T13:00:00"}]  # 3h BEFORE
+    [row] = learn_education.aggregate_rows(eng, fti)
+    assert row["fti_users"] == 0, (
+        "FTI happened before assignment_timestamp — gate-leak user, "
+        "must not count toward experiment FTIs"
+    )
+
+
+def test_aggregate_rows_fti_users_accepts_post_assignment_same_day():
+    """Symmetric: same Wed, but FTI 1h AFTER bucketing. Counts."""
+    eng = [{
+        "user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+        "assignment_timestamp": "2026-05-27T13:00:00",  # Wed 1pm
+        "visit_count": 1, "play_count": 1, "watch_seconds_sum": 30,
+        "completed_play_count": 0,
+        "first_play_at": "2026-05-27T13:30:00",  # 30min after bucketing
+        "first_entry_source": "top_chip",
+    }]
+    fti = [{"user_id": 1, "fti_date": "2026-05-27T14:00:00"}]  # 1h after
+    [row] = learn_education.aggregate_rows(eng, fti)
+    assert row["fti_users"] == 1
+    assert row["fti_users_who_watched"] == 1
+
+
+def test_aggregate_rows_fti_users_falls_back_to_week_when_timestamp_missing():
+    """Defensive: if assignment_timestamp is missing (legacy data or
+    SQL regression), fall back to the week-granularity check rather
+    than dropping the row entirely."""
+    eng = [{
+        "user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+        # NO assignment_timestamp
+        "visit_count": 0, "play_count": 0, "watch_seconds_sum": 0,
+        "completed_play_count": 0,
+        "first_play_at": None,
+        "first_entry_source": None,
+    }]
+    fti = [{"user_id": 1, "fti_date": "2026-05-27T14:00:00"}]
+    [row] = learn_education.aggregate_rows(eng, fti)
+    # Falls back to assigned_week check; 2026-05-27 >= 2026-05-25 → True
+    assert row["fti_users"] == 1
+
+
+def test_funnel_post_assignment_fti_also_uses_assignment_timestamp():
+    """The funnel side already used assignment_timestamp via
+    _collect_days_to_fti, but the band classification used
+    _has_post_assignment_fti with the old week-granularity check.
+    D-24 unifies both."""
+    eng = [
+        {"user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-27T16:00:00",  # Wed 4pm
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+        {"user_id": "2", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-27T10:00:00",  # Wed 10am
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_entry_source": "top_chip"},
+    ]
+    fti = {
+        "1": "2026-05-27T13:00:00",  # 3h BEFORE bucketing → reject
+        "2": "2026-05-27T13:00:00",  # 3h AFTER bucketing → accept
+    }
+    funnel = learn_education.build_conversion_funnel(eng, fti)
+    t = funnel["variants"]["treatment"]
+    bands = {b["depth"]: b for b in t["bands"]}
+    assert bands["bucketed"]["fti_n"] == 1, (
+        "Only user 2 (FTI post-assignment) should count; user 1 was "
+        "invested before bucketing (gate leak)"
+    )

@@ -6,6 +6,34 @@ considered, and what would force a revisit.**
 
 ---
 
+## D-24 · 2026-05-28 — `fti_users` filter tightens to per-user `assignment_timestamp`
+
+**Decided.** `aggregate_rows()`'s FTI causal-ordering check now uses each user's actual `assignment_timestamp` (not the week's Monday-truncated `assigned_week`). A unified helper `_fti_is_post_assignment(fti_date, engagement_row)` is the single source of truth — both `aggregate_rows()` and the funnel's `_has_post_assignment_fti()` route through it. Falls back to the legacy `assigned_week` check when `assignment_timestamp` is missing.
+
+**Why this is a bug fix, not a refinement.** The previous filter (`fti_date >= assigned_week`) used week granularity, which silently counted gate-leak users whose FTI happened **before** their bucketing on the same calendar week. Concrete scenario:
+- User assigned Wed 16:00 (`assignment_timestamp = '2026-05-27T16:00:00'`)
+- User FTI'd Wed 13:00 (`fti_date = '2026-05-27T13:00:00'`)
+- assigned_week = '2026-05-25' (Monday DATE_TRUNC)
+- `'2026-05-27T13:00:00' >= '2026-05-25'` → TRUE → counted as experiment FTI ❌
+
+This user was already invested 3 hours before they got bucketed. They're a gate-leak from `useShowLearnPage`'s `!isInvested` check, not an experiment-caused conversion.
+
+**The fix is symmetric with D-23.** That decision tightened `days_to_fti` to per-user timestamps. This one tightens `fti_users` to match. Today (W1) the impact is significant — the dashboard's headline FTI count drops from ~53/55 per arm to the true post-assignment ~17–21 per arm. The number is smaller but causally correct.
+
+**Tests added (+4):**
+- `test_aggregate_rows_fti_users_filters_by_assignment_timestamp_not_week` — reproduces the exact gate-leak scenario (assigned Wed 16:00, FTI'd Wed 13:00). Must be excluded.
+- `test_aggregate_rows_fti_users_accepts_post_assignment_same_day` — symmetric: same-day post-bucketing FTI counts.
+- `test_aggregate_rows_fti_users_falls_back_to_week_when_timestamp_missing` — defensive: legacy data path still works.
+- `test_funnel_post_assignment_fti_also_uses_assignment_timestamp` — funnel side now uses the same filter (was independently using week granularity).
+
+**Considered + rejected:**
+- Keep both filters (week-based fti_users, timestamp-based days_to_fti). Rejected — they answer different questions but operate on the same conceptual "did this user FTI as a result of the experiment" attribution; inconsistency is misleading.
+- Drop `assigned_week` from the engagement SQL entirely. Rejected — it's still useful for the sticky-week attribution grouping (a user assigned in W1 who FTIs in W3 should credit to W1's row).
+
+**Revisit if:** product asks to revert to the lenient week-anchored count (for parity with a manual spreadsheet). Currently no such ask; the corrected number is more defensible.
+
+---
+
 ## D-23 · 2026-05-28 — `days_to_fti` anchors on `assignment_timestamp`, not `assigned_week`
 
 **Decided.** The conversion-momentum metric (median days from assignment to FTI) anchors on each user's actual `experiment_assigned.timestamp`, NOT on the week's Monday. The cohort CTE now emits `assignment_timestamp` alongside `assigned_week`; `_collect_days_to_fti()` subtracts the per-user assignment timestamp from `fti_date` and reports fractional days (`0.4d`, not `2d`).

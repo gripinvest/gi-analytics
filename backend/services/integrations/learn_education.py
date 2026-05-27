@@ -510,16 +510,25 @@ def aggregate_rows(engagement_rows: list[dict], fti_rows: list[dict]) -> list[di
         if ttfp is not None and ttfp >= 0:
             bucket["ttfp_seconds_list"].append(ttfp)
 
-        # FTI attribution — sticky bucketing. A user assigned in W1 who
-        # FTIs in W3 counts under W1's row (matches product spreadsheet
-        # mental model). The user_id is canonicalised so Rudder's "1000428"
-        # matches ur_tblorders' 1000428.0 (Metabase ClickHouse float).
+        # FTI attribution — sticky bucketing.
+        #
+        # ATTRIBUTION (the WEEK an FTI credits to):
+        #   The user's assigned_week. A user assigned in W1 who FTIs in W3
+        #   still credits to W1. This matches the product spreadsheet's
+        #   "cohort acquired in W1, lifetime FTI" mental model.
+        #
+        # CAUSAL FILTER (whether the FTI counts at all):
+        #   The FTI must have happened AFTER the user's actual assignment
+        #   timestamp — not just after the week's Monday. Per D-24, using
+        #   week granularity here over-counted: a user assigned Wed 16:00
+        #   who FTI'd Wed 13:00 was pre-existing-invested at bucketing
+        #   (gate leak), but `fti_date >= assigned_week` accepted them.
+        #
+        # The user_id is canonicalised so Rudder's "1000428" matches
+        # ur_tblorders' 1000428.0 (Metabase ClickHouse float).
         user_id = _user_id_key(r.get("user_id"))
         fti_date = fti_by_user.get(user_id) if user_id else None
-        # `fti_date >= assigned_week` enforces "after assignment" — defensive
-        # guard against a useShowLearnPage bug; should always be true since
-        # the hook gates on !isInvested.
-        if fti_date and fti_date >= week:
+        if fti_date and _fti_is_post_assignment(fti_date, r):
             bucket["fti_users"] += 1
             # fti_users_who_watched — causal ordering: the watch must have
             # happened at or before the first order.
@@ -868,16 +877,44 @@ def _collect_days_to_fti(
     return out
 
 
+def _fti_is_post_assignment(fti_date: str, engagement_row: dict) -> bool:
+    """The canonical causal-ordering filter for FTI attribution.
+
+    Returns True if the user's FTI happened AT or AFTER their actual
+    assignment timestamp. Per D-24, this tightens the previous
+    week-granularity check (`fti_date >= assigned_week`) which silently
+    counted gate-leak users whose FTI was BEFORE their bucketing — just
+    on the same Monday-anchored week.
+
+    Falls back to the assigned_week comparison when assignment_timestamp
+    is missing (defensive — should not occur for current SQL output).
+    """
+    assignment_ts = engagement_row.get("assignment_timestamp")
+    if assignment_ts:
+        # Both sides ISO-8601; string comparison is correct because both
+        # use the same `YYYY-MM-DDTHH:MM:SS[Z|±HH:MM]` layout. We do not
+        # tz-normalize here — Rudder and ur_tblorders both emit UTC
+        # naïve / tz-aware in matched conventions per their drivers.
+        return fti_date >= _to_iso(assignment_ts)
+    # Fallback: legacy week-granularity check. Only reached if upstream
+    # SQL dropped the assignment_timestamp field — log-only concern.
+    assigned_week = engagement_row.get("assigned_week", "")
+    return fti_date >= assigned_week
+
+
 def _has_post_assignment_fti(
     engagement_row: dict, fti_by_user: dict[str, str], assigned_week: str,
 ) -> bool:
-    """Did this engagement-row user FTI after their assignment week?
-    Same causal-ordering filter the aggregator uses for fti_users."""
+    """Funnel-side wrapper. `assigned_week` arg retained for backwards
+    signature compat but no longer used (the row's own
+    assignment_timestamp drives the decision)."""
     key = _user_id_key(engagement_row.get("user_id"))
     if not key:
         return False
     fti_date = fti_by_user.get(key)
-    return fti_date is not None and fti_date >= assigned_week
+    if fti_date is None:
+        return False
+    return _fti_is_post_assignment(fti_date, engagement_row)
 
 
 def _write_manifest(
