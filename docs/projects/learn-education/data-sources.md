@@ -1,31 +1,59 @@
 # Learn (Grip Education) — data source mapping
 
-**DB:** Rudder Prod · schema `client_web` (PostgreSQL) — same as Asset Search
-**Period:** rollout pending — events newly emitted from PR #6139 / feature
-branch `feature/grip-education-learn-page-v2`
-**Source repo:** `gi-client-web` (events live in `events/constants.ts`,
-`events/types.ts`)
+**DBs:** Rudder Prod (DB 8, `client_web` schema) for engagement events ·
+production transactions DB (DB 24, `tblorders`) for FTI.
+**Status:** **LIVE on `develop`** as of 2026-05-26 (gi-client-web PR #6226).
+First W1 production data pending — daily cron idles cleanly until both
+probes return rows.
+**Source repo:** `gi-client-web` — event constants in `events/constants.ts`,
+typed payloads in `events/types.ts`, call sites listed in §0 below.
 
-> Feeds the (yet-to-build) Learn dashboard. Pairs with [`roadmap.md`](./roadmap.md)
-> for build order. The dashboard spec lives in
+> Feeds the Learn (Grip Education) editorial dashboard at
+> `/projects/learn_education`. Pairs with [`roadmap.md`](./roadmap.md)
+> for build order; design spec at
 > [`specs/2026-05-26-weekly-ab-tracker.md`](./specs/2026-05-26-weekly-ab-tracker.md).
 
 ---
 
 ## 0. Validation status
 
-This is a **pre-launch** doc — events are specified in the source code on the
-feature branch but no live data exists yet. Once the feature ships to
-production:
+**LIVE on `develop`** as of 2026-05-26 via gi-client-web PR #6226
+(*PT-37596 + PT-37900 post-merge fixes*). All six events documented
+below are emitting from the production gi-client-web build:
 
-1. Confirm each event appears in Rudder schema (table named after the event,
-   `client_web.{event_name}`).
-2. Run a one-week sample (`Wn`) and validate row counts + per-event payload
-   shape via a validation harness modelled on
+| Event | Wired in | Source-side verified |
+|---|---|---|
+| `experiment_assigned` (`learn_page`) | `components/learn/hooks/useShowLearnPage.ts` (useEffect with `trackExperimentAssignment`) | ✅ |
+| `learn_page_viewed` | `components/learn/hooks/useLearnPageEvents.ts` | ✅ |
+| `learn_category_clicked` | `components/learn/LearnVideoSection/LearnVideoSection.tsx` | ✅ |
+| `learn_video_opened` | `components/learn/LearnVideoSection/LearnVideoSection.tsx` | ✅ |
+| `learn_video_viewed` | `components/learn/VideoReels/useVideoReels.ts` | ✅ |
+| `learn_outbound_clicked` | `components/learn/VideoGrid/VideoGrid.tsx` | ✅ |
+
+Cross-feature events that also fire on this surface (use canonical tables,
+do **not** Learn-fork queries):
+
+- `bottom_nav_click` — `components/layout/FooterWrapper/MobileFooter/index.tsx`
+  fires this for the Learn item too. The Learn item URL is
+  `/learn?source=bottom_nav`, so the subsequent `learn_page_viewed` event
+  carries the `entry_source` attribution.
+- `banner_clicked` — top + bottom carousel banners on `/learn` go through
+  the shared banner widget. Filter via `page = '/learn'`.
+
+**Pre-data-fetch validation pending** — the analytics-side daily refresh
+will idle as `awaiting_first_event` until the two probes
+(`learn_page_viewed` + `experiment_assigned(learn_page)`) return rows from
+Rudder. Once both fire, the cron writes the first weekly CSV and the
+dashboard switches from "GALLEY PROOF" to "LIVE".
+
+Validation steps still to do once W1 prod data lands:
+1. Confirm each event appears in Rudder schema
+   (`client_web.{event_name}`).
+2. Run one-week sample row-count + payload-shape validation via a
+   harness modelled on
    `backend/services/integrations/validate_asset_search.py`.
-3. Bake the W1 CSVs into `backend/data/learn_education/`.
-
-Until then every status below is `PENDING`.
+3. Spot-check `tblorders` (DB 24) FTI counts against
+   [Metabase q2672](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch).
 
 ---
 

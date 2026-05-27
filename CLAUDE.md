@@ -29,7 +29,7 @@ New project → add `docs/projects/<name>/` (README, data-sources, roadmap) and 
 |---------|-------|------|--------|
 | Asset Search | `/projects/asset_search` | `docs/projects/asset-search/` | Active. Editorial + Classic dashboards both maintained, at full data parity. |
 | Grip Connect | `/projects/grip_connect` | `docs/projects/grip-connect/` (spec/plan still under `docs/specs`,`docs/plans` — migration pending) | Active. Live-data pipeline spec approved. |
-| Learn (Grip Education) | `/projects/learn_education` | `docs/projects/learn-education/` | Scaffolding. Event spec + dashboard spec drafted; awaits W1 prod data. |
+| Grip Education | `/projects/learn_education` | `docs/projects/learn-education/` | Active. Editorial dashboard live; gi-client-web events shipped to develop (2026-05-26, PR #6226); cron idles as `awaiting_first_event` until first prod rows land. |
 
 ## Data discipline
 
