@@ -1,50 +1,51 @@
 {
-  "refreshed_at": "2026-05-27T21:18:51Z",
+  "refreshed_at": "2026-05-27T21:44:42Z",
   "tables": {
     "weekly_ab_tracker": {
-      "last_refreshed_at": "2026-05-27T21:18:51Z"
+      "last_refreshed_at": "2026-05-27T21:44:42Z"
     }
   },
   "margin_notes": {
     "as_of_week": "2026-05-25",
     "srm": {
-      "control_n": 1387,
-      "treatment_n": 1365,
-      "p_value": 0.6749,
+      "control_n": 1393,
+      "treatment_n": 1374,
+      "p_value": 0.7179,
       "verdict": "ok"
     },
     "control_leak": {
       "control_visitors": 1,
-      "control_cohort": 1387,
+      "control_cohort": 1393,
       "leak_pct": 0.07,
       "verdict": "warn"
     },
     "fti_lift_ci": {
-      "control_pct": 3.82,
-      "treatment_pct": 4.03,
-      "delta_pp": 0.21,
-      "ci_lower_pp": -1.24,
-      "ci_upper_pp": 1.66,
+      "control_pct": 3.8,
+      "treatment_pct": 4.0,
+      "delta_pp": 0.2,
+      "ci_lower_pp": -1.25,
+      "ci_upper_pp": 1.64,
       "verdict": "ok"
     },
     "mde": {
-      "n_per_arm": 1365,
-      "pooled_rate_pct": 3.92,
-      "mde_abs_pp": 2.08,
-      "mde_rel_pct": 53.1
+      "n_per_arm": 1374,
+      "pooled_rate_pct": 3.9,
+      "mde_abs_pp": 2.07,
+      "mde_rel_pct": 53.0
     }
   },
   "conversion_funnel": {
     "as_of_week": "2026-05-25",
+    "prior_week": null,
     "variants": {
       "control": {
         "bands": [
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 1387,
+            "cohort_n": 1393,
             "fti_n": 53,
-            "fti_rate_pct": 3.82
+            "fti_rate_pct": 3.8
           },
           {
             "depth": "visited",
@@ -82,37 +83,39 @@
             "fti_n": 0,
             "fti_rate_pct": 0.0
           }
-        ]
+        ],
+        "days_to_fti_median": 2,
+        "days_to_fti_n": 53
       },
       "treatment": {
         "bands": [
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 1365,
+            "cohort_n": 1374,
             "fti_n": 55,
-            "fti_rate_pct": 4.03
+            "fti_rate_pct": 4.0
           },
           {
             "depth": "visited",
             "label": "Visited /learn",
-            "cohort_n": 94,
+            "cohort_n": 98,
             "fti_n": 10,
-            "fti_rate_pct": 10.64
+            "fti_rate_pct": 10.2
           },
           {
             "depth": "played",
             "label": "Played \u22651 video",
-            "cohort_n": 28,
+            "cohort_n": 29,
             "fti_n": 2,
-            "fti_rate_pct": 7.14
+            "fti_rate_pct": 6.9
           },
           {
             "depth": "multi_played",
             "label": "Played multiple",
-            "cohort_n": 19,
+            "cohort_n": 20,
             "fti_n": 1,
-            "fti_rate_pct": 5.26
+            "fti_rate_pct": 5.0
           },
           {
             "depth": "completed",
@@ -125,15 +128,15 @@
         "by_entry_source": [
           {
             "source": "bottom_nav",
-            "cohort_n": 66,
+            "cohort_n": 69,
             "fti_n": 8,
-            "fti_rate_pct": 12.12
+            "fti_rate_pct": 11.59
           },
           {
             "source": "top_chip",
-            "cohort_n": 26,
+            "cohort_n": 27,
             "fti_n": 2,
-            "fti_rate_pct": 7.69
+            "fti_rate_pct": 7.41
           },
           {
             "source": "direct",
@@ -141,8 +144,11 @@
             "fti_n": 0,
             "fti_rate_pct": 0.0
           }
-        ]
+        ],
+        "days_to_fti_median": 2,
+        "days_to_fti_n": 55
       }
-    }
+    },
+    "prior_variants": null
   }
 }
