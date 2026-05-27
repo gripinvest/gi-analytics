@@ -6,6 +6,34 @@ considered, and what would force a revisit.**
 
 ---
 
+## D-23 · 2026-05-28 — `days_to_fti` anchors on `assignment_timestamp`, not `assigned_week`
+
+**Decided.** The conversion-momentum metric (median days from assignment to FTI) anchors on each user's actual `experiment_assigned.timestamp`, NOT on the week's Monday. The cohort CTE now emits `assignment_timestamp` alongside `assigned_week`; `_collect_days_to_fti()` subtracts the per-user assignment timestamp from `fti_date` and reports fractional days (`0.4d`, not `2d`).
+
+**Why this is a bug fix, not a refinement.** With the launch happening Wed 2026-05-27 at 13:02 IST, every Treatment user this week was bucketed mid-week. Their `assigned_week` is "2026-05-25" (the Monday). A user who FTI'd Wednesday after bucketing had `(fti_date - assigned_week_monday)` = 2 days — regardless of whether the actual bucketing-to-FTI gap was 5 minutes or 10 hours. The metric was structurally inflated.
+
+User's catch: *"how 2 days when the code went live only recently today/yesterday 27th May around 1pm ist and it's more than 12-14 hrs."* Correct.
+
+**The fixed metric:**
+- Treatment 0.4d ≈ "engaged users invest ~9 hours after bucketing" — platform's natural conversion pull.
+- Causal-ordering hygiene preserved: pre-experiment FTIs (negative deltas) still dropped silently.
+
+**Tests added (+3, plus +1 SQL pin):**
+- `test_days_to_fti_median_anchored_on_assignment_timestamp` — 3 users with same `assigned_week` but different `assignment_timestamp`, verifies the median uses per-user timestamps.
+- `test_days_to_fti_regression_does_not_anchor_on_week_monday` — exact scenario that caused the bug (mid-week launch, 9h gap → 0.4d not 2d).
+- `test_days_to_fti_skips_users_with_missing_assignment_timestamp` — defensive handling.
+- `test_engagement_sql_pulls_assignment_timestamp` — SQL pin so future refactors can't accidentally drop the field.
+
+**Display:** Float median rendered as `0.4d` for sub-day values, `2d` for whole-number multi-day gaps (no trailing `.0`).
+
+**Considered + rejected:**
+- Anchoring on Monday + adding a "live-since" correction — fragile; breaks on mid-experiment relaunches.
+- Computing the metric in SQL — needs cross-DB join (cohort in DB 8, FTI in DB 24); Python merge is correct.
+
+**Revisit if:** Rudder stops capturing per-event timestamps. Today they're guaranteed by `trackEvent` instrumentation.
+
+---
+
 ## D-22 · 2026-05-28 — Pull-quote uses logic B (highest-rate band) + WoW delta + days-to-FTI
 
 **Decided.** Three changes to the engagement-gradient pull-quote and surrounding signals:

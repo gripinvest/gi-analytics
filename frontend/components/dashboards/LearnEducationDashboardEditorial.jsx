@@ -2140,7 +2140,9 @@ function ConversionFunnel({ funnel }) {
                     color: row.value != null ? 'var(--ed-ink)' : 'var(--ed-ink-muted)',
                   }}
                 >
-                  {row.value != null ? `${row.value}d` : '—'}
+                  {row.value != null
+                    ? `${Number.isInteger(row.value) ? row.value : row.value.toFixed(1)}d`
+                    : '—'}
                 </p>
                 <p
                   className="ed-prose-italic"
