@@ -377,13 +377,31 @@ function Masthead({ weekRange, isEmpty, loading }) {
 function PullQuote({ conversionFunnel, itLift }) {
   const treatmentFunnel = conversionFunnel?.variants?.treatment;
   const baselineBand = treatmentFunnel?.bands?.find((b) => b.depth === 'bucketed');
-  // Walk depth bands from deepest backward, pick the first one with
-  // both meaningful N (≥10) and a non-null FTI rate. That's the
-  // "richest signal" band — usually 'completed', sometimes 'played'.
+  // Logic B (per D-21): pick the band (excluding baseline) with the
+  // HIGHEST FTI rate AND meaningful N (≥10). Tells the richest within-
+  // Treatment story — usually 'visited' early in the experiment, may
+  // shift to 'played' or 'completed' as engaged-user count grows.
   const topBand = treatmentFunnel?.bands
-    ?.slice()
-    .reverse()
-    .find((b) => (b.cohort_n ?? 0) >= 10 && b.fti_rate_pct != null);
+    ?.filter((b) => b.depth !== 'bucketed' && (b.cohort_n ?? 0) >= 10 && b.fti_rate_pct != null)
+    .reduce(
+      (best, b) =>
+        !best || (b.fti_rate_pct ?? -Infinity) > (best.fti_rate_pct ?? -Infinity)
+          ? b
+          : best,
+      null,
+    );
+
+  // WoW delta — if a prior week is available, find the SAME band's
+  // FTI rate from last week and compute the percentage-point delta.
+  const priorTopBand = topBand
+    ? conversionFunnel?.prior_variants?.treatment?.bands?.find(
+        (b) => b.depth === topBand.depth,
+      )
+    : null;
+  const wowDelta =
+    priorTopBand?.fti_rate_pct != null && topBand?.fti_rate_pct != null
+      ? topBand.fti_rate_pct - priorTopBand.fti_rate_pct
+      : null;
 
   if (treatmentFunnel && baselineBand && topBand && baselineBand !== topBand) {
     const accentColor =
@@ -413,15 +431,43 @@ function PullQuote({ conversionFunnel, itLift }) {
           </span>
           {topBand.fti_rate_pct.toFixed(2)}%
         </div>
+        {wowDelta !== null && (
+          <p
+            className="tabular-nums mt-2"
+            style={{
+              fontFamily: 'var(--ed-mono)',
+              fontSize: 13,
+              color:
+                wowDelta > 0
+                  ? 'var(--ed-forest)'
+                  : wowDelta < 0
+                    ? 'var(--ed-rust)'
+                    : 'var(--ed-ink-muted)',
+            }}
+          >
+            {wowDelta > 0 ? '↑' : wowDelta < 0 ? '↓' : '·'}{' '}
+            {Math.abs(wowDelta).toFixed(2)} pp WoW
+            <span
+              style={{ color: 'var(--ed-ink-faint)', marginLeft: '0.6em' }}
+            >
+              vs {priorTopBand.fti_rate_pct.toFixed(2)}% last week
+            </span>
+          </p>
+        )}
         <p
           className="ed-prose-italic mt-3"
           style={{ fontSize: 14, lineHeight: 1.5 }}
         >
           FTI rate among <Term>all Treatment users</Term> versus those who{' '}
-          <Term>{topBand.label.toLowerCase()}</Term>. The gradient is real,
-          but measures who self-selects to engage — not what engagement
-          causes. See §III for the full funnel + §IV for the causal hygiene
-          caveat.
+          <Term>{topBand.label.toLowerCase()}</Term>
+          {wowDelta === null && (
+            <span style={{ color: 'var(--ed-ink-faint)' }}>
+              {' '}(WoW unavailable until W2 lands)
+            </span>
+          )}
+          . The gradient is real, but measures who self-selects to engage —
+          not what engagement causes. See §III for the full funnel + §IV
+          for the causal hygiene caveat.
         </p>
       </aside>
     );
@@ -2040,6 +2086,73 @@ function ConversionFunnel({ funnel }) {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Conversion momentum — median days from assignment to FTI.
+          Tells the reader how QUICKLY engaged users invest. Slow median
+          (>30 days) → users research longer; fast median (<5 days) →
+          surface drives immediate intent. Both signals are useful. */}
+      {(treatment.days_to_fti_median != null ||
+        funnel.variants?.control?.days_to_fti_median != null) && (
+        <div className="mt-10">
+          <h5
+            className="ed-overline mb-3"
+            style={{ color: 'var(--ed-ink-muted)' }}
+          >
+            CONVERSION MOMENTUM · DAYS FROM ASSIGNMENT TO FIRST INVESTMENT
+          </h5>
+          <p
+            className="ed-prose-italic mb-4 max-w-prose"
+            style={{ fontSize: 12.5, color: 'var(--ed-ink-faint)' }}
+          >
+            Median days for post-assignment FTIs. Tells you how quickly
+            engaged cohort users move from bucketing to first investment.
+          </p>
+          <div className="grid gap-x-8 gap-y-3 grid-cols-2 sm:grid-cols-3">
+            {[
+              {
+                label: 'Treatment',
+                value: treatment.days_to_fti_median,
+                n: treatment.days_to_fti_n,
+              },
+              {
+                label: 'Control',
+                value: funnel.variants?.control?.days_to_fti_median ?? null,
+                n: funnel.variants?.control?.days_to_fti_n ?? 0,
+              },
+            ].map((row) => (
+              <div
+                key={row.label}
+                className="border-t border-[var(--ed-rule-faint)] pt-2"
+              >
+                <p
+                  className="ed-caption"
+                  style={{ fontSize: 10.5, letterSpacing: '0.08em' }}
+                >
+                  {row.label}
+                </p>
+                <p
+                  className="mt-1 tabular-nums"
+                  style={{
+                    fontFamily: 'var(--ed-mono)',
+                    fontSize: 22,
+                    color: row.value != null ? 'var(--ed-ink)' : 'var(--ed-ink-muted)',
+                  }}
+                >
+                  {row.value != null ? `${row.value}d` : '—'}
+                </p>
+                <p
+                  className="ed-prose-italic"
+                  style={{ fontSize: 11.5, color: 'var(--ed-ink-faint)' }}
+                >
+                  {row.n > 0
+                    ? `median of ${nf.format(row.n)} FTIs`
+                    : 'no post-assignment FTIs yet'}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

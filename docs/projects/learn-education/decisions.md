@@ -6,6 +6,36 @@ considered, and what would force a revisit.**
 
 ---
 
+## D-22 · 2026-05-28 — Pull-quote uses logic B (highest-rate band) + WoW delta + days-to-FTI
+
+**Decided.** Three changes to the engagement-gradient pull-quote and surrounding signals:
+
+1. **Logic B** — top band is the band (excluding baseline) with the **highest FTI rate AND N ≥ 10**, not the deepest. With today's data, this picks "Visited /learn" (10.87%) over "Completed" (5.26%), telling a much richer story.
+2. **WoW delta** in the pull-quote when ≥ 2 weeks of data exist. Shows the same band's FTI rate vs the prior week with directional arrow + pp delta.
+3. **Days-to-FTI median** added to §III Engagement's Conversion Funnel as a "CONVERSION MOMENTUM" section. Surfaces how quickly engaged cohort users move from bucketing to first investment.
+
+**Why Logic B over deepest-band.** The data revealed engagement-depth FTI rate is not monotonic — it can peak at "Visited" before dropping at deeper bands. Logic B picks the actual strongest signal; the full funnel viz in §III shows the non-monotonic gradient for readers who want the depth narrative.
+
+**Why WoW.** At W1 the dashboard is a static snapshot. At W2+ the reader wants to know "is the gradient strengthening or weakening?". The WoW delta in the pull-quote gives an at-a-glance answer.
+
+**Why days-to-FTI.** Surfaces conversion momentum. Slow median (>30d) means users research longer; fast median (<5d) means the surface drives immediate intent. Computed per-variant; Control's days_to_fti is the platform's natural conversion velocity (no Learn influence).
+
+**Backend changes:**
+- `build_conversion_funnel` refactored: extracted `_funnel_for_week()` helper, calls it for both latest and prior week, returns `prior_variants` alongside `variants`.
+- New `_collect_days_to_fti()` helper computes days from `assigned_week` to `fti_date` for post-assignment FTIs.
+- Each variant block in the funnel manifest now carries `days_to_fti_median` and `days_to_fti_n`.
+
+**Tests added (+4):** prior_week presence/absence, days-to-FTI computation with multiple users, days-to-FTI suppression when no post-assignment FTIs.
+
+**Considered + rejected:**
+- Client-side prior-week funnel from `rows` — `rows` is pre-aggregated, no per-user data, impossible.
+- Show WoW on baseline ITT rate (4.05% → 4.05%+δ) — defeats the gradient framing.
+- Multi-week funnel history in manifest — balloons size; single-WoW is enough.
+
+**Revisit if:** Logic B picks a band with cohort_n just above 10, variance too high to trust. Raise the N≥10 floor to N≥30 or compute a CI on the top-band rate itself.
+
+---
+
 ## D-21 · 2026-05-28 — Pull-quote shows the engagement gradient, not the ITT delta
 
 **Decided.** The masthead pull-quote shows the **conversion gradient** — Treatment cohort baseline FTI rate → top engagement band's FTI rate — formatted as `4.15% → 14.3%`. The caption makes the selection-effect caveat explicit. Falls back to the ITT delta only when funnel data is unavailable.
