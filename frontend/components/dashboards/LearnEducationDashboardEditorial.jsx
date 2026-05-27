@@ -257,6 +257,14 @@ export default function LearnEducationDashboardEditorial({ project }) {
         </div>
       </section>
 
+      {/* ────── MARGIN NOTES — A/B integrity indicators (V2) ──────────────── */}
+      {/* Surfaces SRM, Control surface leak, FTI lift CI, and MDE at current N.
+          Reads from the manifest's margin_notes block (computed once per
+          cron run by learn_education_stats.compose_margin_notes()). When the
+          manifest doesn't carry the block (pre-V2 backend, or empty data),
+          the component renders nothing — keeping page layout consistent. */}
+      <MarginNotes marginNotes={project.manifest?.margin_notes} />
+
       {/* ────── SECTIONS NAV — anchored ───────────────────────────────────── */}
       {/* These are anchor-style section switchers, not tabs. `aria-current`
           is the right semantic; tab roles without paired tabpanels would
@@ -352,6 +360,148 @@ function Masthead({ weekRange, isEmpty, loading }) {
         )}
       </p>
     </header>
+  );
+}
+
+/* ═══════════════════════════════ MARGIN NOTES ═══════════════════════════════ */
+/* Inline section between EXHIBITS and the navigable SECTIONS. Renders the
+ * four A/B integrity indicators from the manifest's margin_notes block.
+ *
+ * Each card carries: a single-line value, a traffic-light glyph derived
+ * from the verdict, and a one-line caption explaining what the number
+ * means and (when applicable) what would invalidate it.
+ *
+ * Verdict colour map (matches the existing editorial palette):
+ *   · 'ok'                 → ed-forest  · ✓
+ *   · 'warn'               → ed-gold    · ⚠
+ *   · 'fail'               → ed-rust    · ✕
+ *   · 'insufficient_data'  → ed-ink-faint · —
+ *
+ * When marginNotes is undefined the section renders nothing — graceful
+ * degradation for pre-V2 backend or projects without this block.
+ */
+function MarginNotes({ marginNotes }) {
+  if (!marginNotes) return null;
+  const { srm, control_leak, fti_lift_ci, mde, as_of_week } = marginNotes;
+
+  return (
+    <section className="ed-set mt-12">
+      <hr className="ed-rule-thick" />
+      <div className="mt-8 flex items-baseline justify-between flex-wrap gap-3">
+        <p className="ed-overline">MARGIN NOTES · AS OF {as_of_week ?? '—'}</p>
+        <p className="ed-caption" style={{ color: 'var(--ed-ink-faint)' }}>
+          A/B INTEGRITY · §IV
+        </p>
+      </div>
+      <p
+        className="ed-prose-italic mt-3 max-w-prose"
+        style={{ fontSize: 15, color: 'var(--ed-ink-muted)' }}
+      >
+        Where the numbers admit what they can — and can&rsquo;t — claim. The
+        dashboard tells you what it sees; the margin tells you whether to
+        believe it yet.
+      </p>
+      <div className="mt-7 grid gap-x-8 gap-y-7 grid-cols-2 lg:grid-cols-4">
+        <MarginNote
+          label="Sample-ratio mismatch"
+          verdict={srm.verdict}
+          value={
+            srm.control_n != null
+              ? `${nf.format(srm.control_n)} / ${nf.format(srm.treatment_n)}`
+              : '—'
+          }
+          sub={
+            srm.p_value != null
+              ? `p = ${srm.p_value.toFixed(3)} · ${srm.verdict === 'fail' ? 'investigate bucketing' : 'within tolerance'}`
+              : 'no cohort yet'
+          }
+        />
+        <MarginNote
+          label="Control surface leak"
+          verdict={control_leak.verdict}
+          value={
+            control_leak.leak_pct != null
+              ? `${control_leak.leak_pct.toFixed(2)}%`
+              : '—'
+          }
+          sub={
+            control_leak.control_visitors != null
+              ? `${control_leak.control_visitors} of ${nf.format(control_leak.control_cohort)} · ideal 0`
+              : 'no Control cohort yet'
+          }
+        />
+        <MarginNote
+          label="FTI lift · 95% CI"
+          verdict={fti_lift_ci.verdict}
+          value={
+            fti_lift_ci.ci_lower_pp != null && fti_lift_ci.ci_upper_pp != null
+              ? `[${fti_lift_ci.ci_lower_pp.toFixed(1)}, ${fti_lift_ci.ci_upper_pp.toFixed(1)}] pp`
+              : fti_lift_ci.delta_pp != null
+              ? `Δ ${fti_lift_ci.delta_pp >= 0 ? '+' : ''}${fti_lift_ci.delta_pp.toFixed(1)}pp`
+              : '—'
+          }
+          sub={
+            fti_lift_ci.verdict === 'insufficient_data'
+              ? 'need ≥ 10 conversions in both arms'
+              : fti_lift_ci.ci_lower_pp != null && fti_lift_ci.ci_lower_pp > 0
+              ? 'CI excludes zero — lift is significant'
+              : 'CI brackets zero — inconclusive'
+          }
+        />
+        <MarginNote
+          label="MDE at current N"
+          verdict="ok"
+          value={
+            mde.mde_abs_pp != null
+              ? `±${mde.mde_abs_pp.toFixed(1)} pp`
+              : '—'
+          }
+          sub={
+            mde.n_per_arm
+              ? `N = ${nf.format(mde.n_per_arm)} / arm · 80% power, α = 0.05`
+              : 'need cohort to compute'
+          }
+        />
+      </div>
+    </section>
+  );
+}
+
+const VERDICT_TO_STYLE = {
+  ok:                 { glyph: '✓', color: 'var(--ed-forest)' },
+  warn:               { glyph: '⚠', color: 'var(--ed-gold)' },
+  fail:               { glyph: '✕', color: 'var(--ed-rust)' },
+  insufficient_data:  { glyph: '—', color: 'var(--ed-ink-faint)' },
+};
+
+function MarginNote({ label, verdict, value, sub }) {
+  const style = VERDICT_TO_STYLE[verdict] ?? VERDICT_TO_STYLE.insufficient_data;
+  return (
+    <div className="border-t border-[var(--ed-rule-faint)] pt-3">
+      <p className="ed-caption" style={{ fontSize: 11 }}>
+        {label}
+      </p>
+      <p
+        className="font-mono mt-2"
+        style={{
+          fontSize: 'clamp(22px, 2.5vw, 32px)',
+          lineHeight: 1.05,
+          fontVariantNumeric: 'tabular-nums',
+          color: 'var(--ed-ink)',
+        }}
+      >
+        {value}{' '}
+        <span style={{ fontSize: '0.7em', color: style.color }} aria-hidden>
+          {style.glyph}
+        </span>
+      </p>
+      <p
+        className="ed-prose-italic mt-2"
+        style={{ fontSize: 12.5, color: 'var(--ed-ink-muted)' }}
+      >
+        {sub}
+      </p>
+    </div>
   );
 }
 
