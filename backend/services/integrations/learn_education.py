@@ -389,6 +389,35 @@ CANONICAL_COLUMNS = [
 
 
 # ─── Python aggregation — merge engagement + FTI per (week, variant) ───────
+def _user_id_key(uid) -> str | None:
+    """Canonical hash-table key for a user_id, normalising across the three
+    representations Metabase returns from different drivers:
+
+      Rudder (DB 8, PostgreSQL ::text cast)     →  "1000428"  (str)
+      ur_tblorders (DB 24, ClickHouse via JSON) →  2.0        (float)
+      Already-int from some drivers             →  47891      (int)
+
+    All three must hash to the same key for the FTI merge to work.
+    `str(2.0) == "2.0"` but `str("2") == "2"` — different keys for the
+    same logical user_id. We canonicalise via `int(float(uid))`:
+
+      _user_id_key("1000428")  → "1000428"
+      _user_id_key(2.0)        → "2"
+      _user_id_key(47891)      → "47891"
+      _user_id_key("anon-uuid") → None  (silently dropped; we can only
+                                          attribute FTI to logged-in users)
+
+    Discovered 2026-05-27 — see specs/2026-05-27-tier2-and-margin-notes.md
+    pending-items / decisions.md.
+    """
+    if uid is None:
+        return None
+    try:
+        return str(int(float(uid)))
+    except (ValueError, TypeError):
+        return None
+
+
 def aggregate_rows(engagement_rows: list[dict], fti_rows: list[dict]) -> list[dict]:
     """Combine per-user engagement (Rudder) with per-user FTI (transactions DB)
     into per-(week, variant) summary rows matching CANONICAL_COLUMNS.
@@ -396,14 +425,20 @@ def aggregate_rows(engagement_rows: list[dict], fti_rows: list[dict]) -> list[di
     Pure function — no SQL, no I/O. Easy to unit-test.
     """
     # Build FTI lookup. tblorders.user_id is an integer in Postgres; the
-    # Rudder side is text. Normalise to string on both sides so the join works.
+    # Rudder side is text. Normalise both sides via _user_id_key() — the
+    # canonical form is "<int-as-string>". See its docstring for the bug
+    # this guards against (Metabase JSON returning ClickHouse ints as
+    # Python floats — "2.0" key vs "2" lookup → 0 matches).
     fti_by_user: dict[str, str] = {}
     for r in fti_rows:
         uid = r.get("user_id")
         fti_date = r.get("fti_date")
-        if uid is None or fti_date is None:
+        if fti_date is None:
             continue
-        fti_by_user[str(uid)] = _to_iso(fti_date)
+        key = _user_id_key(uid)
+        if key is None:
+            continue
+        fti_by_user[key] = _to_iso(fti_date)
 
     # Accumulate per (week_start, variant). Tier 1 counters + Tier 2
     # additions (multi_play_users for drop-after-first; completed_plays
@@ -465,9 +500,10 @@ def aggregate_rows(engagement_rows: list[dict], fti_rows: list[dict]) -> list[di
 
         # FTI attribution — sticky bucketing. A user assigned in W1 who
         # FTIs in W3 counts under W1's row (matches product spreadsheet
-        # mental model).
-        user_id = str(r["user_id"])
-        fti_date = fti_by_user.get(user_id)
+        # mental model). The user_id is canonicalised so Rudder's "1000428"
+        # matches ur_tblorders' 1000428.0 (Metabase ClickHouse float).
+        user_id = _user_id_key(r.get("user_id"))
+        fti_date = fti_by_user.get(user_id) if user_id else None
         # `fti_date >= assigned_week` enforces "after assignment" — defensive
         # guard against a useShowLearnPage bug; should always be true since
         # the hook gates on !isInvested.
@@ -752,24 +788,17 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
                 f"(gate-leak signal — these users were already invested when bucketed)"
             )
 
-            # Diagnostic: sample user_ids from BOTH sides + actual match
-            # count. If matches << expected, the join is broken (most
-            # likely Rudder text vs ur_tblorders int formatting mismatch).
-            eng_sample = [(str(r.get("user_id")), type(r.get("user_id")).__name__)
-                          for r in engagement_rows[:3]]
-            fti_sample = [(str(r.get("user_id")), type(r.get("user_id")).__name__)
-                          for r in fti_rows[:3]]
-            log.append(f"engagement user_id sample: {eng_sample}")
-            log.append(f"fti user_id sample: {fti_sample}")
-
-            # Direct match count — confirms whether the str(uid) keying
-            # actually finds rows.
-            fti_keys = {str(r.get("user_id")) for r in fti_rows}
-            eng_user_ids = {str(r.get("user_id")) for r in engagement_rows}
+            # Diagnostic: user_id overlap count after canonical
+            # normalization. After the float-vs-int-string fix, this
+            # should be ~equal to len(fti_rows) (cohort users are scoped).
+            fti_keys = {_user_id_key(r.get("user_id")) for r in fti_rows}
+            fti_keys.discard(None)
+            eng_user_ids = {_user_id_key(r.get("user_id")) for r in engagement_rows}
+            eng_user_ids.discard(None)
             overlap = fti_keys & eng_user_ids
             log.append(
-                f"user_id overlap: {len(overlap)} engagement∩FTI matches "
-                f"(of {len(eng_user_ids)} engagement, {len(fti_keys)} FTI)"
+                f"user_id overlap (canonical): {len(overlap)} of "
+                f"{len(eng_user_ids)} engagement ∩ {len(fti_keys)} FTI"
             )
 
     # ─── Merge ─────────────────────────────────────────────────────────────

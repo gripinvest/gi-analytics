@@ -678,6 +678,70 @@ def test_fetch_engagement_paginated_single_page_stops_early():
     assert len(engagement_calls) == 1
 
 
+# ─── user_id canonical normalization (V2.2 — fixes float vs int-string bug) ─
+# Metabase returns ClickHouse user_ids as Python floats (2.0) via JSON,
+# while Rudder returns them as ::text-cast strings ("1000428"). Without
+# canonicalisation, str(2.0) = "2.0" ≠ "2" — every cohort×FTI join fails.
+
+def test_user_id_key_normalizes_float_to_int_string():
+    """The actual bug from prod 2026-05-28: FTI side returned 2.0, 188.0;
+    engagement side had "1000428". After canonicalization, both shapes
+    must produce the same key."""
+    assert learn_education._user_id_key(2.0) == "2"
+    assert learn_education._user_id_key(188.0) == "188"
+    assert learn_education._user_id_key("1000428") == "1000428"
+    assert learn_education._user_id_key(47891) == "47891"
+
+
+def test_user_id_key_returns_none_for_non_numeric():
+    """Anonymous-id UUIDs or other non-numeric strings can't attribute
+    to a tblorders user_id (which is int). Drop silently."""
+    assert learn_education._user_id_key("anonymous-abc-123") is None
+    assert learn_education._user_id_key("") is None
+    assert learn_education._user_id_key(None) is None
+
+
+def test_user_id_key_handles_numeric_strings_with_padding():
+    """Defensive — Rudder might send '  47891  ' or ' 188 '. int() strips."""
+    assert learn_education._user_id_key("  47891  ") == "47891"
+
+
+def test_aggregate_rows_matches_float_fti_to_string_engagement():
+    """The end-to-end reproduction of the prod 0-FTI bug.
+    Engagement side: user_id is "1000428" (Rudder PG ::text).
+    FTI side: user_id is 1000428.0 (Metabase ClickHouse float).
+    Without _user_id_key, str(1000428.0) == "1000428.0" ≠ "1000428" → miss.
+    With _user_id_key, both → "1000428" → match."""
+    eng = [{
+        "user_id": "1000428",  # Rudder format
+        "variant": "treatment", "assigned_week": "2026-05-25",
+        "visit_count": 1, "play_count": 1, "watch_seconds_sum": 10,
+        "first_play_at": "2026-05-26T10:00:00",
+    }]
+    fti = [{
+        "user_id": 1000428.0,  # Metabase ClickHouse format ← BUG TRIGGER
+        "fti_date": "2026-05-26T11:00:00",
+    }]
+    [row] = learn_education.aggregate_rows(eng, fti)
+    assert row["fti_users"] == 1, \
+        "float user_id from FTI must match string user_id from engagement"
+    assert row["fti_users_who_watched"] == 1, \
+        "watch-before-FTI must also be detected"
+
+
+def test_aggregate_rows_drops_anonymous_id_users_silently():
+    """User with UUID-style user_id can't be attributed; no crash."""
+    eng = [{
+        "user_id": "anon-abc-123",
+        "variant": "treatment", "assigned_week": "2026-05-25",
+        "visit_count": 1, "play_count": 1, "watch_seconds_sum": 10,
+        "first_play_at": "2026-05-26T10:00:00",
+    }]
+    fti = []
+    [row] = learn_education.aggregate_rows(eng, fti)
+    assert row["fti_users"] == 0
+
+
 def test_run_uses_paginated_engagement_fetch(tmp_path, v2_engagement_rows):
     """run() must call the paginated walker, not the single-shot query.
     Regression guard against accidentally reverting the fix."""
