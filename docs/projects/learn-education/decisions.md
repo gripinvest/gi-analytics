@@ -4,6 +4,54 @@ Append-only record of the meaningful design / engineering decisions we've
 made on this project. Each entry: **what we decided, why, what we
 considered, and what would force a revisit.**
 
+---
+
+## D-15 · 2026-05-28 — Ledger redesigned as section-grouped editorial rows
+
+**Decided.** The Ledger tab (§ II) drops the 19-column horizontal-scroll table in favour of three editorial sections — **The Surface · The Watch · The Investor** — each containing per-metric rows with (label · Control value · Treatment value · delta · trend sparkline).
+
+**Why.** The original table was 19 metrics × N weeks × 2 variants = a spreadsheet. Editorial broadsheets don't do spreadsheets. The new layout:
+- Maps metrics to **funnel stages** (Surface → Watch → Investor) so a reader can scan by topic.
+- Keeps **comparison density**: every row shows Control + Treatment + delta side-by-side.
+- Adds **temporal context**: a small sparkline per row shows the week-over-week lift trend (single point in W1, growing into a full curve).
+- Reads cleanly at 375 px (rows collapse to two-line cards).
+
+**Considered + rejected design alternatives:**
+
+| Option | Why rejected |
+|---|---|
+| **A. The Markets Page (FT-style ticker)** | One mega-row-per-metric with all columns visible — readable but lost the funnel-stage narrative grouping. Useful primitive but flat. |
+| **B. Small Multiples grid** | Each metric becomes a tiny chart panel. Strong visual separation but doubled the page height and lost the ability to read straight down. Better for engagement deep-dives than headline ledger. |
+| **C. The Spread (slope graph)** | Every metric is a slope from Control to Treatment — visually striking but harder to read absolute values, and slope visualizations of percentage-point lifts at varying magnitudes are misleading without log axes. |
+| **D. The Box Score** | Sports-style winner-per-metric scorecard. Too reductive — hides nuance, encourages binary thinking ("Treatment won 5/7") that A/B integrity (Margin Notes) explicitly cautions against. |
+| **E. The Reading (longform prose)** | Each metric a paragraph with the number embedded. Most "editorial" but heavy to scan and untenable for any reader doing a quick check. |
+
+**The chosen hybrid** keeps Markets Page's tabular comparison density inside Small Multiples' section grouping — the user's specific call. Visual: section header (Fraunces italic) + grouped rows. Tabular alignment via grid, NOT `<table>` — gives us responsive control without overflow scrolling.
+
+**Revisit if:** the cohort grows past ~12 weeks and the sparkline becomes too dense (would need a tooltip layer), OR if product asks for variant breakouts beyond binary (need stacked multi-arm display).
+
+---
+
+## D-14 · 2026-05-28 — DISTINCT ON in cohort CTE
+
+**Decided.** The cohort CTE uses `SELECT DISTINCT ON (user_id::text)` ... `ORDER BY user_id::text, timestamp ASC` to keep exactly one row per user — the earliest `experiment_assigned` event.
+
+**Why.** The localStorage-based dedup in `gi-client-web utils/experimentBucketing.ts` is the primary mechanism, but in practice ~10% of users emit duplicate `experiment_assigned` events (cleared localStorage, multi-device sessions, browser race conditions). Without DISTINCT, the aggregator counted those users 2-3× in every metric — inflating cohort denominators and over-counting FTI conversions. Observed in prod on 2026-05-28: 118 fti_users from 107 unique post-assignment FTI rows (~10% over-count).
+
+**Considered + rejected:** Filtering at the Python aggregator level (e.g., a `seen_user_ids` set per variant). Rejected because (a) Postgres is the right layer for set semantics, (b) Python-side dedup would still pull duplicate rows over the wire, (c) DISTINCT ON keeping the EARLIEST event is meaningful (matches the "first assignment is authoritative" semantic of sticky bucketing).
+
+**Revisit if:** upstream emits a single canonical `experiment_assigned` per user and the DISTINCT becomes a redundant safeguard.
+
+---
+
+## D-13 · 2026-05-28 — Canonical user_id key (float vs int-string normalization)
+
+**Decided.** `_user_id_key(uid)` normalises all user_ids to `int-as-string` via `str(int(float(uid)))` on both sides of the cohort × FTI merge.
+
+**Why.** Metabase's ClickHouse driver returns `ur_tblorders.user_id` (integer column) as Python `float` via JSON deserialization. Rudder returns user_id as `str` via PostgreSQL `::text` cast. `str(2.0) == "2.0"` but `str("2") == "2"` — every hash-table lookup missed silently. The fix gives the same canonical key for all three representations.
+
+**Revisit if:** Metabase changes its driver to return integers natively (then the float fallback would still work, just cost an unneeded `float()` round-trip).
+
 Newest first. Don't re-litigate — if a decision needs to change, add a new
 entry that supersedes the prior one (and link back).
 
