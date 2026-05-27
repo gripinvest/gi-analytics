@@ -1,21 +1,21 @@
 {
-  "refreshed_at": "2026-05-27T18:25:17Z",
+  "refreshed_at": "2026-05-27T18:31:32Z",
   "tables": {
     "weekly_ab_tracker": {
-      "last_refreshed_at": "2026-05-27T18:25:17Z"
+      "last_refreshed_at": "2026-05-27T18:31:32Z"
     }
   },
   "margin_notes": {
     "as_of_week": "2026-05-25",
     "srm": {
-      "control_n": 1322,
-      "treatment_n": 1300,
-      "p_value": 0.6675,
+      "control_n": 1367,
+      "treatment_n": 1324,
+      "p_value": 0.4072,
       "verdict": "ok"
     },
     "control_leak": {
       "control_visitors": 2,
-      "control_cohort": 1322,
+      "control_cohort": 1367,
       "leak_pct": 0.15,
       "verdict": "warn"
     },
@@ -28,9 +28,9 @@
       "verdict": "insufficient_data"
     },
     "mde": {
-      "n_per_arm": 1300,
+      "n_per_arm": 1324,
       "pooled_rate_pct": 0.0,
-      "mde_abs_pp": 5.49,
+      "mde_abs_pp": 5.44,
       "mde_rel_pct": null
     }
   }
