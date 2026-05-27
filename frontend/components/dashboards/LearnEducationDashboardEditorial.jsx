@@ -570,119 +570,375 @@ function OverviewSection({ rows }) {
   );
 }
 
+/* The Ledger — redesigned 2026-05-28 from a 19-column scroll-table to a
+ * section-grouped editorial readout. Three groupings (The Surface, The
+ * Watch, The Conversion) map metrics to the funnel stage they describe.
+ * Each row inside a section: metric name, Control value, Treatment value,
+ * delta (with arrow + color), sparkline of week-over-week lift.
+ *
+ * Design alternatives considered + rejected — see
+ * docs/projects/learn-education/decisions.md D-13 for the full reasoning. */
+
+const LEDGER_GROUPS = [
+  {
+    title: 'The Surface',
+    italic: 'who arrived, who engaged',
+    keys: [
+      'learn_visit_rate_pct',
+      'engaged_visitor_rate_pct',
+      'outbound_click_rate_pct',
+      'banner_ctr_on_learn_pct',
+    ],
+  },
+  {
+    title: 'The Watch',
+    italic: 'attention earned per cohort user',
+    keys: [
+      'total_video_plays',
+      'unique_video_players',
+      'plays_per_visitor',
+      'avg_videos_per_user',
+      'avg_watch_time_sec',
+      'completion_rate_pct',
+      'drop_after_first_pct',
+      'median_time_to_first_play_sec',
+    ],
+  },
+  {
+    title: 'The Investor',
+    italic: 'the only outcome that matters',
+    keys: [
+      'total_non_invested_users',
+      'fti_users',
+      'fti_users_who_watched',
+      'fti_rate_pct',
+    ],
+  },
+];
+
 function LedgerSection({ rows, loading }) {
+  const weeks = React.useMemo(() => {
+    const seen = new Set();
+    for (const r of rows) seen.add(r.week_start ?? r.week);
+    return [...seen].sort();
+  }, [rows]);
+  const latestWeek = weeks[weeks.length - 1];
+
+  // Pick the lead treatment variant. For multi-variant experiments the
+  // Ledger headlines the lead arm; the rest can be browsed in a future
+  // sibling section. Today's learn_page is binary, so this is always
+  // 'treatment'.
+  const treatmentVariant = React.useMemo(() => {
+    const variants = new Set(
+      rows.filter((r) => isTreatmentVariant(r.variant)).map((r) => r.variant),
+    );
+    return [...variants].sort()[0];
+  }, [rows]);
+
+  // Build a {week → {control, treatment}} index for sparkline trend
+  // construction. Pre-computed once so every row's sparkline reads in O(1).
+  const weekIndex = React.useMemo(() => {
+    const idx = {};
+    for (const r of rows) {
+      const w = r.week_start ?? r.week;
+      if (!idx[w]) idx[w] = {};
+      if (isControlVariant(r.variant)) idx[w].control = r;
+      else if (r.variant === treatmentVariant) idx[w].treatment = r;
+    }
+    return idx;
+  }, [rows, treatmentVariant]);
+
   return (
     <section>
       <SectionHead no="II" title="The Ledger" />
       <p className="ed-prose-italic mt-3 max-w-prose" style={{ fontSize: 15 }}>
-        Week by week, cohort by cohort. The canonical product table.
-        Control rows show em-dashes for engagement columns because the
-        Learn surface never renders for them — read that as <em>could
-        not happen by design</em>, not <em>did not happen</em>.
+        The funnel, sliced. Each section answers one question of the
+        experiment {weeks.length > 1 ? `across ${weeks.length} weeks` : 'in W1'}.
+        Control rows show em-dashes for engagement columns — the Learn
+        surface is invisible to Control by design.
       </p>
-      <div className="mt-6 overflow-x-auto">
-        <table className="w-full border-collapse text-left">
-          <caption className="sr-only">
-            Weekly A/B ledger — non-invested cohort, Control versus Treatment,
-            by week. Em-dash signifies "could not happen by design" because the
-            Learn surface is invisible to Control.
-          </caption>
-          <thead>
-            <tr className="border-b-2 border-[var(--ed-ink)]">
-              <th scope="col" className="px-2 py-3 ed-caption whitespace-nowrap">Week</th>
-              <th scope="col" className="px-2 py-3 ed-caption whitespace-nowrap">Cohort</th>
-              {COLUMNS.map((c) => (
-                <th
-                  key={c.key}
-                  scope="col"
-                  className="px-2 py-3 ed-caption whitespace-nowrap text-right"
-                  style={{ minWidth: 110 }}
-                >
-                  {c.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => {
-              const prev = rows[i - 1];
-              const isNewWeek = !prev || prev.week !== r.week;
-              const isTreatment = isTreatmentVariant(r.variant);
-              return (
-                <tr
-                  key={`${r.week}-${r.variant}`}
-                  className="border-b border-[var(--ed-rule-faint)]"
-                >
-                  <td
-                    className="px-2 py-3 t-num whitespace-nowrap"
-                    style={{ fontFamily: 'var(--ed-mono)', fontSize: 14 }}
-                  >
-                    {/* Visually deduplicate the week label, but keep it on the
-                        row for screen-reader column navigation. The visible
-                        cell stays empty; the SR-only span carries the value. */}
-                    {isNewWeek ? r.week : <span className="sr-only">{r.week}</span>}
-                  </td>
-                  <th
-                    scope="row"
-                    className="px-2 py-3 whitespace-nowrap font-normal"
-                    style={{
-                      fontFamily: 'var(--ed-display)',
-                      fontStyle: 'italic',
-                      fontSize: 16,
-                      color: isTreatment ? 'var(--ed-ink)' : 'var(--ed-ink-muted)',
-                    }}
-                  >
-                    {formatVariantLabel(r.variant)}
-                  </th>
-                  {COLUMNS.map((c) => {
-                    // Editorial choice: render em-dash for Control on
-                    // engagement-only columns. The Learn surface never
-                    // renders for Control by design, so a literal "0" would
-                    // misread as "happened, but zero of it." The em-dash
-                    // distinguishes "could not happen by design" from
-                    // "did happen, and was zero." The cohort denominator
-                    // and FTI columns remain numeric — those are real for
-                    // both arms.
-                    const isControlEngagement =
-                      isControlVariant(r.variant) && ENGAGEMENT_ONLY_COLS.has(c.key);
-                    const raw = r[c.key];
-                    const display = isControlEngagement
-                      ? '—'
-                      : formatCell(raw, c.kind);
-                    const muted = display === '—';
-                    return (
-                      <td
-                        key={c.key}
-                        className="px-2 py-3 text-right whitespace-nowrap tabular-nums"
-                        style={{
-                          fontFamily: 'var(--ed-mono)',
-                          fontSize: 14,
-                          // ed-ink-muted (#5d5752, ~7:1 on warm paper) — passes AA;
-                          // ed-ink-faint (#8a847d, ~3.4:1) failed AA for body text.
-                          color: muted ? 'var(--ed-ink-muted)' : 'var(--ed-ink)',
-                          fontWeight: isTreatment && !muted ? 500 : 400,
-                        }}
-                      >
-                        {display}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={COLUMNS.length + 2} className="px-2 py-8">
-                  <p className="ed-prose-italic text-center" style={{ color: 'var(--ed-ink-muted)' }}>
-                    {loading ? 'On the presses…' : 'No weeks have been issued yet.'}
-                  </p>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+
+      {rows.length === 0 && (
+        <p
+          className="ed-prose-italic text-center mt-12"
+          style={{ color: 'var(--ed-ink-muted)' }}
+        >
+          {loading ? 'On the presses…' : 'No weeks have been issued yet.'}
+        </p>
+      )}
+
+      {LEDGER_GROUPS.map((group) => (
+        <LedgerGroup
+          key={group.title}
+          group={group}
+          rows={rows}
+          weeks={weeks}
+          latestWeek={latestWeek}
+          treatmentVariant={treatmentVariant}
+          weekIndex={weekIndex}
+        />
+      ))}
     </section>
+  );
+}
+
+function LedgerGroup({ group, weeks, latestWeek, treatmentVariant, weekIndex }) {
+  // Pull the latest-week rows for both arms.
+  const latest = weekIndex[latestWeek] ?? {};
+  const controlRow = latest.control;
+  const treatmentRow = latest.treatment;
+
+  const groupColumns = group.keys
+    .map((key) => COLUMNS.find((c) => c.key === key))
+    .filter(Boolean);
+
+  return (
+    <div className="mt-12">
+      <div className="flex items-baseline gap-3 border-b border-[var(--ed-ink)] pb-2 mb-3">
+        <h4
+          className="ed-headline"
+          style={{ fontSize: 'clamp(20px, 2.4vw, 26px)' }}
+        >
+          {group.title}
+        </h4>
+        <p
+          className="ed-prose-italic"
+          style={{ fontSize: 13, color: 'var(--ed-ink-muted)' }}
+        >
+          {group.italic}
+        </p>
+      </div>
+
+      {/* Mobile-first stack: at small widths each row collapses to a
+          two-line card. The wider layout below 640px renders as a 4-column
+          flex row (metric | values | delta | sparkline). */}
+      <ul className="ed-set">
+        {groupColumns.map((col) => (
+          <LedgerRow
+            key={col.key}
+            column={col}
+            controlRow={controlRow}
+            treatmentRow={treatmentRow}
+            weeks={weeks}
+            weekIndex={weekIndex}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function LedgerRow({ column, controlRow, treatmentRow, weeks, weekIndex }) {
+  const isControlEngagement = ENGAGEMENT_ONLY_COLS.has(column.key);
+  const controlValue = controlRow?.[column.key];
+  const treatmentValue = treatmentRow?.[column.key];
+  const controlDisplay = isControlEngagement
+    ? '—'
+    : formatCell(controlValue, column.kind);
+  const treatmentDisplay = formatCell(treatmentValue, column.kind);
+
+  // Compute delta when both arms have numeric values AND the metric
+  // semantically supports cross-arm comparison (em-dashed Control values
+  // wouldn't).
+  const delta =
+    typeof controlValue === 'number' &&
+    typeof treatmentValue === 'number' &&
+    !isControlEngagement
+      ? treatmentValue - controlValue
+      : null;
+
+  // Trend datapoints across all weeks — used by the sparkline. We plot
+  // the LIFT (Treatment − Control) so the chart tracks the experiment
+  // effect, not absolute rates. For engagement-only metrics where Control
+  // is em-dashed, the sparkline shows Treatment-only values instead.
+  const trend = weeks
+    .map((w) => {
+      const c = weekIndex[w]?.control?.[column.key];
+      const t = weekIndex[w]?.treatment?.[column.key];
+      if (isControlEngagement) {
+        return typeof t === 'number' ? t : null;
+      }
+      if (typeof c === 'number' && typeof t === 'number') return t - c;
+      return null;
+    })
+    .filter((v) => v !== null);
+
+  return (
+    <li
+      className="grid items-baseline gap-x-4 gap-y-1 py-3 border-b border-[var(--ed-rule-faint)]"
+      style={{
+        gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 0.9fr)',
+      }}
+    >
+      <div className="min-w-0">
+        <p
+          className="font-normal truncate"
+          style={{
+            fontFamily: 'var(--ed-display)',
+            fontStyle: 'italic',
+            fontSize: 17,
+          }}
+          title={column.label}
+        >
+          {column.label}
+        </p>
+        {column.hint && (
+          <p
+            className="ed-caption truncate"
+            style={{ fontSize: 11, color: 'var(--ed-ink-faint)' }}
+            title={column.hint}
+          >
+            {column.hint}
+          </p>
+        )}
+      </div>
+
+      <LedgerValue label="C" value={controlDisplay} muted={controlDisplay === '—'} />
+      <LedgerValue label="T" value={treatmentDisplay} emphasis />
+      <LedgerDelta delta={delta} kind={column.kind} />
+      <LedgerSparkline values={trend} />
+    </li>
+  );
+}
+
+function LedgerValue({ label, value, muted, emphasis }) {
+  return (
+    <div className="flex items-baseline gap-2 min-w-0">
+      <span
+        className="ed-caption shrink-0"
+        style={{
+          fontSize: 10,
+          letterSpacing: '0.08em',
+          color: 'var(--ed-ink-faint)',
+        }}
+      >
+        {label}
+      </span>
+      <span
+        className="tabular-nums truncate"
+        style={{
+          fontFamily: 'var(--ed-mono)',
+          fontSize: 17,
+          fontVariantNumeric: 'tabular-nums',
+          color: muted ? 'var(--ed-ink-muted)' : 'var(--ed-ink)',
+          fontWeight: emphasis && !muted ? 500 : 400,
+        }}
+        title={value}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function LedgerDelta({ delta, kind }) {
+  if (delta === null || delta === undefined) {
+    return (
+      <span
+        className="text-right tabular-nums"
+        style={{ color: 'var(--ed-ink-faint)', fontFamily: 'var(--ed-mono)', fontSize: 15 }}
+      >
+        —
+      </span>
+    );
+  }
+  const positive = delta > 0;
+  const negative = delta < 0;
+  const arrow = positive ? '↑' : negative ? '↓' : '·';
+  const color = positive
+    ? 'var(--ed-forest)'
+    : negative
+      ? 'var(--ed-rust)'
+      : 'var(--ed-ink-muted)';
+  const formatted = formatCell(Math.abs(delta), kind);
+  const suffix = kind === 'pct' ? 'pp' : '';
+  return (
+    <span
+      className="text-right tabular-nums"
+      style={{
+        fontFamily: 'var(--ed-mono)',
+        fontSize: 15,
+        color,
+        fontVariantNumeric: 'tabular-nums',
+      }}
+    >
+      {arrow} {formatted.replace('%', '')}{suffix && ` ${suffix}`}
+    </span>
+  );
+}
+
+/* Sparkline — pure-SVG, no chart library. Renders the LIFT trajectory
+ * (Treatment − Control) across weeks. A single point becomes a dot;
+ * multiple points form a polyline with a baseline rule at zero. */
+function LedgerSparkline({ values }) {
+  if (!values || values.length === 0) {
+    return (
+      <span
+        className="ed-caption text-right"
+        style={{ fontSize: 11, color: 'var(--ed-ink-faint)' }}
+      >
+        —
+      </span>
+    );
+  }
+  const W = 90;
+  const H = 22;
+  const min = Math.min(0, ...values);
+  const max = Math.max(0, ...values);
+  const range = max - min || 1;
+  const zeroY = H - ((0 - min) / range) * H;
+
+  const points = values.map((v, i) => {
+    const x = values.length === 1 ? W / 2 : (i / (values.length - 1)) * W;
+    const y = H - ((v - min) / range) * H;
+    return { x, y };
+  });
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+  return (
+    <svg
+      width={W}
+      height={H}
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label={`Week-over-week lift trend, ${values.length} weeks`}
+      style={{ display: 'block', marginLeft: 'auto' }}
+    >
+      <line
+        x1={0}
+        y1={zeroY}
+        x2={W}
+        y2={zeroY}
+        stroke="var(--ed-rule-faint)"
+        strokeWidth={1}
+        strokeDasharray="2 2"
+      />
+      {points.length > 1 && (
+        <path
+          d={pathD}
+          fill="none"
+          stroke="var(--ed-ink)"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+      {points.map((p, i) => (
+        <circle
+          key={i}
+          cx={p.x}
+          cy={p.y}
+          r={i === points.length - 1 ? 2.5 : 1.5}
+          fill={
+            values[i] > 0
+              ? 'var(--ed-forest)'
+              : values[i] < 0
+                ? 'var(--ed-rust)'
+                : 'var(--ed-ink-muted)'
+          }
+        />
+      ))}
+    </svg>
   );
 }
 

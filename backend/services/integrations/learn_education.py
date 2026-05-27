@@ -124,10 +124,14 @@ def build_engagement_sql(
         pagination = f"\n    LIMIT {limit} OFFSET {offset}"
     return f"""
     WITH cohort AS (
-      -- One row per (user, assignment-week, variant). experiment_assigned
-      -- is deduped per-user-per-experiment via localStorage upstream
-      -- (gi-client-web utils/experimentBucketing.ts), so each user
-      -- appears in exactly one assignment-week row.
+      -- ONE row per user. The localStorage-based dedup in
+      -- gi-client-web utils/experimentBucketing.ts should give us
+      -- exactly one experiment_assigned event per user — but in
+      -- practice it lets ~10% of users through twice (cleared
+      -- localStorage, multi-device, race condition). The DISTINCT ON
+      -- here keeps the earliest assignment per user and discards
+      -- duplicates. Without it, the aggregator counts the user once
+      -- per duplicate event — inflating cohort size + every metric.
       --
       -- Variant landscape after the develop-branch experiment refactor:
       --   - 'control'     — bucket > treatmentPercentage
@@ -139,7 +143,7 @@ def build_engagement_sql(
       --                   defensively. These are surfaced by
       --                   getExperimentAssignment but never reach the
       --                   tracking event in the documented call path.
-      SELECT
+      SELECT DISTINCT ON (user_id::text)
         user_id::text AS user_id,
         experiment_variant AS variant,
         DATE_TRUNC('week', timestamp)::date AS assigned_week
@@ -149,6 +153,7 @@ def build_engagement_sql(
         AND user_id::text NOT IN ({test_users_in})
         AND experiment_variant IS NOT NULL
         AND experiment_variant NOT IN ('gc_excluded', 'not_eligible')
+      ORDER BY user_id::text, timestamp ASC  -- DISTINCT ON keeps the EARLIEST row
     ),
 
     visits AS (
