@@ -155,46 +155,16 @@ export default function LearnEducationDashboardEditorial({ project }) {
           </p>
         </div>
 
-        <aside className="border-t border-b border-[var(--ed-ink)] py-6 self-center">
-          <p className="ed-caption mb-3">THE PULL QUOTE</p>
-          {lift ? (
-            <>
-              <div
-                className="ed-pullnum"
-                style={{
-                  fontSize: 'clamp(64px, 9vw, 108px)',
-                  color: lift.delta_pp > 0 ? 'var(--ed-forest)' : 'var(--ed-rust)',
-                }}
-              >
-                {lift.delta_pp > 0 ? '+' : ''}{lift.delta_pp}pp
-              </div>
-              <p className="ed-prose-italic mt-3" style={{ fontSize: 14 }}>
-                FTI rate, {formatVariantLabel(lift.variant)} over Control · {lift.week}.
-                {lift.relative_pct != null ? (
-                  <> A relative gain of <Term>+{lift.relative_pct}%</Term> vs the Control baseline.</>
-                ) : (
-                  <> Control FTI rate is zero, so the relative figure is undefined.</>
-                )}
-                {lifts.length > 1 && (
-                  <> Best of {lifts.length} treatment arms — see §02 for each arm.</>
-                )}
-              </p>
-            </>
-          ) : (
-            <>
-              <div
-                className="ed-pullnum"
-                style={{ fontSize: 'clamp(64px, 9vw, 108px)', color: 'var(--ed-ink-faint)' }}
-              >
-                —
-              </div>
-              <p className="ed-prose-italic mt-3" style={{ fontSize: 14 }}>
-                The lift is undefined until both arms have an FTI rate
-                computed for the same week.
-              </p>
-            </>
-          )}
-        </aside>
+        {/* The pull-quote — reframed 2026-05-28 around the engagement
+            gradient. The ITT delta alone duplicates an Exhibit and reads
+            flat when the CI brackets zero. The gradient (cohort baseline
+            → top engagement band) shows the within-Treatment story while
+            keeping the honest selection-effect caveat in the caption.
+            Falls back to the ITT delta when funnel data is unavailable. */}
+        <PullQuote
+          conversionFunnel={project.manifest?.conversion_funnel}
+          itLift={lift}
+        />
       </section>
 
       <hr className="ed-rule-thick mt-14" />
@@ -293,7 +263,7 @@ export default function LearnEducationDashboardEditorial({ project }) {
       <div className="mt-10 ed-set ed-set-delay-4">
         {section === 'overview'   && <OverviewSection rows={sortedRows} meta={meta} marginNotes={project.manifest?.margin_notes} loading={loading} />}
         {section === 'ledger'     && <LedgerSection rows={sortedRows} marginNotes={project.manifest?.margin_notes} loading={loading} />}
-        {section === 'engagement' && <EngagementSection rows={sortedRows} loading={loading} />}
+        {section === 'engagement' && <EngagementSection rows={sortedRows} conversionFunnel={project.manifest?.conversion_funnel} loading={loading} />}
         {section === 'reading'    && <TheReading rows={sortedRows} marginNotes={project.manifest?.margin_notes} />}
       </div>
 
@@ -390,6 +360,116 @@ function Masthead({ weekRange, isEmpty, loading }) {
  * of plain-English explanation + a reference link to the project glossary.
  * The full section also collapses as a single `<details>`.
  */
+/* ═══════════════════════════════ PULL QUOTE ═══════════════════════════════
+ * Reframed 2026-05-28 around the engagement gradient. The previous
+ * pull-quote showed only the ITT delta, which duplicated an Exhibit and
+ * read flat when the CI brackets zero (today's reality at W1).
+ *
+ * The gradient framing surfaces the within-Treatment story: FTI rate at
+ * the cohort baseline vs FTI rate at the top engagement band (completed
+ * a video ≥75%). This is a much richer signal — but it is a SELECTION
+ * EFFECT, not a causal one. Users who choose to watch may already be
+ * more invest-ready. The caption makes the caveat explicit so the bold
+ * number doesn't accidentally overclaim.
+ *
+ * Falls back to the ITT delta when funnel data isn't available.
+ */
+function PullQuote({ conversionFunnel, itLift }) {
+  const treatmentFunnel = conversionFunnel?.variants?.treatment;
+  const baselineBand = treatmentFunnel?.bands?.find((b) => b.depth === 'bucketed');
+  // Walk depth bands from deepest backward, pick the first one with
+  // both meaningful N (≥10) and a non-null FTI rate. That's the
+  // "richest signal" band — usually 'completed', sometimes 'played'.
+  const topBand = treatmentFunnel?.bands
+    ?.slice()
+    .reverse()
+    .find((b) => (b.cohort_n ?? 0) >= 10 && b.fti_rate_pct != null);
+
+  if (treatmentFunnel && baselineBand && topBand && baselineBand !== topBand) {
+    const accentColor =
+      topBand.fti_rate_pct > baselineBand.fti_rate_pct
+        ? 'var(--ed-forest)'
+        : 'var(--ed-rust)';
+    return (
+      <aside className="border-t border-b border-[var(--ed-ink)] py-6 self-center">
+        <p className="ed-caption mb-3">THE PULL QUOTE · ENGAGEMENT GRADIENT</p>
+        <div
+          className="ed-pullnum"
+          style={{
+            fontSize: 'clamp(40px, 5.5vw, 64px)',
+            lineHeight: 1.1,
+            color: accentColor,
+          }}
+        >
+          {baselineBand.fti_rate_pct.toFixed(2)}%
+          <span
+            style={{
+              color: 'var(--ed-ink-faint)',
+              fontSize: '0.7em',
+              margin: '0 0.3em',
+            }}
+          >
+            →
+          </span>
+          {topBand.fti_rate_pct.toFixed(2)}%
+        </div>
+        <p
+          className="ed-prose-italic mt-3"
+          style={{ fontSize: 14, lineHeight: 1.5 }}
+        >
+          FTI rate among <Term>all Treatment users</Term> versus those who{' '}
+          <Term>{topBand.label.toLowerCase()}</Term>. The gradient is real,
+          but measures who self-selects to engage — not what engagement
+          causes. See §III for the full funnel + §IV for the causal hygiene
+          caveat.
+        </p>
+      </aside>
+    );
+  }
+
+  // Fallback to the ITT delta if we don't have funnel data yet.
+  if (itLift) {
+    return (
+      <aside className="border-t border-b border-[var(--ed-ink)] py-6 self-center">
+        <p className="ed-caption mb-3">THE PULL QUOTE · ITT LIFT</p>
+        <div
+          className="ed-pullnum"
+          style={{
+            fontSize: 'clamp(64px, 9vw, 108px)',
+            color: itLift.delta_pp > 0 ? 'var(--ed-forest)' : 'var(--ed-rust)',
+          }}
+        >
+          {itLift.delta_pp > 0 ? '+' : ''}{itLift.delta_pp}pp
+        </div>
+        <p className="ed-prose-italic mt-3" style={{ fontSize: 14 }}>
+          FTI rate, {formatVariantLabel(itLift.variant)} over Control · {itLift.week}.
+          {itLift.relative_pct != null ? (
+            <> A relative gain of <Term>+{itLift.relative_pct}%</Term> vs the Control baseline.</>
+          ) : (
+            <> Control FTI rate is zero, so the relative figure is undefined.</>
+          )}
+        </p>
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="border-t border-b border-[var(--ed-ink)] py-6 self-center">
+      <p className="ed-caption mb-3">THE PULL QUOTE</p>
+      <div
+        className="ed-pullnum"
+        style={{ fontSize: 'clamp(64px, 9vw, 108px)', color: 'var(--ed-ink-faint)' }}
+      >
+        —
+      </div>
+      <p className="ed-prose-italic mt-3" style={{ fontSize: 14 }}>
+        The lift is undefined until both arms have an FTI rate
+        computed for the same week.
+      </p>
+    </aside>
+  );
+}
+
 function MarginNotes({ marginNotes }) {
   if (!marginNotes) return null;
   const { srm, control_leak, fti_lift_ci, mde, as_of_week } = marginNotes;
@@ -1755,7 +1835,7 @@ const ENGAGEMENT_VIGNETTES = [
   },
 ];
 
-function EngagementSection({ rows, loading }) {
+function EngagementSection({ rows, conversionFunnel, loading }) {
   const treatments = rows.filter((r) => isTreatmentVariant(r.variant));
   const treatment = treatments.reduce(
     (best, r) =>
@@ -1793,8 +1873,17 @@ function EngagementSection({ rows, loading }) {
         For Control-vs-Treatment, see §II The Ledger.
       </p>
 
-      {/* Funnel narrative — one sentence per stage, with the number inline.
-          Reads as a single paragraph so the reader sees attrition at a glance. */}
+      {/* CONVERSION FUNNEL — engagement depth × FTI rate, with the
+          selection-effect caveat built into the framing. This is the
+          richest within-Treatment story; it shows the FTI gradient
+          without claiming it's causal. */}
+      {conversionFunnel && (
+        <ConversionFunnel funnel={conversionFunnel} />
+      )}
+
+      {/* Attrition snapshot — the simpler 5-stage cohort funnel kept
+          as a secondary view since it's a different framing (absolute
+          counts + cohort %, not FTI conditional). */}
       <EngagementFunnel treatment={treatment} />
 
       {ENGAGEMENT_VIGNETTES.map((vignette) => (
@@ -1806,6 +1895,245 @@ function EngagementSection({ rows, loading }) {
       ))}
     </section>
   );
+}
+
+/* ═══════════════════════════════ CONVERSION FUNNEL ════════════════════════
+ * Bar-pair viz: per depth band, render two horizontal bars — width
+ * proportional to cohort_n in the band, and a darker overlay proportional
+ * to fti_n. Beside the bars: cohort_n, fti_n, fti_rate_pct.
+ *
+ * The visual reads at a glance: bars get narrower as engagement deepens
+ * (attrition), but the dark overlay grows in fraction (conversion rate
+ * climbs). The caveat in the section header keeps the causal hygiene
+ * explicit.
+ */
+function ConversionFunnel({ funnel }) {
+  const treatment = funnel.variants?.treatment;
+  const control = funnel.variants?.control;
+  if (!treatment) return null;
+
+  // Max cohort_n across all bands sets the bar scale.
+  const maxN = Math.max(
+    ...treatment.bands.map((b) => b.cohort_n ?? 0),
+    1,
+  );
+
+  return (
+    <div className="mt-12">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[var(--ed-ink)] pb-2 mb-4">
+        <div className="flex items-baseline gap-3 flex-wrap">
+          <h4
+            className="ed-headline"
+            style={{ fontSize: 'clamp(22px, 2.5vw, 28px)' }}
+          >
+            The Conversion Funnel
+          </h4>
+          <p
+            className="ed-prose-italic"
+            style={{ fontSize: 13, color: 'var(--ed-ink-muted)' }}
+          >
+            FTI rate by engagement depth — descriptive, not causal.
+          </p>
+        </div>
+        <span
+          className="ed-caption"
+          style={{ fontSize: 10.5, color: 'var(--ed-ink-faint)' }}
+        >
+          AS OF {funnel.as_of_week ?? '—'}
+        </span>
+      </div>
+
+      <p
+        className="ed-prose-italic mb-6 max-w-prose"
+        style={{ fontSize: 13.5, color: 'var(--ed-ink-muted)', lineHeight: 1.5 }}
+      >
+        Each band is <Term>cumulative</Term> — a user who completed a video
+        also counts as having played, visited, and been bucketed. Deeper
+        bands have higher FTI rates, but the gradient measures who
+        self-selects into engagement, not what engagement causes.
+      </p>
+
+      <ul className="space-y-3">
+        {treatment.bands.map((band, i) => (
+          <ConversionBand
+            key={band.depth}
+            band={band}
+            maxN={maxN}
+            isBaseline={i === 0}
+          />
+        ))}
+      </ul>
+
+      {/* Control reference row — single baseline. */}
+      {control && (
+        <div className="mt-6 pt-4 border-t border-[var(--ed-rule-faint)]">
+          <p
+            className="ed-overline mb-3"
+            style={{ color: 'var(--ed-ink-muted)' }}
+          >
+            CONTROL · BASELINE FOR COMPARISON
+          </p>
+          <ConversionBand
+            band={control.bands.find((b) => b.depth === 'bucketed')}
+            maxN={maxN}
+            isBaseline
+            isControl
+          />
+        </div>
+      )}
+
+      {/* Entry source breakdown — among visitors. */}
+      {treatment.by_entry_source && treatment.by_entry_source.length > 0 && (
+        <div className="mt-10">
+          <h5
+            className="ed-overline mb-3"
+            style={{ color: 'var(--ed-ink-muted)' }}
+          >
+            BY ENTRY SOURCE · TREATMENT VISITORS
+          </h5>
+          <p
+            className="ed-prose-italic mb-4 max-w-prose"
+            style={{ fontSize: 12.5, color: 'var(--ed-ink-faint)' }}
+          >
+            Where each visitor first arrived from. Sticky — only the FIRST
+            entry source per user is counted, even if they return via a
+            different route.
+          </p>
+          <ul
+            className="grid gap-x-6 gap-y-3"
+            style={{
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            }}
+          >
+            {treatment.by_entry_source.map((src) => (
+              <li
+                key={src.source}
+                className="border-t border-[var(--ed-rule-faint)] pt-2"
+              >
+                <p
+                  className="ed-caption"
+                  style={{ fontSize: 10.5, letterSpacing: '0.08em' }}
+                >
+                  {prettifyEntrySource(src.source)}
+                </p>
+                <div className="flex items-baseline justify-between mt-1">
+                  <span
+                    className="tabular-nums"
+                    style={{
+                      fontFamily: 'var(--ed-mono)',
+                      fontSize: 22,
+                      color: 'var(--ed-ink)',
+                    }}
+                  >
+                    {nf.format(src.cohort_n)}
+                  </span>
+                  <span
+                    className="tabular-nums ed-prose-italic"
+                    style={{
+                      fontSize: 13,
+                      color: 'var(--ed-ink-muted)',
+                    }}
+                  >
+                    {src.fti_n} FTI · {src.fti_rate_pct?.toFixed(2) ?? '—'}%
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConversionBand({ band, maxN, isBaseline, isControl }) {
+  if (!band) return null;
+  const widthPct = maxN > 0 ? (100 * (band.cohort_n ?? 0)) / maxN : 0;
+  const ftiWidthPct =
+    band.cohort_n > 0 && band.fti_n
+      ? (100 * (band.fti_n / band.cohort_n))
+      : 0;
+
+  return (
+    <li className="grid items-center gap-x-4" style={{ gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 2fr) auto' }}>
+      <div className="min-w-0">
+        <p
+          className="font-normal truncate"
+          style={{
+            fontFamily: 'var(--ed-display)',
+            fontStyle: 'italic',
+            fontSize: 15,
+            color: isBaseline ? 'var(--ed-ink-muted)' : 'var(--ed-ink)',
+          }}
+        >
+          {band.label}
+        </p>
+        <p
+          className="ed-caption tabular-nums"
+          style={{
+            fontFamily: 'var(--ed-mono)',
+            fontSize: 11,
+            color: 'var(--ed-ink-faint)',
+          }}
+        >
+          {nf.format(band.cohort_n ?? 0)} users · {nf.format(band.fti_n ?? 0)} FTI
+        </p>
+      </div>
+
+      {/* Bar — outer = cohort width, inner = FTI fraction within band. */}
+      <div
+        className="relative h-3"
+        style={{ background: 'var(--ed-rule-faint)' }}
+      >
+        <div
+          className="absolute inset-y-0 left-0"
+          style={{
+            width: `${widthPct}%`,
+            background: isControl ? 'var(--ed-ink-muted)' : 'var(--ed-ink)',
+            transition: 'width 0.3s ease-out',
+          }}
+        >
+          {ftiWidthPct > 0 && (
+            <div
+              className="absolute inset-y-0 left-0"
+              style={{
+                width: `${ftiWidthPct}%`,
+                background: 'var(--ed-forest)',
+                opacity: 0.8,
+              }}
+              aria-hidden
+            />
+          )}
+        </div>
+      </div>
+
+      <span
+        className="tabular-nums text-right"
+        style={{
+          fontFamily: 'var(--ed-mono)',
+          fontSize: 16,
+          fontVariantNumeric: 'tabular-nums',
+          minWidth: '4.5em',
+          color: isControl ? 'var(--ed-ink-muted)' : 'var(--ed-ink)',
+        }}
+      >
+        {band.fti_rate_pct != null
+          ? `${band.fti_rate_pct.toFixed(2)}%`
+          : '—'}
+      </span>
+    </li>
+  );
+}
+
+function prettifyEntrySource(src) {
+  const map = {
+    top_chip: 'Top chip',
+    bottom_nav: 'Bottom nav',
+    deep_link: 'Deep link',
+    direct: 'Direct',
+    unknown: 'Unknown source',
+  };
+  return map[src] ?? src;
 }
 
 function EngagementFunnel({ treatment }) {

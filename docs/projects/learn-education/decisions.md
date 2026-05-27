@@ -6,6 +6,61 @@ considered, and what would force a revisit.**
 
 ---
 
+## D-21 · 2026-05-28 — Pull-quote shows the engagement gradient, not the ITT delta
+
+**Decided.** The masthead pull-quote shows the **conversion gradient** — Treatment cohort baseline FTI rate → top engagement band's FTI rate — formatted as `4.15% → 14.3%`. The caption makes the selection-effect caveat explicit. Falls back to the ITT delta only when funnel data is unavailable.
+
+**Why.** The previous pull-quote showed only the ITT lift (e.g. `+0.32 pp`). This was:
+1. **Redundant.** The same number appears in §I Overview, §II Ledger verdict box, and §IV Reading №01.
+2. **Flat when CI brackets zero.** At W1 the lift is small and inconclusive — the bold pull-quote either misleads or feels deflating.
+3. **Doesn't tell you anything new.** A great pull-quote surfaces a story the rest of the page doesn't already say.
+
+The engagement gradient tells the within-Treatment story: as you condition on deeper engagement, FTI rate climbs. The bold number is real AND interesting. The caveat (selection effect, not causal) is built into the caption so the boldness doesn't overclaim.
+
+**Considered + rejected:**
+- Show only the ITT delta (status quo) — fails the "tell me something new" test.
+- Show the CI bracket (`[-0.96, +2.14] pp`) — accurate but visually defeating in a pull-quote position.
+- Show "time to significance" forecast — interesting but speculative; reads like a hedge.
+- Show baseline → treatment FTI rate (`3.83% → 4.15%`) without engagement conditioning — same fail as the ITT delta.
+
+**Revisit if:** the funnel produces noisy top-band numbers due to small N at the completed band. At very low N (say, <10 completers), the rate is statistically meaningless and the pull-quote should fall back to the ITT delta.
+
+---
+
+## D-20 · 2026-05-28 — Engagement-depth conversion funnel (descriptive, not causal)
+
+**Decided.** Add a new "Conversion Funnel" viz to §III The Engagement that breaks Treatment users down by **cumulative engagement depth** (Bucketed → Visited → Played → Multi-played → Completed) and reports FTI rate at each depth band. Plus an entry-source breakdown (top_chip / bottom_nav / deep_link / direct) for visitors. Control appears only as the baseline band — by design, Control cannot reach the deeper bands.
+
+**Why.** User's question: *"calculating the FTI rate for people who are just in Treatment as it doesn't really make sense. We need to ideally compare between the people who have converted after watching a video."* This is the engagement-conditional view. The honest answer is:
+
+- **ITT (Treatment vs Control)** remains the only **causal** claim. Random assignment guarantees the two arms are comparable at baseline.
+- **Engagement-conditional analysis** is *descriptive* — users who choose to watch self-select. Their high FTI rate is partly the kind of person who watches, not just the effect of watching.
+
+The right move is to **show both, clearly framed.** The conversion funnel surfaces the engagement-conditional story; the framing makes the selection-effect caveat explicit; ITT remains the headline causal claim in §I and §II.
+
+**Data shape:** cumulative bands (depth >= N). A user at the "completed" depth also counts at "played", "visited", and "bucketed". This matches the funnel-reading mental model better than exclusive bands.
+
+**Backend implementation:**
+- New `build_conversion_funnel(engagement_rows, fti_by_user)` in `learn_education.py`.
+- Engagement SQL extended to capture `first_entry_source` from the page_views CTE.
+- Output stored in `manifest.conversion_funnel`.
+- Pure-function, no I/O. 7 unit tests cover band classification, FTI attribution, entry-source breakdown, both arms, and edge cases.
+
+**Frontend implementation:**
+- `ConversionFunnel` viz in §III with bar-pair rows (cohort width + FTI overlay).
+- Entry-source breakdown grid below the funnel.
+- Control reference band at the bottom, in muted ink.
+- Selection-effect caveat baked into the section header AND the band-level prose.
+
+**Considered + rejected:**
+- **Replace ITT with engagement-conditional only.** Would drop the causal claim. Wrong move — the user's experiment is fundamentally A/B; ITT must remain.
+- **Show exclusive depth bands** (depth == N exactly). Less intuitive for reading attrition.
+- **Compute the funnel client-side from rows.** Adds complexity to React without a corresponding gain; cron-time computation is one fewer thing for the dashboard to handle.
+
+**Revisit if:** product asks for instrumental-variable or propensity-score analysis to actually decompose the selection effect.
+
+---
+
 ## D-19 · 2026-05-28 — "Treatment only" is a dedicated block, not omitted
 
 **Decided.** Treatment-only engagement metrics (visit rate, plays, watch time, completion, time-to-first-play, drop-after-first, outbound CTR, banner CTR) are shown in a clearly labeled **"Treatment only · Control is invisible to /learn by design"** block within §II The Ledger, NOT dropped from the comparison section as initially proposed. The block is visually distinct (warmer paper tint, full border, explicit "NOT A COMPARISON" caption).
