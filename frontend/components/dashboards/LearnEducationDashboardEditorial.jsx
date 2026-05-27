@@ -34,7 +34,7 @@ const SECTIONS = [
   { key: 'overview',     no: 'I',   italic: 'The Overview' },
   { key: 'ledger',       no: 'II',  italic: 'The Ledger' },
   { key: 'engagement',   no: 'III', italic: 'The Engagement' },
-  { key: 'health',       no: 'IV',  italic: 'The Guardrails' },
+  { key: 'reading',      no: 'IV',  italic: 'The Reading' },
 ];
 
 /* Engagement columns that are em-dashed for Control. The denominator
@@ -265,16 +265,6 @@ export default function LearnEducationDashboardEditorial({ project }) {
           the component renders nothing — keeping page layout consistent. */}
       <MarginNotes marginNotes={project.manifest?.margin_notes} />
 
-      {/* ────── THE READING — deterministic inferences from the data ─────── */}
-      {/* Computed at render-time from the same rows the Ledger uses.
-          No runtime LLM (per CLAUDE.md data-discipline). Each inference is
-          clearly labelled with its evidence + a citation pointing into our
-          own docs. Renders nothing if no rows have landed. */}
-      <TheReading
-        rows={sortedRows}
-        marginNotes={project.manifest?.margin_notes}
-      />
-
       {/* ────── SECTIONS NAV — anchored ───────────────────────────────────── */}
       {/* These are anchor-style section switchers, not tabs. `aria-current`
           is the right semantic; tab roles without paired tabpanels would
@@ -301,10 +291,10 @@ export default function LearnEducationDashboardEditorial({ project }) {
 
       {/* ────── SECTION BODY ──────────────────────────────────────────────── */}
       <div className="mt-10 ed-set ed-set-delay-4">
-        {section === 'overview'   && <OverviewSection rows={sortedRows} loading={loading} />}
-        {section === 'ledger'     && <LedgerSection rows={sortedRows} loading={loading} />}
+        {section === 'overview'   && <OverviewSection rows={sortedRows} meta={meta} marginNotes={project.manifest?.margin_notes} loading={loading} />}
+        {section === 'ledger'     && <LedgerSection rows={sortedRows} marginNotes={project.manifest?.margin_notes} loading={loading} />}
         {section === 'engagement' && <EngagementSection rows={sortedRows} loading={loading} />}
-        {section === 'health'     && <HealthSection meta={meta} rows={sortedRows} />}
+        {section === 'reading'    && <TheReading rows={sortedRows} marginNotes={project.manifest?.margin_notes} />}
       </div>
 
       {/* ────── COLOPHON ──────────────────────────────────────────────────── */}
@@ -806,66 +796,322 @@ function deriveInferences({ rows, marginNotes }) {
 
 /* ═══════════════════════════════ SECTIONS ═══════════════════════════════ */
 
-function OverviewSection({ rows }) {
-  // For multi-variant: pick the latest-week best-FTI treatment arm as the
-  // representative for the Overview narrative. The Ledger (§02) breaks
-  // every arm out in detail; this section is the prose summary.
+/* The Overview — the "front page" of the section navigation. Pulls
+ * together: (1) the hypothesis, (2) the status (live, since when, how
+ * far through), (3) headline lift numbers + verdict, (4) per-arm
+ * scorecard, (5) what to watch next. Reads top-to-bottom as a single
+ * editorial brief; no scroll-to-find.
+ */
+function OverviewSection({ rows, meta, marginNotes, loading }) {
   const treatments = rows.filter((r) => isTreatmentVariant(r.variant));
   const treatment = treatments.reduce(
     (best, r) =>
       !best || (r.fti_rate_pct ?? -Infinity) > (best.fti_rate_pct ?? -Infinity)
         ? r
         : best,
-    null
+    null,
   );
   const control = rows.find((r) => isControlVariant(r.variant));
   const variantLabel = treatment ? formatVariantLabel(treatment.variant) : 'Treatment';
   const variantCount = new Set(treatments.map((r) => r.variant)).size;
+
+  // Status string: experiment live duration. Anchored to 2026-05-27 13:02
+  // IST go-live (the gi-client-web v22.0.26 tag). After that, we count
+  // calendar days since.
+  const PROD_GO_LIVE = new Date('2026-05-27T13:02:00+05:30');
+  const liveHours = Math.max(0, Math.round((Date.now() - PROD_GO_LIVE.getTime()) / 3.6e6));
+  const liveLabel =
+    liveHours < 48
+      ? `${liveHours}h live`
+      : `${Math.round(liveHours / 24)}d live`;
+
+  const weeks = [...new Set(rows.map((r) => r.week_start))].sort();
+  const weekCount = weeks.length;
+
+  if (!treatment && !control) {
+    return (
+      <section>
+        <SectionHead no="I" title="The Overview" />
+        <p
+          className="ed-prose-italic mt-6 max-w-prose"
+          style={{ color: 'var(--ed-ink-muted)' }}
+        >
+          {loading ? 'On the presses…' : 'No data has been filed yet.'}
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section>
       <SectionHead no="I" title="The Overview" />
-      <div className="grid gap-10 md:grid-cols-2 mt-8">
+
+      {/* The hypothesis box — editorial framing of what the experiment claims. */}
+      <div className="mt-6 border-t border-b border-[var(--ed-ink)] py-5">
+        <p className="ed-overline mb-2">THE HYPOTHESIS</p>
+        <p
+          className="ed-lede max-w-prose"
+          style={{ fontSize: 'clamp(20px, 2.2vw, 24px)', lineHeight: 1.45 }}
+        >
+          Short-form investing content, surfaced to non-invested users on
+          <code className="font-mono mx-1">/learn</code>, lifts the First-Time
+          Investor rate without harming funnel metrics elsewhere.
+        </p>
+      </div>
+
+      {/* Status strip — three facts the reader needs to calibrate everything else. */}
+      <div className="mt-8 grid gap-x-8 gap-y-4 grid-cols-2 sm:grid-cols-4 border-b border-[var(--ed-rule-faint)] pb-6">
+        <OverviewStat label="Status" value="Live" sub={liveLabel} />
+        <OverviewStat
+          label="Weeks of data"
+          value={String(weekCount)}
+          sub={weeks[0] ?? '—'}
+        />
+        <OverviewStat
+          label="Cohort"
+          value={nf.format(
+            (control?.total_non_invested_users ?? 0) +
+              (treatment?.total_non_invested_users ?? 0),
+          )}
+          sub={`${variantCount > 1 ? `${variantCount}-arm` : 'binary'} · split ${
+            meta.cohort_treatment_pct ?? 50
+          }%T`}
+        />
+        <OverviewStat
+          label="Daily order volume"
+          value={nf.format(717)}
+          sub="platform-wide BUYs/day · q2672 reconciliation"
+        />
+      </div>
+
+      {/* The headline verdict — pulled forward from the Ledger so the reader
+          gets the answer before they dig in. */}
+      {marginNotes?.fti_lift_ci && (
+        <OverviewVerdict
+          lift={marginNotes.fti_lift_ci}
+          control={control}
+          treatment={treatment}
+          variantLabel={variantLabel}
+        />
+      )}
+
+      {/* Per-arm scorecard — keeps the two columns the previous design had,
+          tightened up. Avoids the visit-rate / players prose that should
+          really live in §III The Engagement. */}
+      <div className="grid gap-10 md:grid-cols-2 mt-10">
         <div>
           <p className="ed-overline mb-3">
             {variantLabel}
-            {variantCount > 1 && ` (best of ${variantCount} arms)`}
+            {variantCount > 1 && ` · best of ${variantCount} arms`}
           </p>
-          <p className="ed-lede ed-dropcap max-w-prose">
-            {treatment ? (
-              <>
-                This week {nf.format(treatment.total_non_invested_users ?? 0)}{' '}
-                non-invested users were bucketed into {variantLabel}.{' '}
-                {nf.format(treatment.learn_page_visitors ?? 0)} reached{' '}
-                <code className="font-mono">/learn</code> — a visit rate of{' '}
-                <Term>{treatment.learn_visit_rate_pct?.toFixed(1) ?? '—'}%</Term>
-                {' '}— and {nf.format(treatment.unique_video_players ?? 0)} watched
-                at least one video, averaging {treatment.avg_videos_per_user ?? '—'}{' '}
-                per engaged user.
-              </>
-            ) : (
-              'Treatment data has not yet been filed for this issue.'
-            )}
+          <ul className="space-y-2">
+            <OverviewArmRow
+              label="Cohort size"
+              value={nf.format(treatment?.total_non_invested_users ?? 0)}
+            />
+            <OverviewArmRow
+              label="FTI users"
+              value={nf.format(treatment?.fti_users ?? 0)}
+            />
+            <OverviewArmRow
+              label="FTI rate"
+              value={
+                treatment?.fti_rate_pct != null
+                  ? `${treatment.fti_rate_pct.toFixed(2)}%`
+                  : '—'
+              }
+              emphasis
+            />
+          </ul>
+          <p
+            className="ed-prose-italic mt-4 max-w-prose"
+            style={{ fontSize: 13, color: 'var(--ed-ink-muted)' }}
+          >
+            Engagement detail lives in §III · The Engagement.
           </p>
         </div>
         <div>
           <p className="ed-overline mb-3">Control · the counterfactual</p>
-          <p className="ed-prose max-w-prose" style={{ fontSize: 17 }}>
-            {control ? (
-              <>
-                {nf.format(control.total_non_invested_users ?? 0)} non-invested
-                users sit in Control. The Learn surface is invisible to them by
-                design — that is not missing data, it is the experiment working.
-                Their FTI rate of{' '}
-                <Term>{control.fti_rate_pct?.toFixed(1) ?? '—'}%</Term> is the
-                baseline against which Treatment is judged.
-              </>
-            ) : (
-              'Control data has not yet been filed for this issue.'
-            )}
+          <ul className="space-y-2">
+            <OverviewArmRow
+              label="Cohort size"
+              value={nf.format(control?.total_non_invested_users ?? 0)}
+            />
+            <OverviewArmRow
+              label="FTI users"
+              value={nf.format(control?.fti_users ?? 0)}
+            />
+            <OverviewArmRow
+              label="FTI rate"
+              value={
+                control?.fti_rate_pct != null
+                  ? `${control.fti_rate_pct.toFixed(2)}%`
+                  : '—'
+              }
+              emphasis
+            />
+          </ul>
+          <p
+            className="ed-prose-italic mt-4 max-w-prose"
+            style={{ fontSize: 13, color: 'var(--ed-ink-muted)' }}
+          >
+            Learn is invisible to Control by design — non-zero engagement
+            would indicate a leak (see Editor’s Note).
           </p>
         </div>
       </div>
+
+      {/* What to watch next — one paragraph forecasting where the data goes
+          next. Helps the reader return next week with a frame. */}
+      <div className="mt-10">
+        <p className="ed-overline mb-3">WHAT TO WATCH</p>
+        <p
+          className="ed-prose max-w-prose"
+          style={{ fontSize: 17, lineHeight: 1.55 }}
+        >
+          {weekCount < 4 ? (
+            <>
+              The experiment is in its first {weekCount === 1 ? 'week' : `${weekCount} weeks`}.
+              {' '}The minimum detectable effect (MDE) at the current sample size
+              is{' '}
+              <Term>
+                ±{(marginNotes?.mde?.mde_abs_pp ?? 0).toFixed(1)} pp
+              </Term>
+              {' '}— a real effect smaller than that would slip past undetected.
+              Reaching <Term>~12,000 users per arm</Term> (around W4) brings the
+              MDE down to roughly ±0.5 pp, at which point the 95% confidence
+              interval becomes meaningful for product decisions.
+            </>
+          ) : (
+            <>
+              {weekCount} weeks of data are now on file. The lift is{' '}
+              <Term>
+                {(marginNotes?.fti_lift_ci?.delta_pp ?? 0).toFixed(2)} pp
+              </Term>{' '}
+              with a 95% CI of [{(marginNotes?.fti_lift_ci?.ci_lower_pp ?? 0).toFixed(2)},
+              {' '}{(marginNotes?.fti_lift_ci?.ci_upper_pp ?? 0).toFixed(2)}] pp.
+              See §IV · The Reading for a structured interpretation.
+            </>
+          )}
+        </p>
+      </div>
     </section>
+  );
+}
+
+function OverviewStat({ label, value, sub }) {
+  return (
+    <div>
+      <p
+        className="ed-caption"
+        style={{ fontSize: 10.5, color: 'var(--ed-ink-faint)' }}
+      >
+        {label}
+      </p>
+      <p
+        className="tabular-nums mt-1"
+        style={{
+          fontFamily: 'var(--ed-mono)',
+          fontSize: 'clamp(22px, 2.4vw, 28px)',
+          color: 'var(--ed-ink)',
+          lineHeight: 1.05,
+        }}
+      >
+        {value}
+      </p>
+      {sub && (
+        <p
+          className="ed-prose-italic mt-1"
+          style={{ fontSize: 12, color: 'var(--ed-ink-muted)' }}
+        >
+          {sub}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function OverviewVerdict({ lift, control, treatment, variantLabel }) {
+  const insufficient = lift.verdict === 'insufficient_data';
+  const delta = lift.delta_pp ?? 0;
+  const lo = lift.ci_lower_pp;
+  const hi = lift.ci_upper_pp;
+  const crossesZero = lo != null && hi != null && lo <= 0 && hi >= 0;
+  const accentColor = insufficient
+    ? 'var(--ed-ink-muted)'
+    : crossesZero
+      ? 'var(--ed-gold)'
+      : delta > 0
+        ? 'var(--ed-forest)'
+        : 'var(--ed-rust)';
+  return (
+    <div className="mt-10 grid gap-6 md:grid-cols-[1fr_2fr] md:items-baseline border-b border-[var(--ed-rule-faint)] pb-6">
+      <div>
+        <p className="ed-overline mb-2">THE VERDICT · W LATEST</p>
+        <p
+          className="ed-pullnum"
+          style={{
+            fontSize: 'clamp(56px, 7vw, 96px)',
+            lineHeight: 1,
+            color: accentColor,
+          }}
+        >
+          {insufficient ? '—' : `${delta >= 0 ? '+' : ''}${delta.toFixed(2)}pp`}
+        </p>
+        {!insufficient && lo != null && hi != null && (
+          <p
+            className="ed-caption mt-2 tabular-nums"
+            style={{
+              fontFamily: 'var(--ed-mono)',
+              fontSize: 12,
+              color: 'var(--ed-ink-muted)',
+            }}
+          >
+            CI: [{lo.toFixed(2)}, {hi.toFixed(2)}] pp
+          </p>
+        )}
+      </div>
+      <div>
+        <p className="ed-prose-italic max-w-prose" style={{ fontSize: 16 }}>
+          {variantLabel} FTI rate{' '}
+          <Term>{treatment?.fti_rate_pct?.toFixed(2) ?? '—'}%</Term> versus
+          Control{' '}
+          <Term>{control?.fti_rate_pct?.toFixed(2) ?? '—'}%</Term>.{' '}
+          {insufficient
+            ? 'Confidence interval not yet computable — both arms need at least 10 conversions.'
+            : crossesZero
+              ? 'The 95% CI brackets zero; the lift is consistent with noise. Not yet a causal claim.'
+              : delta > 0
+                ? 'The 95% CI excludes zero on the positive side. Statistically significant.'
+                : 'The 95% CI lies below zero. Treatment is statistically WORSE than Control.'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function OverviewArmRow({ label, value, emphasis }) {
+  return (
+    <li className="flex items-baseline justify-between gap-4 border-b border-[var(--ed-rule-faint)] pb-2">
+      <span
+        className="ed-prose-italic"
+        style={{ fontSize: 14, color: 'var(--ed-ink-muted)' }}
+      >
+        {label}
+      </span>
+      <span
+        className="tabular-nums"
+        style={{
+          fontFamily: 'var(--ed-mono)',
+          fontSize: emphasis ? 22 : 16,
+          fontVariantNumeric: 'tabular-nums',
+          color: 'var(--ed-ink)',
+          fontWeight: emphasis ? 500 : 400,
+        }}
+      >
+        {value}
+      </span>
+    </li>
   );
 }
 
@@ -878,44 +1124,41 @@ function OverviewSection({ rows }) {
  * Design alternatives considered + rejected — see
  * docs/projects/learn-education/decisions.md D-13 for the full reasoning. */
 
+/* The Ledger holds ONLY metrics that admit a meaningful Control vs
+ * Treatment comparison. Em-dashed cells on one side make for a poor
+ * comparison story — those metrics live in The Engagement section
+ * (Treatment-only deep-dive). The decision is logged in D-18.
+ *
+ * What counts as "comparable":
+ *   - Both arms produce real numbers (not by-design zeros).
+ *   - The metric exists independent of the Learn surface — outcomes,
+ *     denominators, downstream conversions.
+ *
+ * What does NOT count:
+ *   - Visit rate, video plays, watch time, completion, etc. — Control
+ *     can't reach /learn by design, so its value is always 0 or em-dash.
+ *     Comparing them is mechanical, not analytical.
+ */
 const LEDGER_GROUPS = [
   {
-    title: 'The Surface',
-    italic: 'who arrived, who engaged',
-    keys: [
-      'learn_visit_rate_pct',
-      'engaged_visitor_rate_pct',
-      'outbound_click_rate_pct',
-      'banner_ctr_on_learn_pct',
-    ],
+    title: 'Cohort balance',
+    italic: 'is randomisation working?',
+    keys: ['total_non_invested_users'],
   },
   {
-    title: 'The Watch',
-    italic: 'attention earned per cohort user',
-    keys: [
-      'total_video_plays',
-      'unique_video_players',
-      'plays_per_visitor',
-      'avg_videos_per_user',
-      'avg_watch_time_sec',
-      'completion_rate_pct',
-      'drop_after_first_pct',
-      'median_time_to_first_play_sec',
-    ],
+    title: 'The Outcome',
+    italic: 'the only thing the experiment claims to influence',
+    keys: ['fti_users', 'fti_rate_pct'],
   },
   {
-    title: 'The Investor',
-    italic: 'the only outcome that matters',
-    keys: [
-      'total_non_invested_users',
-      'fti_users',
-      'fti_users_who_watched',
-      'fti_rate_pct',
-    ],
+    title: 'Causal candidate',
+    italic: 'watched before they invested',
+    keys: ['fti_users_who_watched'],
+    note: 'Control’s zero is by design — Control cannot watch a video that does not render for them. This row is suggestive only; see § The Reading for the causal-vs-correlation hygiene caveat.',
   },
 ];
 
-function LedgerSection({ rows, loading }) {
+function LedgerSection({ rows, marginNotes, loading }) {
   const weeks = React.useMemo(() => {
     const seen = new Set();
     for (const r of rows) seen.add(r.week_start ?? r.week);
@@ -977,7 +1220,159 @@ function LedgerSection({ rows, loading }) {
           weekIndex={weekIndex}
         />
       ))}
+
+      {/* FTI Lift CI — the headline causal claim, surfaced inside the
+          comparison section so the reader doesn't have to cross-reference
+          the Editor's Note. Renders only when both arms have a non-null
+          FTI rate (Margin Notes computes it for us). */}
+      {marginNotes?.fti_lift_ci && (
+        <LedgerLiftSummary lift={marginNotes.fti_lift_ci} />
+      )}
+
+      {/* Treatment-only deep-cut — explicitly framed so the reader doesn't
+          confuse this with a comparison. The engagement metrics in here
+          have no meaningful Control counterpart (the surface is invisible),
+          so we show them as a labeled summary rather than fake an
+          em-dashed comparison row. §III The Engagement has the full
+          funnel-narrative version of these same numbers. */}
+      {weekIndex[latestWeek]?.treatment && (
+        <LedgerTreatmentOnly treatment={weekIndex[latestWeek].treatment} />
+      )}
     </section>
+  );
+}
+
+/* Where Control cannot speak — a deliberately distinct visual block that
+ * shows Treatment-only engagement metrics. The framing makes the design
+ * explicit: this isn't a comparison gone wrong (em-dashes everywhere),
+ * it's a single-arm readout because the Learn surface is invisible to
+ * Control by design. Reads as a "sidebar" inside §II The Ledger.
+ *
+ * Metrics here also appear in §III The Engagement with deeper narrative;
+ * this compact form keeps the Ledger self-contained for readers who
+ * stop after §II.
+ */
+const TREATMENT_ONLY_GROUPS = [
+  {
+    title: 'The Surface',
+    keys: [
+      'learn_visit_rate_pct',
+      'engaged_visitor_rate_pct',
+      'plays_per_visitor',
+      'outbound_click_rate_pct',
+      'banner_ctr_on_learn_pct',
+    ],
+  },
+  {
+    title: 'The Watch',
+    keys: [
+      'unique_video_players',
+      'total_video_plays',
+      'avg_videos_per_user',
+      'avg_watch_time_sec',
+      'completion_rate_pct',
+    ],
+  },
+  {
+    title: 'The Friction',
+    keys: [
+      'median_time_to_first_play_sec',
+      'drop_after_first_pct',
+    ],
+  },
+];
+
+function LedgerTreatmentOnly({ treatment }) {
+  return (
+    <div
+      className="mt-14 border-2 px-6 py-5 sm:px-8 sm:py-7"
+      style={{
+        borderColor: 'var(--ed-ink-muted)',
+        // Slightly warmer than the page paper to signal "this is a different
+        // kind of read." Tinted toward the editorial paper hue per the
+        // shared design laws — no flat #fff.
+        background: 'rgba(184, 130, 50, 0.04)',
+      }}
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-[var(--ed-ink-muted)] pb-2 mb-4">
+        <div className="flex items-baseline gap-3 flex-wrap">
+          <h4
+            className="ed-headline"
+            style={{ fontSize: 'clamp(20px, 2.3vw, 26px)' }}
+          >
+            Treatment only
+          </h4>
+          <p
+            className="ed-prose-italic"
+            style={{ fontSize: 13, color: 'var(--ed-ink-muted)' }}
+          >
+            Control is invisible to <code className="font-mono">/learn</code> by design.
+          </p>
+        </div>
+        <span
+          className="ed-caption"
+          style={{ fontSize: 10.5, color: 'var(--ed-ink-faint)' }}
+        >
+          NOT A COMPARISON · NO CONTROL COUNTERPART
+        </span>
+      </div>
+
+      <p
+        className="ed-prose-italic mb-6 max-w-prose"
+        style={{ fontSize: 13.5, color: 'var(--ed-ink-muted)' }}
+      >
+        These metrics describe what happens on the Learn surface itself. A
+        Control number here would be either zero (by design) or a leak —
+        comparing them to Treatment is not analytically meaningful. See §III ·
+        The Engagement for the narrative version of these numbers.
+      </p>
+
+      {TREATMENT_ONLY_GROUPS.map((group, i) => (
+        <div key={group.title} className={i === 0 ? '' : 'mt-7'}>
+          <h5
+            className="ed-overline mb-3"
+            style={{ color: 'var(--ed-ink-muted)' }}
+          >
+            {group.title}
+          </h5>
+          <ul
+            className="grid gap-x-6 gap-y-3"
+            style={{
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            }}
+          >
+            {group.keys.map((key) => {
+              const col = COLUMNS.find((c) => c.key === key);
+              if (!col) return null;
+              const value = treatment[key];
+              return (
+                <li key={key} className="border-t border-[var(--ed-rule-faint)] pt-2">
+                  <p
+                    className="ed-caption truncate"
+                    style={{ fontSize: 10, letterSpacing: '0.08em' }}
+                    title={col.label}
+                  >
+                    {col.label}
+                  </p>
+                  <p
+                    className="mt-1 tabular-nums"
+                    style={{
+                      fontFamily: 'var(--ed-mono)',
+                      fontSize: 'clamp(18px, 2vw, 22px)',
+                      fontVariantNumeric: 'tabular-nums',
+                      color: 'var(--ed-ink)',
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    {formatCell(value, col.kind)}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -1023,6 +1418,86 @@ function LedgerGroup({ group, weeks, latestWeek, treatmentVariant, weekIndex }) 
           />
         ))}
       </ul>
+
+      {group.note && (
+        <p
+          className="ed-prose-italic mt-3 max-w-prose"
+          style={{ fontSize: 12.5, color: 'var(--ed-ink-faint)', lineHeight: 1.5 }}
+        >
+          ¶ {group.note}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* The Lift Summary — the headline CI box, rendered at the bottom of
+ * the Ledger so a scanner can stop reading at the conclusion without
+ * scrolling to Margin Notes. Editorial framing: this IS the experiment's
+ * verdict in numerical form, with the honest hedge built in.
+ */
+function LedgerLiftSummary({ lift }) {
+  const insufficient = lift.verdict === 'insufficient_data';
+  const delta = lift.delta_pp;
+  const lo = lift.ci_lower_pp;
+  const hi = lift.ci_upper_pp;
+  const crossesZero = lo != null && hi != null && lo <= 0 && hi >= 0;
+  const verdictLine = insufficient
+    ? 'Confidence interval not yet computable — both arms need at least 10 conversions.'
+    : crossesZero
+      ? 'The interval brackets zero. The lift is consistent with random variation; we cannot yet claim a real effect.'
+      : (delta ?? 0) > 0
+        ? 'The interval excludes zero on the positive side. Treatment’s lift over Control is statistically significant at this sample size.'
+        : 'The interval lies below zero. Treatment is statistically WORSE than Control at this sample size.';
+  const accentColor = insufficient
+    ? 'var(--ed-ink-muted)'
+    : crossesZero
+      ? 'var(--ed-gold)'
+      : (delta ?? 0) > 0
+        ? 'var(--ed-forest)'
+        : 'var(--ed-rust)';
+  return (
+    <div className="mt-14">
+      <p
+        className="ed-overline mb-2"
+        style={{ color: 'var(--ed-ink-muted)' }}
+      >
+        THE VERDICT · 95% CONFIDENCE INTERVAL
+      </p>
+      <div className="border-t-2 border-b border-[var(--ed-ink)] py-5 grid gap-4 md:grid-cols-[1.2fr_2fr] md:items-center">
+        <div>
+          <p
+            className="ed-pullnum"
+            style={{
+              fontSize: 'clamp(48px, 6vw, 80px)',
+              lineHeight: 1,
+              color: accentColor,
+            }}
+          >
+            {insufficient
+              ? '—'
+              : `${(delta ?? 0) >= 0 ? '+' : ''}${(delta ?? 0).toFixed(2)} pp`}
+          </p>
+          {!insufficient && lo != null && hi != null && (
+            <p
+              className="ed-caption mt-2 tabular-nums"
+              style={{
+                fontFamily: 'var(--ed-mono)',
+                fontSize: 12,
+                color: 'var(--ed-ink-muted)',
+              }}
+            >
+              CI: [{lo.toFixed(2)}, {hi.toFixed(2)}] pp
+            </p>
+          )}
+        </div>
+        <p
+          className="ed-prose-italic"
+          style={{ fontSize: 15, lineHeight: 1.5, color: 'var(--ed-ink)' }}
+        >
+          {verdictLine}
+        </p>
+      </div>
     </div>
   );
 }
@@ -1241,82 +1716,218 @@ function LedgerSparkline({ values }) {
   );
 }
 
-function EngagementSection({ rows }) {
-  // For multi-variant: pick best-FTI treatment arm as representative.
-  // Ledger (§02) breaks out every arm in detail.
+/* The Engagement — Treatment-only deep-dive. This is where every metric
+ * that doesn't admit Control comparison lives: visit rate, plays,
+ * completion, time-to-first-play, drop-after-first, outbound CTR,
+ * banner CTR. Reads as the dashboard's "feature page" — what users
+ * actually do on /learn. Organised into three editorial vignettes.
+ */
+const ENGAGEMENT_VIGNETTES = [
+  {
+    title: 'The Surface',
+    italic: 'who arrives and engages',
+    keys: [
+      'learn_visit_rate_pct',
+      'engaged_visitor_rate_pct',
+      'plays_per_visitor',
+      'outbound_click_rate_pct',
+      'banner_ctr_on_learn_pct',
+    ],
+  },
+  {
+    title: 'The Watch',
+    italic: 'attention the content earns',
+    keys: [
+      'unique_video_players',
+      'total_video_plays',
+      'avg_videos_per_user',
+      'avg_watch_time_sec',
+      'completion_rate_pct',
+    ],
+  },
+  {
+    title: 'The Friction',
+    italic: 'where users hesitate or leave',
+    keys: [
+      'median_time_to_first_play_sec',
+      'drop_after_first_pct',
+    ],
+  },
+];
+
+function EngagementSection({ rows, loading }) {
   const treatments = rows.filter((r) => isTreatmentVariant(r.variant));
   const treatment = treatments.reduce(
     (best, r) =>
       !best || (r.fti_rate_pct ?? -Infinity) > (best.fti_rate_pct ?? -Infinity)
         ? r
         : best,
-    null
+    null,
   );
-  if (!treatment) return <Stub no="III" title="The Engagement" />;
+  const variantLabel = treatment ? formatVariantLabel(treatment.variant) : 'Treatment';
+
+  if (!treatment) {
+    return (
+      <section>
+        <SectionHead no="III" title="The Engagement" />
+        <p
+          className="ed-prose-italic mt-6 max-w-prose"
+          style={{ color: 'var(--ed-ink-muted)' }}
+        >
+          {loading ? 'On the presses…' : 'Treatment data has not yet been filed.'}
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section>
       <SectionHead no="III" title="The Engagement" />
-      <div className="grid gap-x-10 gap-y-7 sm:grid-cols-3 mt-8">
-        <Figure
-          stat={`${nf.format(treatment.unique_video_players ?? 0)}`}
-          label="unique players"
-          prose={`Out of ${nf.format(treatment.learn_page_visitors ?? 0)} visitors, ${pct((treatment.unique_video_players ?? 0) / Math.max(treatment.learn_page_visitors ?? 1, 1) * 100)} watched at least one video.`}
+      <p
+        className="ed-prose-italic mt-3 max-w-prose"
+        style={{ fontSize: 15 }}
+      >
+        How {variantLabel} users actually behave on <code className="font-mono">/learn</code>.
+        Control does not appear here by design — the surface is invisible
+        to them, so engagement metrics don’t admit a fair comparison.
+        For Control-vs-Treatment, see §II The Ledger.
+      </p>
+
+      {/* Funnel narrative — one sentence per stage, with the number inline.
+          Reads as a single paragraph so the reader sees attrition at a glance. */}
+      <EngagementFunnel treatment={treatment} />
+
+      {ENGAGEMENT_VIGNETTES.map((vignette) => (
+        <EngagementVignette
+          key={vignette.title}
+          vignette={vignette}
+          treatment={treatment}
         />
-        <Figure
-          stat={nf.format(treatment.total_video_plays ?? 0)}
-          label="plays"
-          prose={`Averaging ${treatment.avg_videos_per_user ?? '—'} videos per engaged user; loops count once.`}
-        />
-        <Figure
-          stat={`${treatment.avg_watch_time_sec ?? '—'}s`}
-          label="avg watch time"
-          prose={`Forward-delta accumulation with a 1-second ceiling per sample. Seeks do not inflate.`}
-        />
-      </div>
+      ))}
     </section>
   );
 }
 
-function HealthSection({ meta, rows }) {
-  const srmOk = true; // until we have variance data; future: chi-square on assignment counts
-  const controlLeakValue = meta.control_visit_rate_pct ?? 0;
-  const controlLeakOk = controlLeakValue === 0;
+function EngagementFunnel({ treatment }) {
+  const cohort = treatment.total_non_invested_users ?? 0;
+  const visitors = treatment.learn_page_visitors ?? 0;
+  const players = treatment.unique_video_players ?? 0;
+  const plays = treatment.total_video_plays ?? 0;
+  const ftiUsers = treatment.fti_users ?? 0;
+
+  const stages = [
+    { label: 'Bucketed', value: cohort, share: 100 },
+    { label: 'Visited', value: visitors, share: cohort ? (100 * visitors) / cohort : 0 },
+    { label: 'Played', value: players, share: cohort ? (100 * players) / cohort : 0 },
+    { label: 'Plays', value: plays, share: null }, // event count, not share
+    { label: 'Invested', value: ftiUsers, share: cohort ? (100 * ftiUsers) / cohort : 0 },
+  ];
+
   return (
-    <section>
-      <SectionHead no="IV" title="The Guardrails" />
-      <p className="ed-prose-italic mt-3 max-w-prose" style={{ fontSize: 15 }}>
-        Two cheap guardrails that catch the two classes of bug which
-        destroy an experiment silently. Both must pass before drawing
-        conclusions from the ledger.
-      </p>
-      <div className="mt-8 grid gap-10 md:grid-cols-2">
-        <HealthBlock
-          ok={srmOk}
-          title="Sample Ratio Mismatch"
-          value={`${nf.format(meta.cohort_assignment_total ?? 0)} bucketed · ${meta.cohort_treatment_pct ?? 0}% Treatment`}
-          prose="Counts of Treatment vs Control should match the configured split within ±2%. Persistent drift indicates a bucketing leak — fix the gate before reading any other metric."
-        />
-        <HealthBlock
-          ok={controlLeakOk}
-          title="Control Surface Leak"
-          value={`Control Visit Rate ${controlLeakValue.toFixed(1)}%`}
-          prose="If Control is correctly conditional-rendered, no Control user ever reaches /learn. A non-zero figure here means the chip or footer item is leaking past the experiment gate."
-        />
-      </div>
-    </section>
+    <div className="mt-10 border-t border-b border-[var(--ed-ink)] py-5">
+      <p className="ed-overline mb-4">THE FUNNEL · LATEST WEEK</p>
+      <ol className="grid gap-x-6 gap-y-3 grid-cols-2 sm:grid-cols-5">
+        {stages.map((s, i) => (
+          <li key={s.label} className="flex flex-col">
+            <span
+              className="ed-caption"
+              style={{ fontSize: 10.5, color: 'var(--ed-ink-faint)' }}
+            >
+              {i + 1}. {s.label}
+            </span>
+            <span
+              className="tabular-nums"
+              style={{
+                fontFamily: 'var(--ed-mono)',
+                fontSize: 'clamp(22px, 2.4vw, 32px)',
+                color: 'var(--ed-ink)',
+                lineHeight: 1.05,
+              }}
+            >
+              {nf.format(s.value)}
+            </span>
+            {s.share != null && (
+              <span
+                className="ed-prose-italic"
+                style={{ fontSize: 12, color: 'var(--ed-ink-muted)' }}
+              >
+                {s.share.toFixed(1)}% of cohort
+              </span>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
-function Stub({ no, title }) {
+function EngagementVignette({ vignette, treatment }) {
+  const items = vignette.keys
+    .map((k) => ({ col: COLUMNS.find((c) => c.key === k), value: treatment[k] }))
+    .filter((x) => x.col);
+
   return (
-    <section>
-      <SectionHead no={no} title={title} />
-      <p className="ed-prose-italic mt-6 max-w-prose" style={{ color: 'var(--ed-ink-muted)' }}>
-        Treatment data has not yet been filed.
-      </p>
-    </section>
+    <div className="mt-12">
+      <div className="flex items-baseline gap-3 border-b border-[var(--ed-rule-faint)] pb-2 mb-4">
+        <h4
+          className="ed-headline"
+          style={{ fontSize: 'clamp(20px, 2.2vw, 24px)' }}
+        >
+          {vignette.title}
+        </h4>
+        <p
+          className="ed-prose-italic"
+          style={{ fontSize: 13, color: 'var(--ed-ink-muted)' }}
+        >
+          {vignette.italic}
+        </p>
+      </div>
+      <ul
+        className="grid gap-x-6 gap-y-5"
+        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}
+      >
+        {items.map(({ col, value }) => (
+          <li key={col.key} className="border-t border-[var(--ed-rule-faint)] pt-3">
+            <p
+              className="ed-caption"
+              style={{ fontSize: 10.5, letterSpacing: '0.08em' }}
+            >
+              {col.label}
+            </p>
+            <p
+              className="mt-1 tabular-nums"
+              style={{
+                fontFamily: 'var(--ed-mono)',
+                fontSize: 'clamp(22px, 2.5vw, 30px)',
+                fontVariantNumeric: 'tabular-nums',
+                color: 'var(--ed-ink)',
+                lineHeight: 1.1,
+              }}
+            >
+              {formatCell(value, col.kind)}
+            </p>
+            {col.hint && (
+              <p
+                className="ed-prose-italic"
+                style={{ fontSize: 12, color: 'var(--ed-ink-muted)' }}
+              >
+                {col.hint}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
+
+/* HealthSection + HealthBlock removed 2026-05-28. The collapsible
+ * "Editor's Note on Confidence" (MarginNotes) above-the-fold and the
+ * verdict box inside §II The Ledger together cover the same ground
+ * with better integration. SECTIONS now ends at §IV The Reading.
+ *
+ * Stub removed too — both §I Overview and §III Engagement have proper
+ * empty-state handling inline. */
 
 /* ═══════════════════════════════ PRIMITIVES ═══════════════════════════════ */
 
@@ -1331,58 +1942,10 @@ function SectionHead({ no, title }) {
   );
 }
 
-function ProseColumn({ heading, body }) {
-  return (
-    <div>
-      <p className="ed-overline mb-3">{heading}</p>
-      <p className="ed-prose" style={{ fontSize: 17 }}>{body}</p>
-    </div>
-  );
-}
-
-function Figure({ stat, label, prose }) {
-  return (
-    <div>
-      <div className="ed-stat-num" style={{ fontSize: 'clamp(36px, 5vw, 56px)' }}>
-        {stat}
-      </div>
-      <p className="ed-caption mt-1">{label}</p>
-      <p className="ed-prose-italic mt-2" style={{ fontSize: 14 }}>{prose}</p>
-    </div>
-  );
-}
-
-function HealthBlock({ ok, title, value, prose }) {
-  return (
-    <div className="border-t border-[var(--ed-rule)] pt-4">
-      <div className="flex items-center gap-2">
-        <span
-          className="inline-block"
-          style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: ok ? 'var(--ed-forest)' : 'var(--ed-rust)',
-          }}
-          role="img"
-          aria-label={ok ? 'pass' : 'fail'}
-        />
-        <p className="ed-overline">{title}</p>
-      </div>
-      <p
-        className="mt-2"
-        style={{
-          fontFamily: 'var(--ed-mono)',
-          fontSize: 16,
-          color: ok ? 'var(--ed-ink)' : 'var(--ed-rust)',
-        }}
-      >
-        {value}
-      </p>
-      <p className="ed-prose-italic mt-2 max-w-prose" style={{ fontSize: 14 }}>{prose}</p>
-    </div>
-  );
-}
+/* ProseColumn, Figure, HealthBlock — primitives from the V1 design.
+ * Dropped 2026-05-28: the Overview/Engagement rewrites use bespoke layouts
+ * inline. Re-introduce if a future section needs them, but don't keep
+ * dead code on the chance. */
 
 function Exhibit({ letter, label, value, sub, delta, loading }) {
   return (

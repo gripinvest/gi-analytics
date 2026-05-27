@@ -6,6 +6,35 @@ considered, and what would force a revisit.**
 
 ---
 
+## D-19 · 2026-05-28 — "Treatment only" is a dedicated block, not omitted
+
+**Decided.** Treatment-only engagement metrics (visit rate, plays, watch time, completion, time-to-first-play, drop-after-first, outbound CTR, banner CTR) are shown in a clearly labeled **"Treatment only · Control is invisible to /learn by design"** block within §II The Ledger, NOT dropped from the comparison section as initially proposed. The block is visually distinct (warmer paper tint, full border, explicit "NOT A COMPARISON" caption).
+
+**Why.** User pushback: dropping these metrics would hide important readouts. The original problem ("em-dashes everywhere makes for a boring comparison") wasn't that the data was wrong — it was that the SHAPE was wrong, pretending these are comparison metrics. The fix is to keep the metrics but reframe them as a single-arm readout with a clear "no Control counterpart" header.
+
+These metrics also appear in §III The Engagement as a deeper funnel-narrative. The duplication is intentional: a reader who stops at §II gets the compact form; a reader who clicks into §III gets the deeper version.
+
+**Considered + rejected:**
+- Drop the metrics from §II entirely (initial proposal) — leaves §II thin, forces every reader to drill into §III for basic engagement reading.
+- Render them with explicit "N/A" Control values — perpetuates the comparison framing problem.
+- Side-stripe accent block — banned per impeccable design rules.
+
+**Revisit if:** the duplication between §II's "Treatment only" block and §III The Engagement creates editorial drift (numbers diverge, or one becomes stale).
+
+---
+
+## D-18 · 2026-05-28 — §IV becomes "The Reading"; "The Guardrails" removed
+
+**Decided.** Section IV in the navigable body is now "The Reading" — the inferences view. The previous §IV "The Guardrails" (HealthSection) is removed.
+
+**Why.** User feedback: The Reading deserves its own tab, not a dedicated inline block at the top. The previous §IV Guardrails was redundant with the inline "Editor's Note on Confidence" (collapsible MarginNotes, D-16) — same indicators surfaced twice was clutter. Replacing §IV with The Reading moves the inferences view from forced-prominence to opt-in and consolidates experiment-integrity coverage in one place (the collapsed Editor's Note).
+
+Final SECTIONS array: §I Overview · §II Ledger · §III Engagement · §IV Reading.
+
+**Revisit if:** product asks for a dedicated "experiment health" tab again. The data is still in `project.manifest.margin_notes`; re-introducing the section is a 50-line component.
+
+---
+
 ## D-17 · 2026-05-28 — "The Reading" section: deterministic inferences, no runtime LLM
 
 **Decided.** Add a new dashboard section "The Reading" that surfaces 4-5 plain-English inferences derived from the cohort data. Each inference is **deterministically computed** from the same `rows` the Ledger uses — no LLM at runtime — and carries a citation pointing into our own docs (Ledger row, glossary entry, decision-log reference).
