@@ -1,36 +1,36 @@
 {
-  "refreshed_at": "2026-05-27T20:50:26Z",
+  "refreshed_at": "2026-05-27T21:18:51Z",
   "tables": {
     "weekly_ab_tracker": {
-      "last_refreshed_at": "2026-05-27T20:50:26Z"
+      "last_refreshed_at": "2026-05-27T21:18:51Z"
     }
   },
   "margin_notes": {
     "as_of_week": "2026-05-25",
     "srm": {
-      "control_n": 1380,
-      "treatment_n": 1357,
-      "p_value": 0.6602,
+      "control_n": 1387,
+      "treatment_n": 1365,
+      "p_value": 0.6749,
       "verdict": "ok"
     },
     "control_leak": {
       "control_visitors": 1,
-      "control_cohort": 1380,
+      "control_cohort": 1387,
       "leak_pct": 0.07,
       "verdict": "warn"
     },
     "fti_lift_ci": {
-      "control_pct": 3.84,
-      "treatment_pct": 4.05,
+      "control_pct": 3.82,
+      "treatment_pct": 4.03,
       "delta_pp": 0.21,
-      "ci_lower_pp": -1.25,
-      "ci_upper_pp": 1.67,
+      "ci_lower_pp": -1.24,
+      "ci_upper_pp": 1.66,
       "verdict": "ok"
     },
     "mde": {
-      "n_per_arm": 1357,
-      "pooled_rate_pct": 3.95,
-      "mde_abs_pp": 2.09,
+      "n_per_arm": 1365,
+      "pooled_rate_pct": 3.92,
+      "mde_abs_pp": 2.08,
       "mde_rel_pct": 53.1
     }
   },
@@ -42,9 +42,9 @@
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 1380,
+            "cohort_n": 1387,
             "fti_n": 53,
-            "fti_rate_pct": 3.84
+            "fti_rate_pct": 3.82
           },
           {
             "depth": "visited",
@@ -89,16 +89,16 @@
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 1357,
+            "cohort_n": 1365,
             "fti_n": 55,
-            "fti_rate_pct": 4.05
+            "fti_rate_pct": 4.03
           },
           {
             "depth": "visited",
             "label": "Visited /learn",
-            "cohort_n": 92,
+            "cohort_n": 94,
             "fti_n": 10,
-            "fti_rate_pct": 10.87
+            "fti_rate_pct": 10.64
           },
           {
             "depth": "played",
@@ -125,15 +125,15 @@
         "by_entry_source": [
           {
             "source": "bottom_nav",
-            "cohort_n": 65,
+            "cohort_n": 66,
             "fti_n": 8,
-            "fti_rate_pct": 12.31
+            "fti_rate_pct": 12.12
           },
           {
             "source": "top_chip",
-            "cohort_n": 25,
+            "cohort_n": 26,
             "fti_n": 2,
-            "fti_rate_pct": 8.0
+            "fti_rate_pct": 7.69
           },
           {
             "source": "direct",
