@@ -1,3 +1,3 @@
 week_start,variant,total_non_invested_users,learn_page_visitors,learn_visit_rate_pct,unique_video_players,total_video_plays,avg_videos_per_user,avg_watch_time_sec,fti_users,fti_users_who_watched,fti_rate_pct
-2026-05-25,control,932,2,0.21,2,6,3.0,1.7,0,0,0.0
-2026-05-25,treatment,937,52,5.55,16,37,2.31,51.4,0,0,0.0
+2026-05-25,control,982,2,0.2,2,6,3.0,1.7,0,0,0.0
+2026-05-25,treatment,994,56,5.63,17,43,2.53,52.1,0,0,0.0
