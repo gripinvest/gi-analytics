@@ -43,9 +43,17 @@ from .metabase import MetabaseError
 # Rudder Prod, schema client_web — same as Asset Search / cohort + engagement.
 RUDDER_DB_ID = 8
 
-# Production transactions DB — tblorders / FTI source of truth.
-# Reference: https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch
-TRANSACTIONS_DB_ID = 24
+# Production transactions DB — Postgres, source of truth for tblorders.
+# Reference Metabase question 2672 (FTI DoD non-PII) and the verified
+# table-browser URL both target database_id 2.
+#
+# Important: there's also a Metabase database_id 24 which is a ClickHouse
+# warehouse mirror of the same data. That mirror has column-level GRANT
+# restrictions our service account doesn't have, while DB 2 (Postgres
+# source) is readable. The earlier ACCESS_DENIED on `prodgripdb.tblorders`
+# came from DB 24's stricter ClickHouse permissioning — moot once we hit
+# the Postgres source directly.
+TRANSACTIONS_DB_ID = 2
 
 # Test users excluded from every query path. Single-sourced across projects.
 TEST_USERS = (3, 4, 207871, 207875, 207878, 207879)

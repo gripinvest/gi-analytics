@@ -26,7 +26,7 @@ The primary surface is a **weekly cohort A/B table** keyed by week × variant
 | Total Video Plays | `learn_video_viewed` count where `total_watched_seconds > 0` | engagement volume |
 | Avg Videos Per User | derived | Plays / Unique Players |
 | Avg Watch Time (sec) | derived | Σ `total_watched_seconds` / Plays |
-| FTI Users | `tblorders` (DB 24) where `status IN (1,7,8) AND order_type='BUY'`, `MIN(created_at)` per `user_id` ∩ cohort | conversion numerator — canonical source per [Metabase q2672](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch) |
+| FTI Users | `tblorders` (DB 2) where `status IN (1,7,8) AND order_type='BUY'`, `MIN(created_at)` per `user_id` ∩ cohort | conversion numerator — canonical source per [Metabase q2672](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch) |
 | FTI users who watched | `tblorders` FTI ∩ `learn_video_viewed` where `played_at ≤ fti_date` | causal-overlap proxy |
 | FTI Rate | derived | FTI / Non-Invested |
 

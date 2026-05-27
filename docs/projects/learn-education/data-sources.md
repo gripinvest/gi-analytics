@@ -1,7 +1,7 @@
 # Learn (Grip Education) — data source mapping
 
 **DBs:** Rudder Prod (DB 8, `client_web` schema) for engagement events ·
-production transactions DB (DB 24, `tblorders`) for FTI.
+production transactions DB (DB 2, `tblorders`) for FTI.
 **Status:** **LIVE on `develop`** as of 2026-05-26 (gi-client-web PR #6226).
 First W1 production data pending — daily cron idles cleanly until both
 probes return rows.
@@ -52,7 +52,7 @@ Validation steps still to do once W1 prod data lands:
 2. Run one-week sample row-count + payload-shape validation via a
    harness modelled on
    `backend/services/integrations/validate_asset_search.py`.
-3. Spot-check `tblorders` (DB 24) FTI counts against
+3. Spot-check `tblorders` (DB 2) FTI counts against
    [Metabase q2672](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch).
 
 ---
@@ -122,7 +122,7 @@ not Learn-fork queries):
 ```
 
 The funnel closes against `tblorders` (FTI conversion) using same-user
-joins. `tblorders` lives in DB 24 (transactions); the fetch module runs
+joins. `tblorders` lives in DB 2 (transactions); the fetch module runs
 the join client-side in Python because Metabase doesn't support
 cross-database joins in native SQL. See §4 for the exact SQL and
 [Metabase q2672](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch)
@@ -494,11 +494,18 @@ the canonical source. Use the production transactions database:
 
 | Aspect | Value |
 |---|---|
-| Database | **DB 24** (transactions DB, not DB 8 / Rudder) |
+| Database | **DB 2** (Postgres source of truth) |
 | Table | `tblorders` |
 | Filter | `status IN (1, 7, 8) AND order_type = 'BUY'` |
 | FTI per user | `MIN(created_at)` grouped by `user_id` |
-| Reference | [Metabase question 2672 — FTI DoD non-PII](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch) |
+| Reference | [Metabase question 2672 — FTI DoD non-PII](https://metabase.gripinvest.in/question/2672-fti-dod-non-pii-ch) (database_id confirmed via the Metabase table-browser URL — database=2, source-table=6) |
+
+> **Do not use Metabase database_id 24** for FTI. DB 24 is a ClickHouse
+> warehouse mirror with column-level `GRANT` restrictions our service
+> account does not have (`prodgripdb` schema). The earlier
+> `ACCESS_DENIED` on `SELECT(user_id, created_at, status, order_type) ON
+> prodgripdb.tblorders` came from DB 24. DB 2 is the Postgres origin and
+> reads cleanly.
 
 Status codes per Metabase question 2672:
 - `1` — order placed
@@ -511,7 +518,7 @@ Because Metabase cannot JOIN across databases in native SQL, the fetch
 module runs **two queries** and merges in Python (see
 `backend/services/integrations/learn_education.py`):
 1. **Engagement query** (DB 8) — per-user cohort + visits + plays.
-2. **FTI query** (DB 24) — per-user `MIN(created_at)`.
+2. **FTI query** (DB 2) — per-user `MIN(created_at)`.
 3. **Python merge** — aggregate to (week × variant) with sticky bucketing.
 
 ### FTI Users / FTI Rate — engagement side (DB 8)
@@ -529,10 +536,10 @@ WHERE experiment_name = 'learn_page'
   AND user_id::text NOT IN ('3','4','207871','207875','207878','207879')
 ```
 
-### FTI Users / FTI Rate — FTI side (DB 24)
+### FTI Users / FTI Rate — FTI side (DB 2)
 
 ```sql
--- DB 24 (transactions / production)
+-- DB 2 (transactions / production)
 SELECT
   user_id,
   MIN(created_at) AS fti_date

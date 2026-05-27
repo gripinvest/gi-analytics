@@ -358,6 +358,14 @@ def test_fti_sql_references_tblorders_not_rudder():
 
 
 def test_database_ids_are_pinned():
-    """Pin the IDs so an accidental swap stays caught by CI."""
+    """Pin the IDs so an accidental swap stays caught by CI.
+
+    RUDDER_DB_ID = 8         — client_web schema, cohort + engagement events.
+    TRANSACTIONS_DB_ID = 2   — Postgres source-of-truth for tblorders.
+                               Note: Metabase database_id 24 is a ClickHouse
+                               warehouse mirror with stricter column-level
+                               GRANTs the service account doesn't have. Do
+                               NOT swap back to 24.
+    """
     assert learn_education.RUDDER_DB_ID == 8
-    assert learn_education.TRANSACTIONS_DB_ID == 24
+    assert learn_education.TRANSACTIONS_DB_ID == 2
