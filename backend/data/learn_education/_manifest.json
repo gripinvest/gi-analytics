@@ -1,37 +1,148 @@
 {
-  "refreshed_at": "2026-05-27T19:37:29Z",
+  "refreshed_at": "2026-05-27T20:50:26Z",
   "tables": {
     "weekly_ab_tracker": {
-      "last_refreshed_at": "2026-05-27T19:37:29Z"
+      "last_refreshed_at": "2026-05-27T20:50:26Z"
     }
   },
   "margin_notes": {
     "as_of_week": "2026-05-25",
     "srm": {
-      "control_n": 1359,
-      "treatment_n": 1324,
-      "p_value": 0.4992,
+      "control_n": 1380,
+      "treatment_n": 1357,
+      "p_value": 0.6602,
       "verdict": "ok"
     },
     "control_leak": {
       "control_visitors": 1,
-      "control_cohort": 1359,
+      "control_cohort": 1380,
       "leak_pct": 0.07,
       "verdict": "warn"
     },
     "fti_lift_ci": {
-      "control_pct": 3.83,
-      "treatment_pct": 4.15,
-      "delta_pp": 0.33,
-      "ci_lower_pp": -1.15,
-      "ci_upper_pp": 1.81,
+      "control_pct": 3.84,
+      "treatment_pct": 4.05,
+      "delta_pp": 0.21,
+      "ci_lower_pp": -1.25,
+      "ci_upper_pp": 1.67,
       "verdict": "ok"
     },
     "mde": {
-      "n_per_arm": 1324,
-      "pooled_rate_pct": 3.99,
-      "mde_abs_pp": 2.13,
-      "mde_rel_pct": 53.4
+      "n_per_arm": 1357,
+      "pooled_rate_pct": 3.95,
+      "mde_abs_pp": 2.09,
+      "mde_rel_pct": 53.1
+    }
+  },
+  "conversion_funnel": {
+    "as_of_week": "2026-05-25",
+    "variants": {
+      "control": {
+        "bands": [
+          {
+            "depth": "bucketed",
+            "label": "Bucketed (all)",
+            "cohort_n": 1380,
+            "fti_n": 53,
+            "fti_rate_pct": 3.84
+          },
+          {
+            "depth": "visited",
+            "label": "Visited /learn",
+            "cohort_n": 1,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          },
+          {
+            "depth": "played",
+            "label": "Played \u22651 video",
+            "cohort_n": 1,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          },
+          {
+            "depth": "multi_played",
+            "label": "Played multiple",
+            "cohort_n": 1,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          },
+          {
+            "depth": "completed",
+            "label": "Completed (\u226575%)",
+            "cohort_n": 0,
+            "fti_n": 0,
+            "fti_rate_pct": null
+          }
+        ],
+        "by_entry_source": [
+          {
+            "source": "direct",
+            "cohort_n": 1,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          }
+        ]
+      },
+      "treatment": {
+        "bands": [
+          {
+            "depth": "bucketed",
+            "label": "Bucketed (all)",
+            "cohort_n": 1357,
+            "fti_n": 55,
+            "fti_rate_pct": 4.05
+          },
+          {
+            "depth": "visited",
+            "label": "Visited /learn",
+            "cohort_n": 92,
+            "fti_n": 10,
+            "fti_rate_pct": 10.87
+          },
+          {
+            "depth": "played",
+            "label": "Played \u22651 video",
+            "cohort_n": 28,
+            "fti_n": 2,
+            "fti_rate_pct": 7.14
+          },
+          {
+            "depth": "multi_played",
+            "label": "Played multiple",
+            "cohort_n": 19,
+            "fti_n": 1,
+            "fti_rate_pct": 5.26
+          },
+          {
+            "depth": "completed",
+            "label": "Completed (\u226575%)",
+            "cohort_n": 19,
+            "fti_n": 1,
+            "fti_rate_pct": 5.26
+          }
+        ],
+        "by_entry_source": [
+          {
+            "source": "bottom_nav",
+            "cohort_n": 65,
+            "fti_n": 8,
+            "fti_rate_pct": 12.31
+          },
+          {
+            "source": "top_chip",
+            "cohort_n": 25,
+            "fti_n": 2,
+            "fti_rate_pct": 8.0
+          },
+          {
+            "source": "direct",
+            "cohort_n": 2,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          }
+        ]
+      }
     }
   }
 }
