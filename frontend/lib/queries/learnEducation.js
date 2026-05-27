@@ -35,15 +35,27 @@ const LIVE_SQL = `
     avg_watch_time_sec,
     fti_users,
     fti_users_who_watched,
-    fti_rate_pct
+    fti_rate_pct,
+    engaged_visitor_rate_pct,
+    plays_per_visitor,
+    drop_after_first_pct,
+    completion_rate_pct,
+    median_time_to_first_play_sec,
+    outbound_click_rate_pct,
+    banner_ctr_on_learn_pct
   FROM learn_education__weekly_ab_tracker
   ORDER BY week_start, variant
 `;
 
 /* The canonical column set, in product-spreadsheet order. The component
  * uses this to drive both the table and the metric-strip headers.
- * `precision` is the number of decimals to display for rate columns. */
+ *
+ * MUST match `CANONICAL_COLUMNS` in
+ * backend/services/integrations/learn_education.py exactly. A mismatch
+ * silently corrupts the table — there's a backend test pinning the order.
+ */
 export const COLUMNS = [
+  // Tier 1 — product-spreadsheet columns.
   { key: 'total_non_invested_users',  label: 'Total Non-Invested Users', kind: 'count'   },
   { key: 'learn_page_visitors',       label: 'Learn Page Visitors',      kind: 'count'   },
   { key: 'learn_visit_rate_pct',      label: 'Learn Visit Rate',         kind: 'pct'     },
@@ -54,6 +66,21 @@ export const COLUMNS = [
   { key: 'fti_users',                 label: 'FTI Users',                kind: 'count'   },
   { key: 'fti_users_who_watched',     label: 'FTI ∩ Watched',            kind: 'count'   },
   { key: 'fti_rate_pct',              label: 'FTI Rate',                 kind: 'pct'     },
+  // Tier 2 — derived metrics, V2.
+  { key: 'engaged_visitor_rate_pct',  label: 'Engaged-Visitor Rate',     kind: 'pct',
+    tier: 2, hint: 'of visitors who played at least one video' },
+  { key: 'plays_per_visitor',         label: 'Plays / Visitor',          kind: 'decimal',
+    tier: 2 },
+  { key: 'drop_after_first_pct',      label: 'Drop After First',         kind: 'pct',
+    tier: 2, hint: 'players who watched only one' },
+  { key: 'completion_rate_pct',       label: 'Completion Rate (≥75%)',   kind: 'pct',
+    tier: 2 },
+  { key: 'median_time_to_first_play_sec', label: 'Time to First Play',   kind: 'seconds',
+    tier: 2, hint: 'median, page-view → video-open' },
+  { key: 'outbound_click_rate_pct',   label: 'Outbound CTR',             kind: 'pct',
+    tier: 2, hint: 'in-grid banner taps off /learn' },
+  { key: 'banner_ctr_on_learn_pct',   label: 'Banner CTR on /learn',     kind: 'pct',
+    tier: 2 },
 ];
 
 /* Empty-state shape — what the dashboard renders before the first cron

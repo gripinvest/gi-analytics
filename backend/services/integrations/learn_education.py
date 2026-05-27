@@ -73,6 +73,12 @@ WEEKS_OF_HISTORY = 12
 # (2-6) do not count as a successful first-time investment.
 FTI_ORDER_STATUSES = (1, 7, 8)
 
+# Completion threshold for the "Completion rate" Tier 2 metric (V2-T2-4).
+# Industry convention varies (50/75/90); 75 is the midpoint — meaningful
+# watch without penalising users who skip outros. See data-sources.md §6.1
+# and specs/2026-05-27-tier2-and-margin-notes.md §6.1.
+COMPLETION_THRESHOLD_PCT = 75
+
 
 # ─── Probes ───────────────────────────────────────────────────────────────
 PROBE_LEARN_PAGE_SQL = """
@@ -139,9 +145,15 @@ def build_engagement_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
     plays AS (
       -- Genuine plays (total_watched_seconds > 0). Filters silent
       -- autoplay-failure rows per data-sources.md §6 Q1 default.
+      -- `completed_play_count` filters by completion_pct >= 75; the
+      -- threshold lives as a constant in this module so product can
+      -- shift it without redrawing the SQL.
       SELECT
         user_id::text AS user_id,
         COUNT(*) AS play_count,
+        COUNT(*) FILTER (
+          WHERE completion_pct >= {COMPLETION_THRESHOLD_PCT}
+        ) AS completed_play_count,
         SUM(total_watched_seconds) AS watch_seconds_sum,
         MIN(timestamp) AS first_play_at
       FROM client_web.learn_video_viewed
@@ -149,6 +161,55 @@ def build_engagement_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
         AND total_watched_seconds > 0
         AND user_id::text NOT IN ({test_users_in})
       GROUP BY user_id::text
+    ),
+
+    page_views AS (
+      -- Earliest page view per user — feeds time-to-first-play
+      -- (Tier 2 #5). Distinct from the `visits` CTE above which counts.
+      SELECT
+        user_id::text AS user_id,
+        MIN(timestamp) AS first_page_viewed_at
+      FROM client_web.learn_page_viewed
+      WHERE timestamp >= NOW() - INTERVAL '{weeks} weeks'
+        AND user_id IS NOT NULL
+        AND user_id::text NOT IN ({test_users_in})
+      GROUP BY user_id::text
+    ),
+
+    video_opens AS (
+      -- Earliest video-open per user — the "intent" event before reels
+      -- actually start. Pairs with page_views above to compute median
+      -- time-to-first-play.
+      SELECT
+        user_id::text AS user_id,
+        MIN(timestamp) AS first_video_opened_at
+      FROM client_web.learn_video_opened
+      WHERE timestamp >= NOW() - INTERVAL '{weeks} weeks'
+        AND user_id IS NOT NULL
+        AND user_id::text NOT IN ({test_users_in})
+      GROUP BY user_id::text
+    ),
+
+    outbound AS (
+      -- 1 if any outbound click, else nothing. Aggregator counts users
+      -- with a row here as "outbound clickers" for the CTR metric.
+      SELECT DISTINCT user_id::text AS user_id
+      FROM client_web.learn_outbound_clicked
+      WHERE timestamp >= NOW() - INTERVAL '{weeks} weeks'
+        AND user_id IS NOT NULL
+        AND user_id::text NOT IN ({test_users_in})
+    ),
+
+    banner_on_learn AS (
+      -- Banner clicks that happened on /learn. The banner widget fires
+      -- the same canonical `banner_clicked` event everywhere; filter by
+      -- the page attribute. Cross-feature event — see D-03 in decisions.md.
+      SELECT DISTINCT user_id::text AS user_id
+      FROM client_web.banner_clicked
+      WHERE timestamp >= NOW() - INTERVAL '{weeks} weeks'
+        AND page = '/learn'
+        AND user_id IS NOT NULL
+        AND user_id::text NOT IN ({test_users_in})
     )
 
     SELECT
@@ -157,11 +218,20 @@ def build_engagement_sql(weeks: int = WEEKS_OF_HISTORY) -> str:
       to_char(c.assigned_week, 'YYYY-MM-DD')   AS assigned_week,
       COALESCE(v.visit_count, 0)               AS visit_count,
       COALESCE(p.play_count, 0)                AS play_count,
+      COALESCE(p.completed_play_count, 0)      AS completed_play_count,
       COALESCE(p.watch_seconds_sum, 0)         AS watch_seconds_sum,
-      p.first_play_at                          AS first_play_at
+      p.first_play_at                          AS first_play_at,
+      pv.first_page_viewed_at                  AS first_page_viewed_at,
+      vo.first_video_opened_at                 AS first_video_opened_at,
+      CASE WHEN ob.user_id IS NOT NULL THEN 1 ELSE 0 END AS outbound_clicked,
+      CASE WHEN bn.user_id IS NOT NULL THEN 1 ELSE 0 END AS learn_banner_clicked
     FROM cohort c
-    LEFT JOIN visits v ON v.user_id = c.user_id
-    LEFT JOIN plays  p ON p.user_id = c.user_id
+    LEFT JOIN visits v          ON v.user_id  = c.user_id
+    LEFT JOIN plays  p          ON p.user_id  = c.user_id
+    LEFT JOIN page_views pv     ON pv.user_id = c.user_id
+    LEFT JOIN video_opens vo    ON vo.user_id = c.user_id
+    LEFT JOIN outbound ob       ON ob.user_id = c.user_id
+    LEFT JOIN banner_on_learn bn ON bn.user_id = c.user_id
     ORDER BY c.assigned_week, c.variant, c.user_id
     """
 
@@ -254,10 +324,19 @@ def fetch_fti_for_cohort(client, cohort_ids: list[int]) -> list[dict]:
 # Order matches the canonical product spreadsheet. Frontend reads these
 # column names verbatim via lib/queries/learnEducation.js:COLUMNS.
 CANONICAL_COLUMNS = [
+    # Tier 1 — the product spreadsheet columns.
     "week_start", "variant",
     "total_non_invested_users", "learn_page_visitors", "learn_visit_rate_pct",
     "unique_video_players", "total_video_plays", "avg_videos_per_user",
     "avg_watch_time_sec", "fti_users", "fti_users_who_watched", "fti_rate_pct",
+    # Tier 2 — derived metrics added in V2 (see specs/2026-05-27-...).
+    "engaged_visitor_rate_pct",      # T2 #1 — unique_players / visitors
+    "plays_per_visitor",             # T2 #2 — plays / visitors
+    "drop_after_first_pct",          # T2 #3 — 1 - (multi-play / players)
+    "completion_rate_pct",           # T2 #4 — plays w/ pct >= 75 / plays
+    "median_time_to_first_play_sec", # T2 #5 — median(open - view) per user
+    "outbound_click_rate_pct",       # T2 #6 — outbound clickers / visitors
+    "banner_ctr_on_learn_pct",       # T2 #7 — banner clickers on /learn / visitors
 ]
 
 
@@ -278,13 +357,25 @@ def aggregate_rows(engagement_rows: list[dict], fti_rows: list[dict]) -> list[di
             continue
         fti_by_user[str(uid)] = _to_iso(fti_date)
 
-    # Accumulate per (week_start, variant).
-    keys = ("total_non_invested_users", "learn_page_visitors",
-            "unique_video_players", "total_video_plays",
-            "watch_seconds_sum", "fti_users", "fti_users_who_watched")
-    groups: dict[tuple[str, str], dict] = defaultdict(
-        lambda: {k: 0 for k in keys}
+    # Accumulate per (week_start, variant). Tier 1 counters + Tier 2
+    # additions (multi_play_users for drop-after-first; completed_plays
+    # for completion rate; outbound/banner clickers for CTR metrics;
+    # ttfp_seconds_list for the median time-to-first-play).
+    int_keys = (
+        "total_non_invested_users", "learn_page_visitors",
+        "unique_video_players", "total_video_plays",
+        "completed_plays", "multi_play_users",
+        "outbound_clickers", "banner_clickers",
+        "fti_users", "fti_users_who_watched",
     )
+
+    def _new_bucket() -> dict:
+        b = {k: 0 for k in int_keys}
+        b["watch_seconds_sum"] = 0.0
+        b["ttfp_seconds_list"] = []  # one entry per engaged user
+        return b
+
+    groups: dict[tuple[str, str], dict] = defaultdict(_new_bucket)
 
     for r in engagement_rows:
         week = r["assigned_week"]
@@ -303,6 +394,26 @@ def aggregate_rows(engagement_rows: list[dict], fti_rows: list[dict]) -> list[di
             bucket["unique_video_players"] += 1
             bucket["total_video_plays"] += play_count
             bucket["watch_seconds_sum"] += float(r.get("watch_seconds_sum") or 0)
+            bucket["completed_plays"] += int(r.get("completed_play_count") or 0)
+            # Drop-after-first: users with >1 play.
+            if play_count > 1:
+                bucket["multi_play_users"] += 1
+
+        # Tier 2 — outbound + banner uniques per cohort user.
+        if int(r.get("outbound_clicked") or 0) > 0:
+            bucket["outbound_clickers"] += 1
+        if int(r.get("learn_banner_clicked") or 0) > 0:
+            bucket["banner_clickers"] += 1
+
+        # Tier 2 #5 — time-to-first-play. Engaged users only (those with
+        # both a page view AND a video open). Diff in seconds via
+        # _seconds_between() which is timezone-agnostic on ISO strings.
+        ttfp = _seconds_between(
+            r.get("first_page_viewed_at"),
+            r.get("first_video_opened_at"),
+        )
+        if ttfp is not None and ttfp >= 0:
+            bucket["ttfp_seconds_list"].append(ttfp)
 
         # FTI attribution — sticky bucketing. A user assigned in W1 who
         # FTIs in W3 counts under W1's row (matches product spreadsheet
@@ -327,12 +438,15 @@ def aggregate_rows(engagement_rows: list[dict], fti_rows: list[dict]) -> list[di
         denom = g["total_non_invested_users"] or 1  # guarded division
         plays = g["total_video_plays"] or 0
         players = g["unique_video_players"] or 0
+        visitors = g["learn_page_visitors"] or 0
+
         out.append({
+            # Tier 1.
             "week_start": week,
             "variant": variant,
             "total_non_invested_users": g["total_non_invested_users"],
-            "learn_page_visitors": g["learn_page_visitors"],
-            "learn_visit_rate_pct": round(100.0 * g["learn_page_visitors"] / denom, 2),
+            "learn_page_visitors": visitors,
+            "learn_visit_rate_pct": round(100.0 * visitors / denom, 2),
             "unique_video_players": players,
             "total_video_plays": plays,
             "avg_videos_per_user": round(plays / players, 2) if players else None,
@@ -340,8 +454,69 @@ def aggregate_rows(engagement_rows: list[dict], fti_rows: list[dict]) -> list[di
             "fti_users": g["fti_users"],
             "fti_users_who_watched": g["fti_users_who_watched"],
             "fti_rate_pct": round(100.0 * g["fti_users"] / denom, 2),
+            # Tier 2 — derived metrics.
+            "engaged_visitor_rate_pct": (
+                round(100.0 * players / visitors, 2) if visitors else None
+            ),
+            "plays_per_visitor": (
+                round(plays / visitors, 2) if visitors else None
+            ),
+            "drop_after_first_pct": (
+                round(100.0 * (1.0 - g["multi_play_users"] / players), 2)
+                if players else None
+            ),
+            "completion_rate_pct": (
+                round(100.0 * g["completed_plays"] / plays, 2) if plays else None
+            ),
+            "median_time_to_first_play_sec": _median_or_none(
+                g["ttfp_seconds_list"]
+            ),
+            "outbound_click_rate_pct": (
+                round(100.0 * g["outbound_clickers"] / visitors, 2)
+                if visitors else None
+            ),
+            "banner_ctr_on_learn_pct": (
+                round(100.0 * g["banner_clickers"] / visitors, 2)
+                if visitors else None
+            ),
         })
     return out
+
+
+def _seconds_between(start_iso, end_iso) -> float | None:
+    """Seconds from start to end. Returns None if either is missing or
+    if parsing fails. Used for time-to-first-play computation."""
+    if not start_iso or not end_iso:
+        return None
+    try:
+        from datetime import datetime
+        s = _parse_iso(start_iso)
+        e = _parse_iso(end_iso)
+        return (e - s).total_seconds()
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_iso(value):
+    """Parse a Metabase timestamp into a datetime. Accepts datetime
+    instances directly (some drivers surface them), strings in ISO
+    format, or anything with an isoformat() method."""
+    from datetime import datetime
+    if hasattr(value, "year"):  # already a datetime/date
+        return value
+    s = str(value)
+    # Strip trailing Z that Python < 3.11 won't parse on fromisoformat.
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    return datetime.fromisoformat(s)
+
+
+def _median_or_none(values: list[float]) -> int | None:
+    """Median in seconds, rounded to int. None for an empty list."""
+    if not values:
+        return None
+    from statistics import median
+    return int(round(median(values)))
 
 
 def _to_iso(value) -> str:
@@ -385,10 +560,22 @@ def _probe(client, sql: str) -> tuple[int | None, str | None]:
         return None, str(e)
 
 
-def _write_manifest(data_dir: Path, *, refreshed_at: str, tables: list[str]) -> None:
+def _write_manifest(
+    data_dir: Path,
+    *,
+    refreshed_at: str,
+    tables: list[str],
+    margin_notes: dict | None = None,
+) -> None:
     """Mirror the asset_search / grip_connect _manifest.json convention so
     the frontend `Project.manifest` shape is populated and the dashboard
     can surface an "as-of" badge once it's added.
+
+    `margin_notes` is the dict returned by
+    `learn_education_stats.compose_margin_notes()`. When present, it's
+    stuffed under a top-level key for the dashboard to render the
+    Margin Notes section directly off the manifest (no DuckDB query
+    needed for the four indicators).
     """
     manifest_path = data_dir / "_manifest.json"
     manifest = {"refreshed_at": refreshed_at, "tables": {}}
@@ -401,6 +588,8 @@ def _write_manifest(data_dir: Path, *, refreshed_at: str, tables: list[str]) -> 
     manifest["refreshed_at"] = refreshed_at
     for t in tables:
         manifest["tables"][t] = {"last_refreshed_at": refreshed_at}
+    if margin_notes is not None:
+        manifest["margin_notes"] = margin_notes
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 
@@ -488,12 +677,32 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
     summary_rows = aggregate_rows(engagement_rows, fti_rows)
     log.append(f"merged into {len(summary_rows)} (week, variant) rows")
 
+    # ─── Margin Notes (V2 — Tier 3 A/B integrity indicators) ───────────────
+    # Computed off the just-aggregated rows; written into the manifest so
+    # the frontend renders the four cards directly without an extra
+    # DuckDB query.
+    from .learn_education_stats import compose_margin_notes
+    margin_notes = compose_margin_notes(summary_rows=summary_rows)
+    if margin_notes:
+        log.append(
+            f"margin notes (as_of_week={margin_notes['as_of_week']}): "
+            f"srm={margin_notes['srm']['verdict']}, "
+            f"control_leak={margin_notes['control_leak']['verdict']}, "
+            f"fti_ci={margin_notes['fti_lift_ci']['verdict']}, "
+            f"mde={margin_notes['mde'].get('mde_abs_pp')}pp"
+        )
+
     out_path = data_dir / "weekly_ab_tracker.csv"
     n_written = write_csv_atomic(out_path, summary_rows, CANONICAL_COLUMNS)
     log.append(f"wrote {n_written} rows → {out_path.relative_to(data_dir.parent)}")
 
     refreshed_at = _now()
-    _write_manifest(data_dir, refreshed_at=refreshed_at, tables=["weekly_ab_tracker"])
+    _write_manifest(
+        data_dir,
+        refreshed_at=refreshed_at,
+        tables=["weekly_ab_tracker"],
+        margin_notes=margin_notes,
+    )
 
     return {
         "status": "ok",

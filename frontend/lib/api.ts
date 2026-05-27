@@ -30,6 +30,15 @@ export interface Project {
   manifest?: {
     refreshed_at?: string;
     tables?: Record<string, { last_refreshed_at: string }>;
+    /** Learn (Grip Education) — A/B integrity indicators written by the
+     *  cron. Optional; absent on other projects + on Learn before V2. */
+    margin_notes?: {
+      as_of_week: string;
+      srm: { control_n?: number; treatment_n?: number; p_value?: number | null; verdict: string };
+      control_leak: { control_visitors?: number; control_cohort?: number; leak_pct?: number | null; verdict: string };
+      fti_lift_ci: { control_pct?: number | null; treatment_pct?: number | null; delta_pp?: number | null; ci_lower_pp?: number | null; ci_upper_pp?: number | null; verdict: string };
+      mde: { n_per_arm?: number; pooled_rate_pct?: number; mde_abs_pp?: number | null; mde_rel_pct?: number | null };
+    };
   } | null;
 }
 

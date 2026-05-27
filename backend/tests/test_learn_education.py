@@ -422,3 +422,183 @@ def test_database_ids_are_pinned():
     assert learn_education.RUDDER_DB_ID == 8
     assert learn_education.TRANSACTIONS_DB_ID == 24
     assert learn_education.TRANSACTIONS_TABLE == "prodgripdb.ur_tblorders"
+
+
+# ─── V2 — Tier 2 metrics + Margin Notes ────────────────────────────────────
+# See specs/2026-05-27-tier2-and-margin-notes.md §2.1 for the 7 Tier 2
+# metrics. Each test exercises the aggregator's handling of new
+# per-user fields with realistic inputs.
+
+@pytest.fixture
+def v2_engagement_rows():
+    """Engagement rows with all V2 per-user fields populated.
+
+    Treatment arm: 4 users.
+      u1 — visited, 1 play, completed
+      u2 — visited, 3 plays, 2 completed, clicked outbound + banner
+      u3 — visited, 0 plays
+      u4 — visited, 0 plays
+    Control arm: 2 users — neither visits (surface invisible).
+    """
+    return [
+        {"user_id": "u1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 1, "completed_play_count": 1,
+         "watch_seconds_sum": 30,
+         "first_play_at": "2026-05-26T10:01:00",
+         "first_page_viewed_at": "2026-05-26T10:00:00",
+         "first_video_opened_at": "2026-05-26T10:00:30",
+         "outbound_clicked": 0, "learn_banner_clicked": 0},
+        {"user_id": "u2", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 2, "play_count": 3, "completed_play_count": 2,
+         "watch_seconds_sum": 120,
+         "first_play_at": "2026-05-26T11:01:00",
+         "first_page_viewed_at": "2026-05-26T11:00:00",
+         "first_video_opened_at": "2026-05-26T11:00:10",
+         "outbound_clicked": 1, "learn_banner_clicked": 1},
+        {"user_id": "u3", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 0, "completed_play_count": 0,
+         "watch_seconds_sum": 0,
+         "first_play_at": None,
+         "first_page_viewed_at": "2026-05-26T12:00:00",
+         "first_video_opened_at": None,
+         "outbound_clicked": 0, "learn_banner_clicked": 0},
+        {"user_id": "u4", "variant": "treatment", "assigned_week": "2026-05-25",
+         "visit_count": 1, "play_count": 0, "completed_play_count": 0,
+         "watch_seconds_sum": 0,
+         "first_play_at": None,
+         "first_page_viewed_at": "2026-05-26T13:00:00",
+         "first_video_opened_at": None,
+         "outbound_clicked": 0, "learn_banner_clicked": 0},
+        {"user_id": "c1", "variant": "control", "assigned_week": "2026-05-25",
+         "visit_count": 0, "play_count": 0, "completed_play_count": 0,
+         "watch_seconds_sum": 0,
+         "first_play_at": None,
+         "first_page_viewed_at": None,
+         "first_video_opened_at": None,
+         "outbound_clicked": 0, "learn_banner_clicked": 0},
+        {"user_id": "c2", "variant": "control", "assigned_week": "2026-05-25",
+         "visit_count": 0, "play_count": 0, "completed_play_count": 0,
+         "watch_seconds_sum": 0,
+         "first_play_at": None,
+         "first_page_viewed_at": None,
+         "first_video_opened_at": None,
+         "outbound_clicked": 0, "learn_banner_clicked": 0},
+    ]
+
+
+def test_v2_engaged_visitor_rate(v2_engagement_rows):
+    """T2 #1 — unique_video_players / learn_page_visitors.
+    Treatment: 2 players / 4 visitors = 50.0%. Control: 0/0 = None."""
+    rows = learn_education.aggregate_rows(v2_engagement_rows, [])
+    t = next(r for r in rows if r["variant"] == "treatment")
+    c = next(r for r in rows if r["variant"] == "control")
+    assert t["engaged_visitor_rate_pct"] == 50.0
+    assert c["engaged_visitor_rate_pct"] is None
+
+
+def test_v2_plays_per_visitor(v2_engagement_rows):
+    """T2 #2 — total_video_plays / learn_page_visitors.
+    Treatment: 4 plays / 4 visitors = 1.0. Control: None."""
+    rows = learn_education.aggregate_rows(v2_engagement_rows, [])
+    t = next(r for r in rows if r["variant"] == "treatment")
+    c = next(r for r in rows if r["variant"] == "control")
+    assert t["plays_per_visitor"] == 1.0
+    assert c["plays_per_visitor"] is None
+
+
+def test_v2_drop_after_first_video(v2_engagement_rows):
+    """T2 #3 — 1 - (multi_play_users / unique_players).
+    Treatment: u2 has 3 plays (multi), u1 has 1 (single) → 1/2 multi.
+    Drop = 1 - 0.5 = 0.5 = 50.0%."""
+    rows = learn_education.aggregate_rows(v2_engagement_rows, [])
+    t = next(r for r in rows if r["variant"] == "treatment")
+    assert t["drop_after_first_pct"] == 50.0
+
+
+def test_v2_completion_rate(v2_engagement_rows):
+    """T2 #4 — completed_plays / total_plays.
+    Treatment: 3 completed / 4 plays = 75.0%."""
+    rows = learn_education.aggregate_rows(v2_engagement_rows, [])
+    t = next(r for r in rows if r["variant"] == "treatment")
+    assert t["completion_rate_pct"] == 75.0
+
+
+def test_v2_median_time_to_first_play(v2_engagement_rows):
+    """T2 #5 — median seconds between first page view and first video open.
+    Treatment: u1=30s, u2=10s. u3/u4 have no video_opened (excluded).
+    Median of [10, 30] = 20."""
+    rows = learn_education.aggregate_rows(v2_engagement_rows, [])
+    t = next(r for r in rows if r["variant"] == "treatment")
+    assert t["median_time_to_first_play_sec"] == 20
+
+
+def test_v2_outbound_click_rate(v2_engagement_rows):
+    """T2 #6 — unique outbound clickers / visitors.
+    Treatment: 1 outbound clicker (u2) / 4 visitors = 25.0%."""
+    rows = learn_education.aggregate_rows(v2_engagement_rows, [])
+    t = next(r for r in rows if r["variant"] == "treatment")
+    assert t["outbound_click_rate_pct"] == 25.0
+
+
+def test_v2_banner_ctr_on_learn(v2_engagement_rows):
+    """T2 #7 — unique banner clickers on /learn / visitors.
+    Treatment: 1 banner clicker (u2) / 4 visitors = 25.0%."""
+    rows = learn_education.aggregate_rows(v2_engagement_rows, [])
+    t = next(r for r in rows if r["variant"] == "treatment")
+    assert t["banner_ctr_on_learn_pct"] == 25.0
+
+
+def test_v2_canonical_columns_match_spec():
+    """The CANONICAL_COLUMNS list must match the frontend COLUMNS array
+    in lib/queries/learnEducation.js exactly. Pinning here catches any
+    accidental rename."""
+    expected = [
+        # Tier 1.
+        "week_start", "variant",
+        "total_non_invested_users", "learn_page_visitors", "learn_visit_rate_pct",
+        "unique_video_players", "total_video_plays", "avg_videos_per_user",
+        "avg_watch_time_sec", "fti_users", "fti_users_who_watched", "fti_rate_pct",
+        # Tier 2.
+        "engaged_visitor_rate_pct", "plays_per_visitor",
+        "drop_after_first_pct", "completion_rate_pct",
+        "median_time_to_first_play_sec",
+        "outbound_click_rate_pct", "banner_ctr_on_learn_pct",
+    ]
+    assert learn_education.CANONICAL_COLUMNS == expected
+
+
+def test_v2_engagement_sql_references_new_event_sources():
+    """The engagement SQL must pull from learn_video_opened (for TTFP),
+    learn_outbound_clicked (for outbound CTR), and banner_clicked
+    filtered to /learn (for banner CTR)."""
+    sql = learn_education.build_engagement_sql(weeks=12)
+    assert "learn_video_opened" in sql, "TTFP source missing"
+    assert "learn_outbound_clicked" in sql, "outbound source missing"
+    assert "banner_clicked" in sql, "banner source missing"
+    assert "page = '/learn'" in sql, "banner filter must target /learn"
+    assert "completion_pct >= 75" in sql, "completion threshold not 75"
+
+
+def test_v2_margin_notes_in_manifest(tmp_path, v2_engagement_rows):
+    """The run() entry must write a margin_notes block into the
+    manifest. The dashboard reads it for the four cards."""
+    client = FakeClient(
+        learn_page_count=100, experiment_count=10000,
+        engagement_rows=v2_engagement_rows,
+        fti_rows=[],
+    )
+    learn_education.run(client, tmp_path)
+    manifest = json.loads((tmp_path / "_manifest.json").read_text())
+    assert "margin_notes" in manifest
+    mn = manifest["margin_notes"]
+    assert mn["as_of_week"] == "2026-05-25"
+    assert mn["srm"]["control_n"] == 2
+    assert mn["srm"]["treatment_n"] == 4
+    assert mn["control_leak"]["leak_pct"] == 0.0
+    assert "mde" in mn
+
+
+def test_v2_completion_threshold_pinned():
+    """If product wants to change this, it's a deliberate change with
+    docs to update — not a hidden constant drift."""
+    assert learn_education.COMPLETION_THRESHOLD_PCT == 75
