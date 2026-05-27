@@ -1,8 +1,37 @@
 {
-  "refreshed_at": "2026-05-27T15:16:42Z",
+  "refreshed_at": "2026-05-27T17:30:14Z",
   "tables": {
     "weekly_ab_tracker": {
-      "last_refreshed_at": "2026-05-27T15:16:42Z"
+      "last_refreshed_at": "2026-05-27T17:30:14Z"
+    }
+  },
+  "margin_notes": {
+    "as_of_week": "2026-05-25",
+    "srm": {
+      "control_n": 1228,
+      "treatment_n": 772,
+      "p_value": 0.0,
+      "verdict": "fail"
+    },
+    "control_leak": {
+      "control_visitors": 2,
+      "control_cohort": 1228,
+      "leak_pct": 0.16,
+      "verdict": "warn"
+    },
+    "fti_lift_ci": {
+      "control_pct": 0.0,
+      "treatment_pct": 0.0,
+      "delta_pp": 0.0,
+      "ci_lower_pp": null,
+      "ci_upper_pp": null,
+      "verdict": "insufficient_data"
+    },
+    "mde": {
+      "n_per_arm": 772,
+      "pooled_rate_pct": 0.0,
+      "mde_abs_pp": 7.13,
+      "mde_rel_pct": null
     }
   }
 }
