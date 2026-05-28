@@ -9,6 +9,54 @@
 // returned rows so the strip can render a pending state until v2 rows
 // appear.
 
+import { TEST_USERS } from "./assetSearch";
+
+// First feature week that carries the `engine_version` column. The V2 rollout
+// landed mid-W8 (2026-05-27); pre-W8 CSVs predate the instrumentation and
+// would error on a column reference. The trailing-window union below filters
+// to weeks ≥ this so the SQL never references a missing column.
+export const CUTOVER_WEEK = 8;
+
+const EXC = `(user_id IS NULL OR user_id NOT IN (${TEST_USERS.join(",")}))`;
+const wkOf = (t) => {
+  const m = t.match(/(?:^|_)W(\d+)_/);
+  return m ? Number(m[1]) : null;
+};
+
+/**
+ * Build a UNION ALL subquery over the cutover-window tables, projecting only
+ * the columns the cutover SQL needs (test-users filtered). Returns null when
+ * no eligible weeks exist yet — callers should skip running their SQL.
+ */
+function unionCutover(tables, cols) {
+  const eligible = (tables || []).filter((t) => {
+    const w = wkOf(t);
+    return w != null && w >= CUTOVER_WEEK;
+  });
+  if (eligible.length === 0) return null;
+  const parts = eligible.map(
+    (t) => `  SELECT ${cols} FROM "${t}" WHERE ${EXC}`
+  );
+  return `(\n${parts.join("\n  UNION ALL\n")}\n)`;
+}
+
+/**
+ * Resolve the cutover-window subqueries the SQL builders consume. Takes the
+ * same `{ tables, weeks }` context every other dashboard QUERY_SPEC uses.
+ * Returns null fields when no cutover-window data exists yet.
+ */
+export function cutoverContext({ tables } = {}) {
+  const assetTbl = unionCutover(
+    tables && tables.query,
+    "engine_version, context_session_id, query_text, results_count, is_refinement"
+  );
+  const clickTbl = unionCutover(
+    tables && tables.result_clicked,
+    "id, context_session_id"
+  );
+  return { assetTbl, queryTbl: assetTbl, clickTbl };
+}
+
 // ── live SQL builders ───────────────────────────────────────────────────────
 
 /**

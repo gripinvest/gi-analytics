@@ -25,6 +25,7 @@ import * as Q from "@/lib/queries/assetSearch";
 import { METRIC_DEFS, ISSUER_MAP, ISSUER_CATEGORY } from "@/lib/queries/assetSearch";
 import * as C from "@/lib/queries/conversion";
 import { CONV_METRIC_DEFS } from "@/lib/queries/conversion";
+import * as EC from "@/lib/queries/engineComparison";
 import AssetSearchOutreachSection from "./AssetSearchOutreachSection";
 import AssetSearchCutoverStrip from "./AssetSearchCutoverStrip";
 
@@ -45,6 +46,19 @@ const QUERY_SPECS = {
   issuers:          (ctx) => Q.issuerHealthByWeek(ctx),
   issuerKeywords:   (ctx) => Q.keywordsByIssuer(ctx),
   issuerOutcome:    (ctx) => Q.sessionOutcomeByIssuerWeek(ctx),
+  // V1 vs V2 cutover strip — see engineComparison.js. Skips (null SQL) when
+  // no cutover-window CSVs exist yet; the strip then falls back to its
+  // own mock-sample state.
+  engine_health:    (ctx) => {
+    const { assetTbl } = EC.cutoverContext(ctx);
+    return assetTbl ? EC.engineHealthCutover({ assetTbl }) : null;
+  },
+  engine_outcome:   (ctx) => {
+    const { queryTbl, clickTbl } = EC.cutoverContext(ctx);
+    return queryTbl && clickTbl
+      ? EC.engineOutcomeCutover({ queryTbl, clickTbl })
+      : null;
+  },
 };
 const CONV_SPECS = {
   conv_headline:  (conv) => C.conversionHeadline(conv),
@@ -77,6 +91,10 @@ function useDashboard(project, nonce) {
     setState({ loading: true, fatal: null, data: {} });
     const ctx = { tables: grouped.tables, weeks: grouped.weeks };
     const run = async (key, sql) => {
+      // A spec may return null to skip itself (e.g. no cutover-window data
+      // yet). Treat as a zero-row result so downstream consumers see the
+      // same `{ rows: [] }` shape they get from a real empty query.
+      if (sql == null) return [key, { rows: [] }];
       try {
         const res = await runQuery(project.id, sql, 1000);
         return [key, res && res.error ? { error: res.error } : { rows: (res && res.rows) || [] }];
@@ -698,11 +716,13 @@ function OverviewSection({ loading, data, adoptionSeries, healthSeries, funnelSe
       />
 
       {/* V1 vs V2 release-cut comparison. Reads `engine_version` from
-          asset_search_* event payloads (NULL = V1, 'v2' = V2). Renders
-          projected sample numbers until the V2 release ships and the
-          cutover query starts returning v2 rows. No new query wired
-          yet — strip falls back to its own mock. */}
-      <AssetSearchCutoverStrip healthRows={[]} outcomeRows={[]} />
+          asset_search_* event payloads (NULL = V1, 'v2' = V2). Auto-switches
+          from the strip's own mock-sample to live data the moment the
+          cutover-window query returns at least one v2 row. */}
+      <AssetSearchCutoverStrip
+        healthRows={rowsOf(data, "engine_health")}
+        outcomeRows={rowsOf(data, "engine_outcome")}
+      />
 
       {showAdoption && (
         <Figure
