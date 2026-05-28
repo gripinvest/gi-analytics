@@ -1115,7 +1115,15 @@ def _write_manifest(
         manifest["margin_notes"] = margin_notes
     if conversion_funnel is not None:
         manifest["conversion_funnel"] = conversion_funnel
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    # Atomic write — same pattern as write_csv_atomic. Without this, the
+    # backend's get_project() endpoint (which read-parses _manifest.json
+    # on every request) can catch a half-written file mid-cron and 500.
+    # Real incident 2026-05-28: the dashboard showed "not found" for ~10
+    # minutes because the API was crashing on a partial JSON read. POSIX
+    # rename is atomic for same-filesystem operations.
+    tmp_path = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    tmp_path.replace(manifest_path)
 
 
 # ─── Entry point ───────────────────────────────────────────────────────────

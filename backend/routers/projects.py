@@ -18,8 +18,7 @@ def list_projects():
     for d in sorted(DATA_DIR.iterdir()):
         if not d.is_dir() or d.name.startswith("."):
             continue
-        meta_path = d / "project.json"
-        meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        meta = _read_json_safe(d / "project.json", default={})
         tbls = db.tables_for_project(d.name)
         projects.append({
             "id":          d.name,
@@ -44,19 +43,37 @@ def get_project(project_id: str):
     # minutes and queued every other request behind it. The schema is only used
     # by the chat handler (services/claude.py), which calls db.get_schema()
     # directly server-side — the frontend never reads it.
-    meta_path = DATA_DIR / project_id / "project.json"
-    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    meta = _read_json_safe(DATA_DIR / project_id / "project.json", default={})
     # The refresh runner (services/integrations/refresh.py) writes _manifest.json
     # with per-table last_refreshed_at. The dashboard reads it for the "as of"
-    # marker and the on-open staleness check.
-    manifest_path = DATA_DIR / project_id / "_manifest.json"
-    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else None
+    # marker and the on-open staleness check. Read defensively: if the file is
+    # mid-write (rare but real — see 2026-05-28 incident), prefer to render
+    # the project page without the manifest block than to 500 the whole
+    # endpoint. The next refresh cycle will provide it.
+    manifest = _read_json_safe(DATA_DIR / project_id / "_manifest.json", default=None)
     return {
         "id": project_id,
         **meta,
         "tables": db.tables_for_project(project_id),
         "manifest": manifest,
     }
+
+
+def _read_json_safe(path: Path, default):
+    """Read+parse a JSON file, returning `default` on any I/O or parse error.
+
+    The two callers above tolerate a missing or partially-written file
+    better than they tolerate a 500. The cron's atomic-rename write
+    (write_csv_atomic / _write_manifest) prevents the half-written case
+    in practice, but readers should still degrade gracefully if it
+    somehow occurs.
+    """
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text())
+    except (ValueError, OSError):
+        return default
 
 
 @router.get("/{project_id}/schema")

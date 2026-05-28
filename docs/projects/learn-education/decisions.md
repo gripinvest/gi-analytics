@@ -6,6 +6,45 @@ considered, and what would force a revisit.**
 
 ---
 
+## D-26 · 2026-05-28 — Atomic manifest writes + defensive reads
+
+**Decided.** Switch `_write_manifest` from naive `path.write_text(...)` to write-temp-then-rename (matches `write_csv_atomic`'s pattern). Harden the API's `get_project()` endpoint to tolerate a malformed `_manifest.json` rather than 500.
+
+**Why this is a real bug fix, not paranoia.** Real prod incident 2026-05-28: the user hit `/projects/learn_education` and saw "not found" / a 500 from the API. The 6-agent review (task #83 in the prior YAGNI pass) had flagged this risk; I dismissed it because the failure window was "microseconds". Today's incident proved the microsecond window IS occasionally hit — especially when fast-following PRs + a cron commit overlap with Render's auto-deploy cycle.
+
+**What broke:** the cron's manifest write opens the file, writes ~3.7KB of JSON, closes. A reader (the API's `get_project` endpoint, which read-parses `_manifest.json` on EVERY request) that ran during that write got a torn read — invalid JSON → `json.loads` raised → FastAPI returned 500. The window is short but real.
+
+**The fix has two parts:**
+
+1. **Write side** (defensive write atomicity):
+   - `_write_manifest` now writes to `_manifest.json.tmp` first, then `tmp_path.replace(real_path)`. POSIX guarantees `rename` is atomic for same-filesystem operations. Readers see either the prior complete version or the new complete version — never a partial.
+   - Same pattern applied to `asset_search.py` and `grip_connect.py` (they had the same bug). FRA YouTube already did it correctly.
+
+2. **Read side** (defense in depth):
+   - `get_project()` and `list_projects()` route both JSON reads through a new `_read_json_safe(path, default)` helper. Catches `ValueError | OSError`, returns `default`. The endpoint renders without the manifest block rather than 500'ing if it ever catches a partial read despite the write-side fix.
+
+**Why both sides:** the write-atomicity fix should be sufficient on its own. But Render's free-tier file mount has had inconsistent behavior in the past (caching, container restarts), and a graceful degrade ("dashboard loads without 'as-of' stamp") is much better UX than a hard 500.
+
+**Tests added (+7):**
+- `test_manifest_write_is_atomic_no_tmp_file_left_behind`
+- `test_manifest_write_preserves_existing_unrelated_keys`
+- `test_projects_router::test_read_json_safe_returns_default_when_missing`
+- `test_projects_router::test_read_json_safe_returns_parsed_json_when_valid`
+- `test_projects_router::test_read_json_safe_returns_default_on_malformed_json` (the regression for D-26)
+- `test_projects_router::test_read_json_safe_returns_default_on_empty_file`
+- `test_projects_router::test_read_json_safe_returns_default_on_partial_unicode`
+
+Total backend tests: 257 → 264.
+
+**Considered + rejected:**
+- **Write a `.done` marker file last** — over-engineered for our scale. Atomic rename is a single-syscall guarantee that's universally understood; adding a sidecar marker introduces a new state-machine where there wasn't one.
+- **Skip the read-side defense** ("write-side is enough"). YAGNI-style argument from yesterday. Today's incident proves defense-in-depth is warranted; the cost is one helper function and 5 tests.
+- **Use file locking (fcntl.flock)** — would prevent torn reads but introduces blocking on readers while the cron writes. The rename approach gives lock-free correctness.
+
+**Revisit if:** the file mount on Render ever uses a non-POSIX filesystem (e.g., S3 mount) where rename is not atomic. Today it's a standard ext4 mount.
+
+---
+
 ## D-25 · 2026-05-28 — §V "The Daily" tab with invest-time attribution + granularity dropdown
 
 **Decided.** A new §V dashboard tab "The Daily" shows a tabular breakdown with **FTI attributed to invest-time** (the period in which the FTI happened), not bucketing week. A dropdown selects the rollup grain: **Hour-on-Hour / Day-on-Day / Week-on-Week / Month-on-Month**.

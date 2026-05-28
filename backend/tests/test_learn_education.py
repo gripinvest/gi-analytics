@@ -1249,3 +1249,51 @@ def test_iso_to_hour_handles_various_timestamp_formats():
     assert h("2026-05-27") == "2026-05-27 00:00:00"  # date-only
     assert h(None) is None
     assert h("garbage") is None
+
+
+# ─── Manifest atomic write (D-26) ───────────────────────────────────────────
+# The 2026-05-28 incident showed that a reader catching a half-written
+# _manifest.json can 500 the API. The fix writes to a tmp file first then
+# renames (POSIX atomic), so any reader sees either the prior complete
+# version or the new complete version — never a partial.
+
+def test_manifest_write_is_atomic_no_tmp_file_left_behind(tmp_path, v2_engagement_rows):
+    """After a successful run() the .tmp file should be gone (replaced)
+    and the manifest should be valid JSON."""
+    client = FakeClient(
+        learn_page_count=100, experiment_count=10000,
+        engagement_rows=v2_engagement_rows,
+    )
+    learn_education.run(client, tmp_path)
+    manifest_path = tmp_path / "_manifest.json"
+    tmp_manifest_path = tmp_path / "_manifest.json.tmp"
+    assert manifest_path.exists(), "real manifest should exist"
+    assert not tmp_manifest_path.exists(), (
+        "tmp manifest should NOT exist after successful run — "
+        "rename should have moved it to the real path"
+    )
+    parsed = json.loads(manifest_path.read_text())
+    assert "refreshed_at" in parsed
+    assert "tables" in parsed
+
+
+def test_manifest_write_preserves_existing_unrelated_keys(tmp_path, v2_engagement_rows):
+    """The write merges, not replaces — a pre-existing manifest with
+    keys we don't manage should survive."""
+    seed = {
+        "refreshed_at": "2026-05-25T00:00:00Z",
+        "tables": {"weekly_ab_tracker": {"last_refreshed_at": "old"}},
+        "external_marker": {"set_by_other_project": True},
+    }
+    (tmp_path / "_manifest.json").write_text(json.dumps(seed))
+
+    client = FakeClient(
+        learn_page_count=100, experiment_count=10000,
+        engagement_rows=v2_engagement_rows,
+    )
+    learn_education.run(client, tmp_path)
+
+    new_manifest = json.loads((tmp_path / "_manifest.json").read_text())
+    assert new_manifest.get("external_marker") == {"set_by_other_project": True}, (
+        "Unrelated manifest keys must survive cron writes"
+    )
