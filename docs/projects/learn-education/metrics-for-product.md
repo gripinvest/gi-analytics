@@ -177,6 +177,27 @@ These guardrails tell you whether the rest of the numbers are believable. Collap
 
 ---
 
+## 3a. §V The Daily — a different attribution model
+
+There's a separate tab on the dashboard, **§V The Daily**, that answers a different question than §II Ledger. The two tabs share the same data but slice it differently:
+
+| | §II Ledger | §V The Daily |
+|---|---|---|
+| **Question** | *How is the W1 cohort performing over time?* | *What was our FTI conversion this hour / day / week?* |
+| **FTI attribution** | **Sticky-week** — user assigned in W1 who invests in W3 credits to W1 | **Invest-time** — user assigned in W1 who invests in W3 credits to W3 |
+| **Granularity** | Per week × variant | Configurable — Hour / Day / Week / Month dropdown |
+| **What it's for** | Cohort lifecycle questions, lift CI | Daily operational tracking, launch-day pulse |
+
+The §V table has 8 numeric columns per row (`new_cohort_control`, `new_cohort_treatment`, `new_visitors_treatment`, `fti_control`, `fti_treatment_total`, then a nested triple `fti_treatment_visited` ⊇ `fti_treatment_played_1p` ⊇ `fti_treatment_played_2p`). The nested triple breaks down Treatment FTIs by engagement state **at the moment the FTI happened** — had this user visited Learn before they invested? had they played a video? had they played multiple?
+
+**Why two attribution models, not one?** Because they answer questions that compound into product decisions: §II tells you whether the experiment is *working* (the causal claim), §V tells you whether today was a good day in absolute terms (the operational claim). A leadership review uses §II to make the keep/kill call; the daily standup uses §V to flag intra-week movement.
+
+**Causal-ordering filter** still applies in §V — pre-experiment FTIs (gate-leak users who invested before bucketing) are excluded from every column, same as §II.
+
+Implementation lives in `build_hourly_breakdown()` in `learn_education.py`; full rationale + considered alternatives in [decisions.md D-25].
+
+---
+
 ## 4. The conversion funnel (descriptive, not causal)
 
 In §III Engagement we surface a depth-banded funnel:
@@ -318,8 +339,10 @@ The dashboard's "as of" stamp tracks when this last happened. Manual refresh but
 | If you want to… | Read |
 |---|---|
 | Defend a number to leadership | This file (you are here) |
+| Read the **daily / hourly** ops view | §V The Daily on the dashboard itself (granularity dropdown) |
 | Find the SQL behind a metric | [`data-sources.md`](./data-sources.md) §2-4 |
 | Understand why we made a specific design choice | [`decisions.md`](./decisions.md) — search by D-## |
+| Understand why §II and §V attribute FTIs differently | [`decisions.md`](./decisions.md) D-25 |
 | Resolve a term (MDE, SRM, sticky bucketing, etc.) | [`glossary.md`](./glossary.md) |
 | Understand the cron + data-flow plumbing | [`architecture.md`](./architecture.md) + [`operations.md`](./operations.md) |
 | See what's planned next | [`roadmap.md`](./roadmap.md) and the V2 spec at [`specs/2026-05-27-tier2-and-margin-notes.md`](./specs/2026-05-27-tier2-and-margin-notes.md) |
