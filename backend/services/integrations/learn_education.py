@@ -181,7 +181,13 @@ def build_engagement_sql(
           WHERE completion_pct >= {COMPLETION_THRESHOLD_PCT}
         ) AS completed_play_count,
         SUM(total_watched_seconds) AS watch_seconds_sum,
-        MIN(timestamp) AS first_play_at
+        MIN(timestamp) AS first_play_at,
+        -- Second-play timestamp — needed by the Daily breakdown to tell
+        -- whether a user had >=2 plays BEFORE their fti_date. Without
+        -- this we can only approximate "played multiple" by comparing
+        -- play_count and first_play_at, which is biased if their 2nd
+        -- play happened after the FTI.
+        (array_agg(timestamp ORDER BY timestamp ASC))[2] AS second_play_at
       FROM client_web.learn_video_viewed
       WHERE timestamp >= NOW() - INTERVAL '{weeks} weeks'
         AND total_watched_seconds > 0
@@ -252,6 +258,7 @@ def build_engagement_sql(
       COALESCE(p.completed_play_count, 0)      AS completed_play_count,
       COALESCE(p.watch_seconds_sum, 0)         AS watch_seconds_sum,
       p.first_play_at                          AS first_play_at,
+      p.second_play_at                         AS second_play_at,
       pv.first_page_viewed_at                  AS first_page_viewed_at,
       pv.first_entry_source                    AS first_entry_source,
       vo.first_video_opened_at                 AS first_video_opened_at,
@@ -917,6 +924,164 @@ def _has_post_assignment_fti(
     return _fti_is_post_assignment(fti_date, engagement_row)
 
 
+# ─── Hourly breakdown — FTI attributed to invest-time, not bucketing week ──
+# Different attribution model from aggregate_rows(): each FTI counts toward
+# the HOUR the user invested, regardless of when they were bucketed. The
+# frontend rolls up to Day / Week / Month / etc. on the fly via DuckDB
+# date_trunc, so a single hourly CSV serves every granularity the §V
+# dropdown offers (Hour-on-Hour, Day-on-Day, Week-on-Week, Month-on-Month).
+#
+# The Treatment FTI count is broken down by engagement state AT TIME OF
+# FTI (i.e., what the user had done before their fti_date):
+#   · fti_treatment_total       — any Treatment FTI in this hour
+#   · fti_treatment_visited     — subset: had visited /learn before FTI
+#   · fti_treatment_played_1p   — subset: had >=1 video play before FTI
+#   · fti_treatment_played_2p   — subset: had >=2 video plays before FTI
+# Nesting: total ⊇ visited ⊇ played_1p ⊇ played_2p.
+#
+# Causal-ordering still applies — pre-experiment FTIs are filtered out
+# using the same _fti_is_post_assignment() check.
+#
+# Granularity: `hour_start` is "YYYY-MM-DD HH:00:00" (truncated to the
+# top of the hour). This is fine-grained enough for an Hour-on-Hour
+# launch-day view, and rolls up trivially to all coarser grains.
+
+HOURLY_BREAKDOWN_COLUMNS = [
+    "hour_start",
+    "new_cohort_control",        # new users assigned to control this hour
+    "new_cohort_treatment",      # new users assigned to treatment this hour
+    "new_visitors_control",      # control users whose first /learn visit was this hour (≈0 by design)
+    "new_visitors_treatment",    # treatment users whose first /learn visit was this hour
+    "fti_control",               # control users who FTI'd this hour (post-assignment)
+    "fti_treatment_total",       # treatment users who FTI'd this hour (post-assignment)
+    "fti_treatment_visited",     # of those, had visited /learn before this FTI
+    "fti_treatment_played_1p",   # of those, had >=1 video play before this FTI
+    "fti_treatment_played_2p",   # of those, had >=2 video plays before this FTI
+]
+
+
+def build_hourly_breakdown(
+    engagement_rows: list[dict],
+    fti_rows: list[dict],
+) -> list[dict]:
+    """Per-hour breakdown with FTI attributed to invest-time, NOT
+    bucketing week. Returns a list of dicts (one per hour with any
+    signal), sorted ascending by hour_start. Each row matches
+    HOURLY_BREAKDOWN_COLUMNS exactly.
+
+    Pure function — no SQL, no I/O. The frontend rolls up to coarser
+    granularities (day / week / month) via DuckDB at query time.
+    """
+    eng_by_user: dict[str, dict] = {}
+    for r in engagement_rows:
+        key = _user_id_key(r.get("user_id"))
+        if key:
+            eng_by_user[key] = r
+
+    from collections import defaultdict
+    hours: dict[str, dict] = defaultdict(
+        lambda: {k: 0 for k in HOURLY_BREAKDOWN_COLUMNS if k != "hour_start"}
+    )
+
+    # ─── Cohort additions per hour (by assignment_timestamp) ───────────────
+    for r in engagement_rows:
+        ts = r.get("assignment_timestamp")
+        if not ts:
+            continue
+        hour = _iso_to_hour(ts)
+        if not hour:
+            continue
+        variant = r.get("variant")
+        if variant == "control":
+            hours[hour]["new_cohort_control"] += 1
+        elif variant and variant != "control":
+            hours[hour]["new_cohort_treatment"] += 1
+
+    # ─── First-visit-to-/learn per hour (by first_page_viewed_at) ─────────
+    for r in engagement_rows:
+        first_view = r.get("first_page_viewed_at")
+        if not first_view:
+            continue
+        hour = _iso_to_hour(first_view)
+        if not hour:
+            continue
+        variant = r.get("variant")
+        if variant == "control":
+            hours[hour]["new_visitors_control"] += 1
+        elif variant and variant != "control":
+            hours[hour]["new_visitors_treatment"] += 1
+
+    # ─── FTIs per hour (by fti_date), with treatment engagement breakdown ─
+    for fti_row in fti_rows:
+        key = _user_id_key(fti_row.get("user_id"))
+        fti_date_raw = fti_row.get("fti_date")
+        if not key or not fti_date_raw:
+            continue
+        eng = eng_by_user.get(key)
+        if not eng:
+            # FTI for a user outside our cohort — not part of the experiment.
+            continue
+        fti_date = _to_iso(fti_date_raw)
+        if not _fti_is_post_assignment(fti_date, eng):
+            continue
+        hour = _iso_to_hour(fti_date)
+        if not hour:
+            continue
+        variant = eng.get("variant")
+        if variant == "control":
+            hours[hour]["fti_control"] += 1
+        elif variant and variant != "control":
+            hours[hour]["fti_treatment_total"] += 1
+            first_view = eng.get("first_page_viewed_at")
+            if first_view and _to_iso(first_view) <= fti_date:
+                hours[hour]["fti_treatment_visited"] += 1
+            first_play = eng.get("first_play_at")
+            if first_play and _to_iso(first_play) <= fti_date:
+                if int(eng.get("play_count") or 0) >= 1:
+                    hours[hour]["fti_treatment_played_1p"] += 1
+            second_play = eng.get("second_play_at")
+            if second_play and _to_iso(second_play) <= fti_date:
+                if int(eng.get("play_count") or 0) >= 2:
+                    hours[hour]["fti_treatment_played_2p"] += 1
+
+    return [
+        {"hour_start": hour, **hours[hour]}
+        for hour in sorted(hours.keys())
+    ]
+
+
+def _iso_to_hour(iso_str) -> str | None:
+    """Truncate an ISO timestamp to the top of its hour: 'YYYY-MM-DD HH:00:00'.
+    Returns None on malformed input. Used as the row key for the hourly
+    breakdown CSV; the frontend rolls up from here via DuckDB date_trunc.
+
+    Examples:
+        "2026-05-27T13:42:00"        → "2026-05-27 13:00:00"
+        "2026-05-27T13:42:00+05:30"  → "2026-05-27 13:00:00" (we drop tz)
+        "2026-05-27"                 → "2026-05-27 00:00:00"
+        datetime(2026, 5, 27, 13)    → "2026-05-27 13:00:00"
+    """
+    if iso_str is None:
+        return None
+    if hasattr(iso_str, "isoformat"):
+        # Date or datetime instance — normalise to the iso string form.
+        s = iso_str.isoformat()
+    else:
+        s = str(iso_str).strip()
+    if len(s) < 10:
+        return None
+    day = s[:10]
+    if len(day) != 10 or day[4] != "-" or day[7] != "-":
+        return None
+    # Look for the hour after the T separator. If no T (just a date),
+    # the row anchors to 00:00:00 — fine for day-precision sources.
+    if len(s) >= 13 and s[10] in ("T", " "):
+        hour_str = s[11:13]
+        if hour_str.isdigit():
+            return f"{day} {hour_str}:00:00"
+    return f"{day} 00:00:00"
+
+
 def _write_manifest(
     data_dir: Path,
     *,
@@ -1122,11 +1287,26 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
     n_written = write_csv_atomic(out_path, summary_rows, CANONICAL_COLUMNS)
     log.append(f"wrote {n_written} rows → {out_path.relative_to(data_dir.parent)}")
 
+    # ─── Hourly breakdown — FTI attributed to invest-time (§V tab) ────────
+    # Single CSV at hour precision serves Hour-on-Hour, Day-on-Day,
+    # Week-on-Week, Month-on-Month from one source — frontend rolls up
+    # via DuckDB date_trunc at query time. Different attribution model
+    # than the weekly tracker (week-of-bucketing); answers "what was our
+    # FTI conversion in this hour/day/week?" rather than the cohort
+    # lifetime question.
+    hourly_rows = build_hourly_breakdown(engagement_rows, fti_rows)
+    hourly_path = data_dir / "hourly_breakdown.csv"
+    n_hourly = write_csv_atomic(hourly_path, hourly_rows, HOURLY_BREAKDOWN_COLUMNS)
+    log.append(
+        f"wrote {n_hourly} hourly-breakdown rows → "
+        f"{hourly_path.relative_to(data_dir.parent)}"
+    )
+
     refreshed_at = _now()
     _write_manifest(
         data_dir,
         refreshed_at=refreshed_at,
-        tables=["weekly_ab_tracker"],
+        tables=["weekly_ab_tracker", "hourly_breakdown"],
         margin_notes=margin_notes,
         conversion_funnel=conversion_funnel,
     )
@@ -1136,5 +1316,5 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
         "log": log,
         "refreshed_at": refreshed_at,
         "rows_written": n_written,
-        "tables_written": ["weekly_ab_tracker"],
+        "tables_written": ["weekly_ab_tracker", "hourly_breakdown"],
     }

@@ -18,6 +18,10 @@ import Link from 'next/link';
 import { RefreshControl, useProjectRefresh } from '@/components/RefreshControl';
 import {
   useLearnEducation,
+  useDailyBreakdown,
+  DAILY_GRANULARITIES,
+  DAILY_COLUMNS,
+  formatDailyBucket,
   COLUMNS,
   formatCell,
   computeFtiLift,
@@ -35,6 +39,7 @@ const SECTIONS = [
   { key: 'ledger',       no: 'II',  italic: 'The Ledger' },
   { key: 'engagement',   no: 'III', italic: 'The Engagement' },
   { key: 'reading',      no: 'IV',  italic: 'The Reading' },
+  { key: 'daily',        no: 'V',   italic: 'The Daily' },
 ];
 
 /* Engagement columns that are em-dashed for Control. The denominator
@@ -265,6 +270,7 @@ export default function LearnEducationDashboardEditorial({ project }) {
         {section === 'ledger'     && <LedgerSection rows={sortedRows} marginNotes={project.manifest?.margin_notes} loading={loading} />}
         {section === 'engagement' && <EngagementSection rows={sortedRows} conversionFunnel={project.manifest?.conversion_funnel} loading={loading} />}
         {section === 'reading'    && <TheReading rows={sortedRows} marginNotes={project.manifest?.margin_notes} />}
+        {section === 'daily'      && <TheDaily refreshNonce={refreshState.nonce} />}
       </div>
 
       {/* ────── COLOPHON ──────────────────────────────────────────────────── */}
@@ -722,6 +728,240 @@ function MarginNote({ label, verdict, value, short, explainer, citation }) {
  * Reads from the same rows the Ledger uses. Lives below Margin Notes so
  * the reader has the confidence calibration before they read the inferences.
  */
+/* ═══════════════════════════════ §V THE DAILY ═══════════════════════════════
+ * A tabular breakdown of cohort additions, visitors, and FTIs — with
+ * FTI attributed to invest-time (NOT bucketing week, unlike §II Ledger).
+ *
+ * Granularity dropdown rolls up the hourly source CSV to Hour / Day /
+ * Week / Month via DuckDB date_trunc. Same 9-column shape regardless
+ * of granularity; only the bucket label changes.
+ *
+ * The 4 Treatment FTI columns nest visually (visited indents 1; played≥1
+ * indents 2; played≥2 indents 3) so the cumulative-subset semantics
+ * reads at a glance.
+ */
+function TheDaily({ refreshNonce }) {
+  const [granularity, setGranularity] = React.useState('day');
+  const { data, loading, error } = useDailyBreakdown(refreshNonce, granularity);
+  const grainMeta = DAILY_GRANULARITIES.find((g) => g.key === granularity);
+
+  return (
+    <section>
+      <SectionHead no="V" title="The Daily" />
+
+      {/* Editorial framing — explicit about the attribution model
+          difference vs §II Ledger. The reader needs to know upfront
+          that the FTI here counts toward the day the user INVESTED,
+          not the week they were BUCKETED. */}
+      <p
+        className="ed-prose-italic mt-3 max-w-prose"
+        style={{ fontSize: 15 }}
+      >
+        Cohort additions, surface visits, and FTIs broken out by{' '}
+        <Term>{grainMeta?.label.toLowerCase() ?? 'day-on-day'}</Term>.
+        Unlike §II Ledger — which attributes FTIs to a user’s{' '}
+        <em>bucketing week</em> (sticky cohort attribution) — this view
+        attributes each FTI to the period in which it{' '}
+        <em>actually happened</em>. The 4 Treatment FTI rows nest:
+        each is a subset of the row above it.
+      </p>
+
+      {/* Granularity dropdown — sits above the table, right-aligned. */}
+      <div className="mt-6 flex flex-wrap items-baseline justify-between gap-3 border-b border-[var(--ed-ink)] pb-2">
+        <div className="flex items-baseline gap-3">
+          <p className="ed-overline">CADENCE</p>
+          <p
+            className="ed-prose-italic"
+            style={{ fontSize: 13, color: 'var(--ed-ink-muted)' }}
+          >
+            switch the rollup grain
+          </p>
+        </div>
+        <DailyGranularitySelector
+          value={granularity}
+          onChange={setGranularity}
+        />
+      </div>
+
+      {loading && (
+        <p
+          className="ed-prose-italic text-center mt-10"
+          style={{ color: 'var(--ed-ink-muted)' }}
+        >
+          Querying the press…
+        </p>
+      )}
+
+      {!loading && error && (
+        <p
+          className="ed-prose-italic text-center mt-10 max-w-prose mx-auto"
+          style={{ color: 'var(--ed-rust)' }}
+        >
+          The hourly table isn’t available yet — typically because the
+          first cron hasn’t finished, or the DuckDB image predates the
+          §V tab. Trigger a manual refresh; if still failing, see{' '}
+          <code className="font-mono">operations.md</code>.
+        </p>
+      )}
+
+      {!loading && !error && data.rows.length === 0 && (
+        <p
+          className="ed-prose-italic text-center mt-10"
+          style={{ color: 'var(--ed-ink-muted)' }}
+        >
+          No buckets have any signal yet at this granularity.
+        </p>
+      )}
+
+      {!loading && !error && data.rows.length > 0 && (
+        <DailyTable rows={data.rows} granularity={granularity} />
+      )}
+    </section>
+  );
+}
+
+function DailyGranularitySelector({ value, onChange }) {
+  return (
+    <div className="inline-flex items-center gap-0 border border-[var(--ed-ink)]" role="radiogroup" aria-label="Cadence">
+      {DAILY_GRANULARITIES.map((g, i) => {
+        const isActive = g.key === value;
+        return (
+          <button
+            key={g.key}
+            type="button"
+            role="radio"
+            aria-checked={isActive}
+            onClick={() => onChange(g.key)}
+            className="px-3 py-1.5"
+            style={{
+              fontFamily: 'var(--ed-mono)',
+              fontSize: 12,
+              letterSpacing: '0.02em',
+              background: isActive ? 'var(--ed-ink)' : 'transparent',
+              color: isActive ? 'var(--ed-paper)' : 'var(--ed-ink)',
+              cursor: isActive ? 'default' : 'pointer',
+              borderLeft: i > 0 ? '1px solid var(--ed-ink)' : 'none',
+            }}
+          >
+            {g.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function DailyTable({ rows, granularity }) {
+  return (
+    <div className="mt-6 overflow-x-auto">
+      <table
+        className="w-full border-collapse text-left"
+        style={{ fontVariantNumeric: 'tabular-nums' }}
+      >
+        <caption className="sr-only">
+          Daily breakdown of cohort, visitors, and FTI by {granularity}.
+          FTI attributed to invest-time. Treatment FTI rows nest: visited
+          is a subset of total, played≥1 a subset of visited, played≥2 a
+          subset of played≥1.
+        </caption>
+        <thead>
+          <tr className="border-b-2 border-[var(--ed-ink)]">
+            <th
+              scope="col"
+              className="px-2 py-3 ed-caption whitespace-nowrap text-left"
+              style={{ minWidth: 140 }}
+            >
+              {granularity === 'hour'
+                ? 'Hour'
+                : granularity === 'day'
+                  ? 'Day'
+                  : granularity === 'week'
+                    ? 'Week of'
+                    : 'Month'}
+            </th>
+            {DAILY_COLUMNS.map((c) => (
+              <th
+                key={c.key}
+                scope="col"
+                className="px-2 py-3 ed-caption text-right"
+                style={{
+                  minWidth: 100,
+                  // Treatment FTI nested rows get a hairline left border
+                  // for the visual hierarchy at the header too.
+                  borderLeft: c.indent
+                    ? '1px solid var(--ed-rule-faint)'
+                    : 'none',
+                }}
+                title={
+                  c.fti && c.indent
+                    ? `Subset of ${DAILY_COLUMNS[DAILY_COLUMNS.indexOf(c) - 1].label}`
+                    : undefined
+                }
+              >
+                <span
+                  style={{
+                    paddingLeft: c.indent ? `${c.indent * 8}px` : 0,
+                    display: 'inline-block',
+                  }}
+                >
+                  {c.label}
+                </span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr
+              key={row.bucket}
+              className="border-b border-[var(--ed-rule-faint)]"
+            >
+              <th
+                scope="row"
+                className="px-2 py-2 whitespace-nowrap font-normal"
+                style={{
+                  fontFamily: 'var(--ed-mono)',
+                  fontSize: 13,
+                  color: 'var(--ed-ink)',
+                }}
+              >
+                {formatDailyBucket(row.bucket, granularity)}
+              </th>
+              {DAILY_COLUMNS.map((c) => {
+                const value = row[c.key];
+                const numeric = typeof value === 'number' ? value : Number(value);
+                const display = Number.isFinite(numeric)
+                  ? numeric.toLocaleString('en-IN')
+                  : '—';
+                const isZero = numeric === 0;
+                return (
+                  <td
+                    key={c.key}
+                    className="px-2 py-2 text-right whitespace-nowrap"
+                    style={{
+                      fontFamily: 'var(--ed-mono)',
+                      fontSize: 14,
+                      color: isZero
+                        ? 'var(--ed-ink-faint)'
+                        : 'var(--ed-ink)',
+                      // Same hairline guide on body cells for FTI sub-rows.
+                      borderLeft: c.indent
+                        ? '1px solid var(--ed-rule-faint)'
+                        : 'none',
+                    }}
+                  >
+                    {display}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function TheReading({ rows, marginNotes }) {
   const inferences = React.useMemo(
     () => deriveInferences({ rows, marginNotes }),
