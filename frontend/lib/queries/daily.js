@@ -26,12 +26,18 @@ const wkOf = (t) => {
 
 /** UNION ALL the row-level source tables, projecting only what each builder
  *  needs and applying the test-user exclusion in one place. Returns null when
- *  the table list is empty so callers can short-circuit. */
-function unionRaw(tableList, cols, extraWhere) {
+ *  the table list is empty so callers can short-circuit.
+ *
+ *  `colsFor` is either a string (same columns from every table) or a function
+ *  `(table) => string` that returns the SELECT list per-table. Use the function
+ *  form when a column was added in a later week and pre-cutover tables need a
+ *  NULL projection (otherwise the UNION fails with a binder error). */
+function unionRaw(tableList, colsFor, extraWhere) {
   if (!tableList || tableList.length === 0) return null;
   const where = extraWhere ? `${EXC} AND (${extraWhere})` : EXC;
+  const colsOf = typeof colsFor === "function" ? colsFor : () => colsFor;
   return tableList
-    .map((t) => `SELECT ${cols} FROM "${t}" WHERE ${where}`)
+    .map((t) => `SELECT ${colsOf(t)} FROM "${t}" WHERE ${where}`)
     .join("\nUNION ALL\n");
 }
 
@@ -45,17 +51,30 @@ function unionV2(tableList, cols, extraWhere) {
   return unionRaw(eligible, cols, extraWhere);
 }
 
-// IST-day extraction. Rudderstack timestamps are written with `+05:30`
-// offsets, so casting to DATE strips the time portion correctly without
-// double-converting. STRFTIME gives us a stable 'YYYY-MM-DD' string the
-// charts can sort + render directly.
-const DAY_EXPR = `STRFTIME(CAST(timestamp AS TIMESTAMP), '%Y-%m-%d')`;
+/** SELECT-list builder that NULL-projects `engine_version` for pre-cutover
+ *  tables (W1–W7 don't have the column; pulling it directly raises a binder
+ *  error). Post-cutover tables select the real column. */
+function colsWithEngineVersion(baseCols) {
+  return (t) => {
+    const w = wkOf(t);
+    if (w != null && w >= CUTOVER_WEEK) return `${baseCols}, engine_version`;
+    return `${baseCols}, CAST(NULL AS VARCHAR) AS engine_version`;
+  };
+}
 
-// Trailing-window predicate using the dashboard's clock. DuckDB's `CURRENT_DATE`
-// is the runtime date on the backend (UTC on Render). We add a 5h30m offset to
-// hit IST midnight and look back N days.
+// IST-day extraction. Rudderstack writes timestamps with `+05:30` offsets;
+// DuckDB's CAST(... AS TIMESTAMP) converts to UTC and drops the offset.
+// Without the +5:30 shift below, events in the 00:00–05:30 IST window
+// would land on the prior UTC day (~8% of events in a typical sample).
+const DAY_EXPR = `STRFTIME(CAST(timestamp AS TIMESTAMP) + INTERVAL 5 HOUR + INTERVAL 30 MINUTE, '%Y-%m-%d')`;
+
+// Trailing-window predicate. The lower bound is an IST-midnight-aligned
+// cutoff: shift the runtime clock by +5:30 to get the IST date, then look
+// back N days. The timestamp side gets the same shift so the comparison is
+// apples-to-apples (IST-shifted vs IST-shifted), surviving DST/locale
+// quirks on whichever box runs the SQL.
 function recentWindow(days = DAILY_WINDOW_DAYS) {
-  return `CAST(timestamp AS TIMESTAMP) >= (CAST((CURRENT_TIMESTAMP + INTERVAL 5 HOUR + INTERVAL 30 MINUTE) AS DATE) - INTERVAL ${days} DAY)`;
+  return `(CAST(timestamp AS TIMESTAMP) + INTERVAL 5 HOUR + INTERVAL 30 MINUTE) >= (CAST((CURRENT_TIMESTAMP + INTERVAL 5 HOUR + INTERVAL 30 MINUTE) AS DATE) - INTERVAL ${days} DAY)`;
 }
 
 // ── builders ────────────────────────────────────────────────────────────────
@@ -68,7 +87,9 @@ function recentWindow(days = DAILY_WINDOW_DAYS) {
 export function dailyQueriesByEngine({ tables } = {}) {
   const inner = unionRaw(
     tables && tables.query,
-    "timestamp, engine_version, results_count, context_session_id, user_id, query_text",
+    colsWithEngineVersion(
+      "timestamp, results_count, context_session_id, user_id, query_text"
+    ),
     `query_text IS NOT NULL AND ${recentWindow()}`
   );
   if (!inner) return null;
@@ -110,8 +131,13 @@ export function dailyZrr({ tables } = {}) {
 }
 
 /**
- * Distinct users per day who hit at least one failed search (zero-result query
- * OR empty_state event). The actionable CS daily-queue size.
+ * Distinct users per day who hit at least one failed search, plus the count
+ * of failure events for that day. Failure event = `asset_search_query` with
+ * `results_count = 0`. We deliberately do NOT also union `asset_search_empty_state`
+ * — the empty-state event fires alongside every zero-result query, so unioning
+ * both inflates the event count ~2x (the DISTINCT user count is unaffected).
+ * The query event is the canonical source: results_count is a measured field
+ * we trust over a derived UI signal.
  */
 export function dailyFailedUsers({ tables } = {}) {
   const queryFailures = unionRaw(
@@ -119,19 +145,13 @@ export function dailyFailedUsers({ tables } = {}) {
     "timestamp, user_id",
     `results_count = 0 AND user_id IS NOT NULL AND ${recentWindow()}`
   );
-  const emptyStates = unionRaw(
-    tables && tables.empty_state,
-    "timestamp, user_id",
-    `user_id IS NOT NULL AND ${recentWindow()}`
-  );
-  if (!queryFailures && !emptyStates) return null;
-  const all = [queryFailures, emptyStates].filter(Boolean).join("\nUNION ALL\n");
+  if (!queryFailures) return null;
   return `
     SELECT
       ${DAY_EXPR}             AS day,
       COUNT(DISTINCT user_id) AS failed_users,
       COUNT(*)                AS failure_events
-    FROM (${all}) t
+    FROM (${queryFailures}) t
     GROUP BY 1
     ORDER BY 1
   `;
