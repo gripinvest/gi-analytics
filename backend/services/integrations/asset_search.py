@@ -90,6 +90,11 @@ EVENTS: dict[str, Event] = {e.key: e for e in [
     Event("empty_state",        "asset_search_empty_state",        "asset_search_empty_state",        "daily"),
     Event("cleared",            "asset_search_cleared",            "asset_search_cleared",            "daily"),
     Event("suggestion_clicked", "asset_search_suggestion_clicked", "asset_search_suggestion_clicked", "daily"),
+    # V2 outreach events — only fire when a user hits the empty state with
+    # `engine_version: 'v2'`. Volumes are small (single-digit clicks/day)
+    # so the daily cadence is right; the BD/CS outreach panel reads these.
+    Event("notify_me_clicked",  "asset_search_notify_me_clicked",  "asset_search_notify_me_clicked",  "daily"),
+    Event("chip_clicked",       "asset_search_chip_clicked",       "asset_search_chip_clicked",       "daily"),
     Event("assets_page_views",  "view_assets",                     "assets_page_views",               "weekly",
           # Identity + when only. The W1–W6 hand-export carried `path`/`title`
           # too, but the live Rudder schema renamed both away and no dashboard
