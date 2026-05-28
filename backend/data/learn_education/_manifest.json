@@ -1,4 +1,5 @@
 {
+<<<<<<< Updated upstream
   "refreshed_at": "2026-05-28T05:41:25Z",
   "tables": {
     "weekly_ab_tracker": {
@@ -6,6 +7,15 @@
     },
     "hourly_breakdown": {
       "last_refreshed_at": "2026-05-28T05:41:25Z"
+=======
+  "refreshed_at": "2026-05-28T05:42:00Z",
+  "tables": {
+    "weekly_ab_tracker": {
+      "last_refreshed_at": "2026-05-28T05:42:00Z"
+    },
+    "hourly_breakdown": {
+      "last_refreshed_at": "2026-05-28T05:42:00Z"
+>>>>>>> Stashed changes
     }
   },
   "margin_notes": {
