@@ -347,7 +347,11 @@ def run(client, data_dir, *, today: date | None = None,
             manifest["tables"][stem] = {"last_refreshed_at": now}
     manifest.setdefault("refreshed_at", now)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(manifest, indent=2))
+    # Atomic write — a reader catching a half-written manifest mid-cron
+    # would 500 the project endpoint. See learn_education.py / D-26.
+    tmp_path = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(manifest, indent=2))
+    tmp_path.replace(manifest_path)
 
     status = "partial" if any(l.startswith("FAIL") for l in log) else "ok"
     return {"status": status, "log": log,

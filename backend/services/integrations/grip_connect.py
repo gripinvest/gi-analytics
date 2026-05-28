@@ -189,5 +189,10 @@ def run(client, data_dir, *, partners=PARTNERS, active_week_start=None) -> dict:
     all_tables = list(layer1) + list(layer2)
     manifest = {"refreshed_at": now,
                 "tables": {t: {"last_refreshed_at": now} for t in all_tables}}
-    (data_dir / "_manifest.json").write_text(json.dumps(manifest, indent=2))
+    # Atomic write — a reader catching a half-written manifest mid-cron
+    # would 500 the project endpoint. See learn_education.py / D-26.
+    manifest_path = data_dir / "_manifest.json"
+    tmp_path = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(manifest, indent=2))
+    tmp_path.replace(manifest_path)
     return {"status": "ok", "log": log, "refreshed_at": now}
