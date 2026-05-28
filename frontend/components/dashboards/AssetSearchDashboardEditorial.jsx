@@ -27,8 +27,10 @@ import * as C from "@/lib/queries/conversion";
 import { CONV_METRIC_DEFS } from "@/lib/queries/conversion";
 import * as EC from "@/lib/queries/engineComparison";
 import * as OR from "@/lib/queries/outreach";
+import * as D from "@/lib/queries/daily";
 import AssetSearchOutreachSection from "./AssetSearchOutreachSection";
 import AssetSearchCutoverStrip from "./AssetSearchCutoverStrip";
+import AssetSearchDailySection from "./AssetSearchDailySection";
 
 /* ── data loading (mirrors the classic dashboard's hook) ──────────────────── */
 
@@ -64,6 +66,14 @@ const QUERY_SPECS = {
   // when no notify_me_clicked tables exist yet; the section then falls
   // back to its own mock-sample state via dataState([]).
   outreach_detail:  (ctx) => OR.notifyMeOutreachDetail(ctx),
+  // Daily-grain pulse series — last 14 days of queries (engine-split),
+  // ZRR, failed users, and V2 empty-state taps. Each builder returns null
+  // when its source tables are missing, so run() yields zero-rows and
+  // the section renders the "no data" fallbacks per chart.
+  daily_queries:    (ctx) => D.dailyQueriesByEngine(ctx),
+  daily_zrr:        (ctx) => D.dailyZrr(ctx),
+  daily_failed:     (ctx) => D.dailyFailedUsers(ctx),
+  daily_notifychip: (ctx) => D.dailyNotifyChip(ctx),
 };
 const CONV_SPECS = {
   conv_headline:  (conv) => C.conversionHeadline(conv),
@@ -481,15 +491,18 @@ export default function AssetSearchDashboardEditorial({ project }) {
   const refineSeries = healthSeries;
 
   // ── section state ────────────────────────────────────────────────────────
+  // Daily Pulse is a separate tab so day-grain signals don't compete with
+  // the weekly editorial narrative. Roman numerals downstream shift by one.
   const sections = [
-    { key: "overview",        no: "I",                       italic: "The Overview" },
-    ...(convOk ? [{ key: "conversion", no: "II",            italic: "The Conversion" }] : []),
-    { key: "issuers",         no: convOk ? "III" : "II",     italic: "The Issuers" },
-    { key: "terms",           no: convOk ? "IV"  : "III",    italic: "The Terms" },
-    { key: "instrumentation", no: convOk ? "V"   : "IV",     italic: "The Instrumentation" },
-    // V2 outreach surface — CS-facing queue of "Notify me when it's back"
-    // taps. Deep-linkable via ?section=outreach so CS can bookmark it.
-    { key: "outreach",        no: convOk ? "VI"  : "V",      italic: "The Outreach" },
+    { key: "overview",        no: "I",                                       italic: "The Overview" },
+    { key: "daily",           no: "II",                                      italic: "The Daily Pulse" },
+    ...(convOk ? [{ key: "conversion", no: "III",                            italic: "The Conversion" }] : []),
+    { key: "issuers",         no: convOk ? "IV"  : "III",                    italic: "The Issuers" },
+    { key: "terms",           no: convOk ? "V"   : "IV",                     italic: "The Terms" },
+    { key: "instrumentation", no: convOk ? "VI"  : "V",                      italic: "The Instrumentation" },
+    // V2 outreach surface — CS-facing queue. Deep-linkable via
+    // ?section=outreach so CS can bookmark it.
+    { key: "outreach",        no: convOk ? "VII" : "VI",                     italic: "The Outreach" },
   ];
   const [section, setSection] = React.useState("overview");
 
@@ -704,6 +717,16 @@ export default function AssetSearchDashboardEditorial({ project }) {
       {section === "instrumentation" && (
         <InstrumentationSection clears={clears} totalClears={totalClears} weeks={weeks} lastWeek={lastWeek} loading={loading} data={data} />
       )}
+      {section === "daily" && (
+        <AssetSearchDailySection
+          sectionNumber={sections.find((s) => s.key === "daily")?.no ?? "II"}
+          queriesByEngineRows={rowsOf(data, "daily_queries")}
+          zrrRows={rowsOf(data, "daily_zrr")}
+          failedUsersRows={rowsOf(data, "daily_failed")}
+          notifyChipRows={rowsOf(data, "daily_notifychip")}
+        />
+      )}
+
       {section === "outreach" && (
         // Wired to the live notify-me click rollup (outreach_detail). The
         // section's dataState() flips pending→sparse→live based on row
