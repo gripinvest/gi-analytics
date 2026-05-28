@@ -307,7 +307,7 @@ const esc = (s) => String(s).replace(/'/g, "''").replace(/([%_\\])/g, "\\$1");
  * naturally catches partial typing while excluding lookalikes ("india" is neither
  * a prefix of nor prefixed by any "indel..." keyword). First matching issuer wins.
  */
-function issuerCaseExpr(col = "query_text") {
+export function issuerCaseExpr(col = "query_text") {
   const q = `LOWER(TRIM(${col}))`;
   const arms = ISSUER_MAP.map((m) => {
     const conds = m.keywords

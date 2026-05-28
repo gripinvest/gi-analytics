@@ -1,18 +1,22 @@
 // Outreach query builder + mock dataset for the Asset Search dashboard's
 // CS-facing Outreach section.
 //
-// Live SQL runs against the DuckDB build of the dashboard project — same
-// path every other QUERY_SPEC takes. While the cutover-window
-// `notify_me_clicked` tables are missing or empty, the live query returns
-// 0 rows and the section falls back to the mock dataset + a pending pill.
-// dataState() drives the cutover; no code change at the boundary.
+// The list is intent-driven: every user who hit a failed search (zero-result
+// query or empty_state event) whose query maps to a known issuer via the
+// registry. Notify Me is one signal column, not the filter — most demand
+// never clicks the CTA. Same priority framing as the offline CS_call_list:
+// P1 catalog_gap > P2 availability > P3 alias > P4 healthy.
+//
+// PII (email / phone / name / city) is NOT in this view. The DuckDB build
+// has only event payloads — user_id is the join key CS uses against their
+// CRM. This is deliberate: keeping PII off the analytics dashboard avoids
+// duplicating sensitive data into the (auth-light) web tier.
 //
 // Status tracking (new / contacted / converted) lives in localStorage —
-// CS uses the dashboard without a CRM integration. Status keys are scoped
-// per `${user_id}:${issuer}` so the same lead under two issuers tracks
-// separately.
+// keyed per `${user_id}:${issuer}` so the same lead under two issuers
+// tracks separately.
 
-import { TEST_USERS } from "./assetSearch";
+import { TEST_USERS, ISSUER_MAP, issuerCaseExpr } from "./assetSearch";
 
 const EXC = `(user_id IS NULL OR user_id NOT IN (${TEST_USERS.join(",")}))`;
 
@@ -20,69 +24,125 @@ const EXC = `(user_id IS NULL OR user_id NOT IN (${TEST_USERS.join(",")}))`;
  *  applies the test-user exclusion in one place. Returns null when no
  *  tables are given so callers can short-circuit (the dashboard's run()
  *  treats null SQL as a zero-row result). */
-function unionAll(tableList, cols) {
+function unionAll(tableList, cols, extraWhere) {
   if (!tableList || tableList.length === 0) return null;
+  const where = extraWhere ? `${EXC} AND (${extraWhere})` : EXC;
   return tableList
-    .map((t) => `SELECT ${cols} FROM "${t}" WHERE ${EXC}`)
+    .map((t) => `SELECT ${cols} FROM "${t}" WHERE ${where}`)
     .join("\nUNION ALL\n");
 }
 
 // ── live SQL builders ───────────────────────────────────────────────────────
 
 /**
- * Per-issuer Notify Me click rollup. Drives the "Demand snapshot" KPI cards
- * and the issuer dropdown in the filter bar. Reads from the union of all
- * available notify_me_clicked tables (cutover-era only).
+ * Broad outreach rollup: every user × issuer pair where the user has hit
+ * a failed search (zero-result query OR empty_state event) that the
+ * registry can map to a known issuer. Notify Me click is a flag column,
+ * not a filter. Sorted by Notified DESC → hit count DESC → recency, so
+ * the warmest leads bubble to the top.
+ *
+ * Returns null when no failed-search tables exist; the section then
+ * renders mock data + a pending pill.
  */
-export function notifyMeByIssuer({ tables } = {}) {
-  const inner = unionAll(
-    tables && tables.notify_me_clicked,
-    "user_id, mapped_issuer, issuer_category, query_text, active_tab, timestamp, engine_version"
+export function notifyMeOutreachDetail({ tables } = {}) {
+  // Zero-result rows of the query event — the strongest failure signal
+  // (we know the user typed something the engine couldn't resolve).
+  const queryFailures = unionAll(
+    tables && tables.query,
+    "user_id, query_text, timestamp, engine_version, active_tab",
+    "results_count = 0 AND user_id IS NOT NULL AND query_text IS NOT NULL"
   );
-  if (!inner) return null;
+  // Empty-state event — fires whether the failure was zero-result or
+  // near-match (had_mlt_results=true). Together with the zero-query rows
+  // this covers all flavours of dead-end on the search dropdown.
+  const emptyStates = unionAll(
+    tables && tables.empty_state,
+    "user_id, query_text, timestamp, engine_version, active_tab",
+    "user_id IS NOT NULL AND query_text IS NOT NULL"
+  );
+  if (!queryFailures && !emptyStates) return null;
+  const failureUnion = [queryFailures, emptyStates].filter(Boolean).join("\nUNION ALL\n");
+
+  // Notify-me events keyed by (user_id, mapped_issuer) — flagged onto the
+  // rollup with a LEFT JOIN. Treated as optional; falls back to a stub
+  // that returns no rows so the LEFT JOIN works even when the cutover-
+  // era table is missing.
+  const notifyMe = unionAll(
+    tables && tables.notify_me_clicked,
+    "user_id, mapped_issuer",
+    "user_id IS NOT NULL"
+  ) || `SELECT CAST(NULL AS BIGINT) AS user_id, CAST(NULL AS VARCHAR) AS mapped_issuer WHERE FALSE`;
+
   return `
+    WITH failures AS (
+      ${failureUnion}
+    ),
+    classified AS (
+      SELECT user_id, query_text, timestamp, engine_version, active_tab,
+             ${issuerCaseExpr("query_text")} AS mapped_issuer
+      FROM failures
+    ),
+    rolled AS (
+      SELECT user_id, mapped_issuer,
+             COUNT(*)                                  AS hit_count,
+             MAX(timestamp)                            AS last_active,
+             MIN(timestamp)                            AS first_active,
+             STRING_AGG(DISTINCT query_text, ' | ')    AS top_searches,
+             MAX(CASE WHEN engine_version = 'v2' THEN 1 ELSE 0 END) AS seen_v2,
+             MAX(active_tab)                           AS active_tab
+      FROM classified
+      WHERE mapped_issuer IS NOT NULL
+      GROUP BY user_id, mapped_issuer
+    ),
+    notified AS (
+      SELECT DISTINCT user_id, mapped_issuer
+      FROM (${notifyMe}) n
+    )
     SELECT
-      mapped_issuer,
-      issuer_category,
-      COUNT(*)                AS clicks,
-      COUNT(DISTINCT user_id) AS unique_users,
-      MAX(timestamp)          AS last_click_at
-    FROM (${inner}) t
-    WHERE engine_version = 'v2'
-    GROUP BY 1, 2
-    ORDER BY clicks DESC
+      r.user_id,
+      r.mapped_issuer,
+      r.hit_count,
+      r.last_active,
+      r.first_active,
+      r.top_searches,
+      r.active_tab,
+      r.seen_v2,
+      CASE WHEN n.user_id IS NOT NULL THEN 1 ELSE 0 END AS notified
+    FROM rolled r
+    LEFT JOIN notified n
+      ON n.user_id = r.user_id
+     AND n.mapped_issuer = r.mapped_issuer
+    ORDER BY notified DESC, hit_count DESC, last_active DESC
   `;
 }
 
-/**
- * Per-user outreach detail. Drives the main table. Email/phone enrichment
- * would join an external users table — DuckDB doesn't have one, so the live
- * variant ships only the event fields. CS still gets `user_id`, issuer,
- * query, click count and timestamps — enough to action via the existing
- * CRM. Email/phone backfill is a follow-up via the Metabase ur_tblusers
- * enrichment pipeline (see CS_call_list.csv flow).
- */
-export function notifyMeOutreachDetail({ tables } = {}) {
-  const inner = unionAll(
-    tables && tables.notify_me_clicked,
-    "user_id, mapped_issuer, issuer_category, query_text, active_tab, timestamp, engine_version"
-  );
-  if (!inner) return null;
-  return `
-    SELECT
-      user_id,
-      mapped_issuer,
-      issuer_category,
-      query_text,
-      active_tab,
-      MIN(timestamp)   AS first_click_at,
-      MAX(timestamp)   AS last_click_at,
-      COUNT(*)         AS click_count
-    FROM (${inner}) t
-    WHERE engine_version = 'v2'
-    GROUP BY 1, 2, 3, 4, 5
-    ORDER BY last_click_at DESC
-  `;
+// ── client-side enrichment ──────────────────────────────────────────────────
+
+const ISSUER_CATEGORY_BY_NAME = Object.fromEntries(
+  ISSUER_MAP.map((i) => [i.name, i.category])
+);
+
+const PRIORITY_BY_CATEGORY = {
+  catalog_gap:  { rank: 1, label: "P1 — catalog gap"   },
+  availability: { rank: 2, label: "P2 — availability"  },
+  alias:        { rank: 3, label: "P3 — alias gap"     },
+  healthy:      { rank: 4, label: "P4 — healthy"       },
+};
+
+/** Decorate a SQL row with derived priority + intent fields. The category
+ *  comes from the in-repo ISSUER_MAP, not the event payload, so it stays
+ *  consistent with the rest of the dashboard. */
+export function decorateOutreachRow(row) {
+  const category = ISSUER_CATEGORY_BY_NAME[row.mapped_issuer] || "healthy";
+  const priority = PRIORITY_BY_CATEGORY[category] || PRIORITY_BY_CATEGORY.healthy;
+  return {
+    ...row,
+    issuer_category: category,
+    priority_rank: priority.rank,
+    priority_label: priority.label,
+    notified: Number(row.notified) === 1 || row.notified === true,
+    seen_v2: Number(row.seen_v2) === 1 || row.seen_v2 === true,
+  };
 }
 
 // ── mock data (used until events flow) ──────────────────────────────────────
@@ -90,50 +150,57 @@ export function notifyMeOutreachDetail({ tables } = {}) {
 /**
  * Mock dataset sized to reflect realistic per-week volume per the V1
  * analytics — Vedika ~310 zero-result queries across 8 weeks (~39/week),
- * Muthoot ~187, Keertana ~140. If 15% of those convert to Notify Me taps
- * once the CTA ships, we'd see ~6-15 clicks per top issuer per week.
+ * Muthoot ~187, Keertana ~140. The `notified` flag is set on a minority
+ * (most demand never clicks the CTA — Notify Me is one signal of many).
  *
- * All emails use the RFC 2606 `example.test` sentinel TLD so this mock
- * never resembles real PII in PII-leak grep audits. Phone bodies are
- * obvious dummies (`+91 9000000XXX`). Status mix biases toward 'new'
- * since CS workflow starts fresh each week.
+ * Schema matches the live SQL: user_id only (no PII). Mock user_ids are
+ * obviously synthetic seven-digit numbers; the real CRM has the contact
+ * detail, the dashboard surfaces the intent.
  */
-export const outreachMockSample = [
-  // Vedika Credit — catalog_gap; persistent demand, ~100% ZRR in V1
-  { user_id: 1284532, email: 'lead001@example.test', phone: '+91 9000000001', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedika credit',  active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-24T09:14:22+05:30', first_click_at: '2026-05-20T16:02:11+05:30' },
-  { user_id: 1538912, email: 'lead002@example.test', phone: '+91 9000000002', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedika',         active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T11:38:01+05:30', first_click_at: '2026-05-24T11:38:01+05:30' },
-  { user_id: 1612220, email: 'lead003@example.test', phone: '+91 9000000003', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedik',          active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T17:21:47+05:30', first_click_at: '2026-05-23T17:21:47+05:30' },
-  { user_id: 1701445, email: 'lead004@example.test', phone: '+91 9000000004', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'ved',            active_tab: 'bonds', click_count: 3, last_click_at: '2026-05-25T08:02:09+05:30', first_click_at: '2026-05-19T13:44:33+05:30' },
-  { user_id: 1822903, email: 'lead005@example.test', phone: '+91 9000000005', mapped_issuer: 'Vedika Credit',       issuer_category: 'catalog_gap',  query_text: 'vedika credit',  active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-22T20:11:55+05:30', first_click_at: '2026-05-22T20:11:55+05:30' },
-
-  // Muthoot — availability; cycles in/out, very high ZRR when offline
-  { user_id: 1455201, email: 'lead006@example.test', phone: '+91 9000000006', mapped_issuer: 'Muthoot Finance',     issuer_category: 'availability', query_text: 'muthoot',        active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T10:55:12+05:30', first_click_at: '2026-05-21T14:22:09+05:30' },
-  { user_id: 1488731, email: 'lead007@example.test', phone: '+91 9000000007', mapped_issuer: 'Muthoot Finance',     issuer_category: 'availability', query_text: 'muth',           active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T16:08:30+05:30', first_click_at: '2026-05-24T16:08:30+05:30' },
-  { user_id: 1601023, email: 'lead008@example.test', phone: '+91 9000000008', mapped_issuer: 'Muthoot Finance',     issuer_category: 'availability', query_text: 'muthoot finance',active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T11:45:01+05:30', first_click_at: '2026-05-23T11:45:01+05:30' },
-  { user_id: 1733009, email: 'lead009@example.test', phone: '+91 9000000009', mapped_issuer: 'Muthoot Finance',     issuer_category: 'availability', query_text: 'muthoot',        active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-22T09:38:44+05:30', first_click_at: '2026-05-22T09:38:44+05:30' },
-
-  // Keertana — availability; went offline around W3 per V1 data
-  { user_id: 1390887, email: 'lead010@example.test', phone: '+91 9000000010', mapped_issuer: 'Keertana Finserv',    issuer_category: 'availability', query_text: 'keertana',       active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T07:18:33+05:30', first_click_at: '2026-05-20T18:55:21+05:30' },
-  { user_id: 1502778, email: 'lead011@example.test', phone: '+91 9000000011', mapped_issuer: 'Keertana Finserv',    issuer_category: 'availability', query_text: 'keer',           active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T13:42:50+05:30', first_click_at: '2026-05-24T13:42:50+05:30' },
-  { user_id: 1655124, email: 'lead012@example.test', phone: '+91 9000000012', mapped_issuer: 'Keertana Finserv',    issuer_category: 'availability', query_text: 'keerthana',      active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T15:14:09+05:30', first_click_at: '2026-05-23T15:14:09+05:30' },
-
-  // Mufin Green — availability + alias
-  { user_id: 1421099, email: 'lead013@example.test', phone: '+91 9000000013', mapped_issuer: 'Mufin Green Finance', issuer_category: 'availability', query_text: 'mufin',          active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T19:55:00+05:30', first_click_at: '2026-05-24T19:55:00+05:30' },
-  { user_id: 1559013, email: 'lead014@example.test', phone: '+91 9000000014', mapped_issuer: 'Mufin Green Finance', issuer_category: 'availability', query_text: 'mufin green',    active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T11:02:17+05:30', first_click_at: '2026-05-21T10:40:08+05:30' },
-
-  // SBI Bonds — catalog_gap; 100% ZRR in V1, never on platform
-  { user_id: 1377544, email: 'lead015@example.test', phone: '+91 9000000015', mapped_issuer: 'SBI Bonds',           issuer_category: 'catalog_gap',  query_text: 'sbi',            active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T08:08:08+05:30', first_click_at: '2026-05-24T08:08:08+05:30' },
-  { user_id: 1465701, email: 'lead016@example.test', phone: '+91 9000000016', mapped_issuer: 'SBI Bonds',           issuer_category: 'catalog_gap',  query_text: 'sbi bonds',      active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T16:33:21+05:30', first_click_at: '2026-05-22T11:25:14+05:30' },
-  { user_id: 1611009, email: 'lead017@example.test', phone: '+91 9000000017', mapped_issuer: 'SBI Bonds',           issuer_category: 'catalog_gap',  query_text: 'sbi',            active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-23T20:01:42+05:30', first_click_at: '2026-05-23T20:01:42+05:30' },
-
-  // Mahindra Finance — catalog_gap
-  { user_id: 1411212, email: 'lead018@example.test', phone: '+91 9000000018', mapped_issuer: 'Mahindra Finance',    issuer_category: 'catalog_gap',  query_text: 'mahindra',       active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T14:22:55+05:30', first_click_at: '2026-05-24T14:22:55+05:30' },
-  { user_id: 1577488, email: 'lead019@example.test', phone: '+91 9000000019', mapped_issuer: 'Mahindra Finance',    issuer_category: 'catalog_gap',  query_text: 'mahi',           active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-25T09:11:30+05:30', first_click_at: '2026-05-25T09:11:30+05:30' },
-
-  // Bajaj Finance — catalog_gap
-  { user_id: 1499876, email: 'lead020@example.test', phone: '+91 9000000020', mapped_issuer: 'Bajaj Finance',       issuer_category: 'catalog_gap',  query_text: 'bajaj',          active_tab: 'bonds', click_count: 2, last_click_at: '2026-05-25T12:48:11+05:30', first_click_at: '2026-05-20T15:30:01+05:30' },
-  { user_id: 1632091, email: 'lead021@example.test', phone: '+91 9000000021', mapped_issuer: 'Bajaj Finance',       issuer_category: 'catalog_gap',  query_text: 'baja',           active_tab: 'bonds', click_count: 1, last_click_at: '2026-05-24T17:55:44+05:30', first_click_at: '2026-05-24T17:55:44+05:30' },
+const _MOCK_USER_BASE = 9000000;
+const _M = (i, issuer, qs, hits, opts = {}) => ({
+  user_id: _MOCK_USER_BASE + i,
+  mapped_issuer: issuer,
+  query_text: qs[0],
+  top_searches: qs.join(" | "),
+  active_tab: opts.tab || "bonds",
+  hit_count: hits,
+  first_active: opts.first || "2026-05-20T13:00:00+05:30",
+  last_active: opts.last || "2026-05-26T18:00:00+05:30",
+  notified: opts.notified === true ? 1 : 0,
+  seen_v2: opts.v2 === false ? 0 : 1,
+});
+const _MOCK_RAW = [
+  // Vedika — catalog_gap, the strongest persistent demand
+  _M(1, "Vedika Credit",     ["vedika credit", "vedika", "ved"], 3, { notified: true,  last: "2026-05-26T09:14:22+05:30" }),
+  _M(2, "Vedika Credit",     ["vedika", "vedik"],                 2, {                  last: "2026-05-26T11:38:01+05:30" }),
+  _M(3, "Vedika Credit",     ["vedik"],                           1, {                  last: "2026-05-25T17:21:47+05:30" }),
+  _M(4, "Vedika Credit",     ["ved", "vedika credit"],            3, { notified: true,  last: "2026-05-26T08:02:09+05:30" }),
+  _M(5, "Vedika Credit",     ["vedika credit"],                   1, {                  last: "2026-05-24T20:11:55+05:30" }),
+  // Muthoot — availability, cycles in/out
+  _M(6, "Muthoot Finance",   ["muthoot", "muthoot finance"],      2, { notified: true,  last: "2026-05-26T10:55:12+05:30" }),
+  _M(7, "Muthoot Finance",   ["muth"],                            1, {                  last: "2026-05-26T16:08:30+05:30" }),
+  _M(8, "Muthoot Finance",   ["muthoot finance"],                 1, {                  last: "2026-05-25T11:45:01+05:30" }),
+  _M(9, "Muthoot Finance",   ["muthoot"],                         1, {                  last: "2026-05-24T09:38:44+05:30" }),
+  // Keertana — availability
+  _M(10, "Keertana",         ["keertana", "keer"],                2, {                  last: "2026-05-26T07:18:33+05:30" }),
+  _M(11, "Keertana",         ["keer"],                            1, {                  last: "2026-05-26T13:42:50+05:30" }),
+  _M(12, "Keertana",         ["keerthana"],                       1, {                  last: "2026-05-25T15:14:09+05:30" }),
+  // Mufin — alias + availability
+  _M(13, "Mufin Finance",    ["mufin"],                           1, {                  last: "2026-05-26T19:55:00+05:30" }),
+  _M(14, "Mufin Finance",    ["mufin green", "mufin"],            2, { notified: true,  last: "2026-05-26T11:02:17+05:30" }),
+  // Govt / RBI — catalog_gap (category-level)
+  _M(15, "Govt / RBI Bonds", ["rbi", "rbi floating rate bond"],   2, {                  last: "2026-05-26T08:08:08+05:30" }),
+  _M(16, "Govt / RBI Bonds", ["govt", "government bond"],         2, {                  last: "2026-05-26T16:33:21+05:30" }),
+  _M(17, "Govt / RBI Bonds", ["rbi"],                             1, {                  last: "2026-05-25T20:01:42+05:30" }),
+  // Akara — alias gap, low priority
+  _M(18, "Akara Capital",    ["akara", "akar"],                   2, {                  last: "2026-05-26T14:22:55+05:30" }),
+  _M(19, "Akara Capital",    ["aka"],                             1, {                  last: "2026-05-26T09:11:30+05:30" }),
+  // Unifinz — alias gap
+  _M(20, "Unifinz",          ["unifinz", "unifin"],               2, { notified: true,  last: "2026-05-26T12:48:11+05:30" }),
+  _M(21, "Unifinz",          ["unif"],                            1, {                  last: "2026-05-26T17:55:44+05:30" }),
 ];
+export const outreachMockSample = _MOCK_RAW;
 
 // ── data-state classifier ───────────────────────────────────────────────────
 

@@ -2,9 +2,15 @@
 // AssetSearchOutreachSection
 // ─────────────────────────────────────────────────────────────────────────
 // CS-facing surface inside the Asset Search dashboard. Surfaces every
-// `asset_search_notify_me_clicked` row joined with user contact info,
-// filterable by issuer / date / status / email, with row-level actions
-// (copy email, copy phone, mark contacted, mark converted).
+// user × issuer pair where the user hit a failed search the registry can
+// map to a known issuer — Notify Me click is one signal flag, not the
+// filter. Most demand never taps the CTA; the list is broader than the
+// CTA queue alone.
+//
+// No PII on this surface. The DuckDB layer carries event payloads only;
+// the only join key is `user_id`, which CS uses against their CRM for
+// contact detail. Keeping email/phone/name out avoids duplicating
+// sensitive data into the (auth-light) web tier.
 //
 // Persona separation rationale: the rest of this dashboard is leadership-
 // facing (trend lines, success rates, weekly comparisons). This section
@@ -13,15 +19,12 @@
 // table conventions (compact rows, monospaced numbers, hover affordances,
 // sticky filter bar) so a CS rep can clear a queue without scrolling
 // through marketing typography.
-//
-// Until the Notify Me event lands in Rudderstack, this renders mock data
-// with a "pending" pill. The same component auto-switches to live data
-// the moment the event starts flowing (dataState() handles the cutover).
 
 import * as React from "react";
 import {
   outreachMockSample,
   dataState,
+  decorateOutreachRow,
   getAllStatuses,
   setOutreachStatus,
   statusKey,
@@ -53,6 +56,28 @@ function StatusPill({ status }) {
     >
       <span aria-hidden="true">{meta.glyph}</span>
       <span>{meta.label.toUpperCase()}</span>
+    </span>
+  );
+}
+
+// ── priority tag (P1 → P4, colour-banded) ──────────────────────────────────
+
+const PRIORITY_META = {
+  1: { tone: "var(--ed-rust, #a6242b)",      letter: "P1" },
+  2: { tone: "var(--ed-gold, #b8870a)",      letter: "P2" },
+  3: { tone: "var(--ed-ink-muted, #5d5752)", letter: "P3" },
+  4: { tone: "var(--ed-forest, #3b5e3d)",    letter: "P4" },
+};
+
+function PriorityTag({ rank, label }) {
+  const meta = PRIORITY_META[rank] || PRIORITY_META[3];
+  return (
+    <span
+      className="ed-caption inline-flex items-center gap-1"
+      style={{ color: meta.tone, fontWeight: 600, letterSpacing: 0.4 }}
+      title={label}
+    >
+      {meta.letter}
     </span>
   );
 }
@@ -191,8 +216,11 @@ export default function AssetSearchOutreachSection({
   // ── filter state ────────────────────────────────────────────────────────
   const [issuerFilter, setIssuerFilter] = React.useState(ALL_ISSUER);
   const [statusFilter, setStatusFilter] = React.useState("all");
+  const [notifiedFilter, setNotifiedFilter] = React.useState("all"); // all | yes | no
   const [search, setSearch] = React.useState("");
-  const [sort, setSort] = React.useState({ field: "last_click_at", dir: "desc" });
+  // Default sort: notified-first (warmest leads), then priority rank, then
+  // hit count — matches the offline CS_call_list ordering convention.
+  const [sort, setSort] = React.useState({ field: "priority_rank", dir: "asc" });
 
   // Status map is hydrated once from localStorage on mount; updates flow
   // through component state so toggling a status doesn't require a
@@ -207,10 +235,13 @@ export default function AssetSearchOutreachSection({
 
   const enrichedRows = React.useMemo(
     () =>
-      sourceRows.map((r) => ({
-        ...r,
-        status: statusMap[statusKey(r)]?.status ?? "new",
-      })),
+      sourceRows.map((r) => {
+        const decorated = decorateOutreachRow(r);
+        return {
+          ...decorated,
+          status: statusMap[statusKey(decorated)]?.status ?? "new",
+        };
+      }),
     [sourceRows, statusMap]
   );
 
@@ -219,14 +250,18 @@ export default function AssetSearchOutreachSection({
     return enrichedRows.filter((r) => {
       if (issuerFilter !== ALL_ISSUER && r.mapped_issuer !== issuerFilter) return false;
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      if (notifiedFilter === "yes" && !r.notified) return false;
+      if (notifiedFilter === "no" && r.notified) return false;
       if (needle) {
+        // No PII in the search needle — match against user_id, issuer, and
+        // the rolled-up `top_searches` query list.
         const hay =
-          `${r.email || ""} ${r.phone || ""} ${r.query_text || ""} ${r.mapped_issuer || ""}`.toLowerCase();
+          `${r.user_id || ""} ${r.top_searches || ""} ${r.mapped_issuer || ""}`.toLowerCase();
         if (!hay.includes(needle)) return false;
       }
       return true;
     });
-  }, [enrichedRows, issuerFilter, statusFilter, search]);
+  }, [enrichedRows, issuerFilter, statusFilter, notifiedFilter, search]);
 
   const sortedRows = React.useMemo(() => {
     const copy = filteredRows.slice();
@@ -247,24 +282,21 @@ export default function AssetSearchOutreachSection({
 
   // KPIs depend on the filter set only — sort order doesn't change totals.
   const kpis = React.useMemo(() => {
-    const totalClicks = filteredRows.reduce(
-      (s, r) => s + (r.click_count || 0),
-      0
-    );
+    const totalHits = filteredRows.reduce((s, r) => s + (r.hit_count || 0), 0);
     const uniqueUsers = new Set(filteredRows.map((r) => r.user_id)).size;
+    const notifiedCount = filteredRows.filter((r) => r.notified).length;
     const byIssuer = filteredRows.reduce((m, r) => {
-      m[r.mapped_issuer] = (m[r.mapped_issuer] || 0) + (r.click_count || 0);
+      m[r.mapped_issuer] = (m[r.mapped_issuer] || 0) + (r.hit_count || 0);
       return m;
     }, {});
     const topIssuer =
       Object.entries(byIssuer).sort(([, a], [, b]) => b - a)[0] || null;
     const newCount = filteredRows.filter((r) => r.status === "new").length;
     return {
-      totalClicks,
+      totalHits,
       uniqueUsers,
-      topIssuer: topIssuer
-        ? { name: topIssuer[0], clicks: topIssuer[1] }
-        : null,
+      notifiedCount,
+      topIssuer: topIssuer ? { name: topIssuer[0], hits: topIssuer[1] } : null,
       newCount,
     };
   }, [filteredRows]);
@@ -293,17 +325,19 @@ export default function AssetSearchOutreachSection({
 
   const handleExportCsv = () => {
     if (typeof window === "undefined") return;
+    // No PII in this export — `user_id` is the join key against the CRM.
     const headers = [
       "User ID",
-      "Email",
-      "Phone",
+      "Priority",
       "Issuer",
       "Category",
-      "Query",
+      "Hits",
+      "Top searches",
       "Tab",
-      "Click count",
-      "First clicked",
-      "Last clicked",
+      "First seen",
+      "Last seen",
+      "Notified",
+      "V2",
       "Status",
     ];
     const escape = (v) => {
@@ -313,15 +347,16 @@ export default function AssetSearchOutreachSection({
     const rows = sortedRows.map((r) =>
       [
         r.user_id,
-        r.email,
-        r.phone,
+        r.priority_label,
         r.mapped_issuer,
         r.issuer_category,
-        r.query_text,
+        r.hit_count,
+        r.top_searches,
         r.active_tab,
-        r.click_count,
-        r.first_click_at,
-        r.last_click_at,
+        r.first_active,
+        r.last_active,
+        r.notified ? "yes" : "no",
+        r.seen_v2 ? "yes" : "no",
         r.status,
       ].map(escape).join(",")
     );
@@ -351,12 +386,13 @@ export default function AssetSearchOutreachSection({
         className="ed-prose-italic"
         style={{ maxWidth: "62ch", marginTop: 10 }}
       >
-        Users who tapped <strong style={{ fontStyle: "normal", fontWeight: 600 }}>“Notify me when it’s back”</strong> on a
-        search that returned nothing. CS reaches out from this list; tick
-        contacted once the call is made.
+        Every user × issuer pair where the user hit a failed search that the
+        registry maps to a known issuer. <strong style={{ fontStyle: "normal", fontWeight: 600 }}>“Notify me”</strong> is one
+        column — most demand never taps the CTA. The User ID is the join key
+        against your CRM; no PII lives here.
       </p>
 
-      {/* Pending-data callout — only shows until events start flowing */}
+      {/* Pending-data callout — only shows when no rows */}
       {state === "pending" && (
         <div
           className="ed-prose-italic"
@@ -371,12 +407,10 @@ export default function AssetSearchOutreachSection({
           role="status"
         >
           <strong style={{ fontStyle: "normal", fontWeight: 600 }}>
-            Sample data — live feed pending V2 deploy.
+            Sample data — no failed-search rows in current window.
           </strong>{" "}
-          The <code style={{ fontFamily: "var(--ed-mono)" }}>asset_search_notify_me_clicked</code> event ships with the
-          gi-client-web V2 release. The rows below preview what the queue
-          will look like; once events flow, this panel auto-switches to
-          real users.
+          The rows below preview the queue shape. Once the daily refresh
+          pulls a window with real failures, this panel switches to live.
         </div>
       )}
 
@@ -386,8 +420,8 @@ export default function AssetSearchOutreachSection({
         style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}
       >
         <MiniExhibit
-          label="NOTIFY ME CLICKS"
-          value={kpis.totalClicks}
+          label="FAILED HITS"
+          value={kpis.totalHits}
           sub="in current view"
         />
         <MiniExhibit
@@ -396,9 +430,14 @@ export default function AssetSearchOutreachSection({
           sub="distinct leads"
         />
         <MiniExhibit
+          label="NOTIFIED"
+          value={kpis.notifiedCount}
+          sub="tapped notify-me CTA"
+        />
+        <MiniExhibit
           label="TOP ISSUER"
           value={kpis.topIssuer ? kpis.topIssuer.name : "—"}
-          sub={kpis.topIssuer ? `${kpis.topIssuer.clicks} clicks` : "no rows"}
+          sub={kpis.topIssuer ? `${kpis.topIssuer.hits} hits` : "no rows"}
         />
         <MiniExhibit
           label="OUTSTANDING"
@@ -443,7 +482,7 @@ export default function AssetSearchOutreachSection({
           </select>
         </label>
 
-        <label className="flex flex-col gap-1" style={{ minWidth: 160 }}>
+        <label className="flex flex-col gap-1" style={{ minWidth: 140 }}>
           <span className="ed-caption" style={{ opacity: 0.75 }}>STATUS</span>
           <select
             value={statusFilter}
@@ -466,15 +505,35 @@ export default function AssetSearchOutreachSection({
           </select>
         </label>
 
+        <label className="flex flex-col gap-1" style={{ minWidth: 140 }}>
+          <span className="ed-caption" style={{ opacity: 0.75 }}>NOTIFIED</span>
+          <select
+            value={notifiedFilter}
+            onChange={(e) => setNotifiedFilter(e.target.value)}
+            className="ed-prose"
+            style={{
+              padding: "6px 8px",
+              background: "var(--ed-paper, #f2ebdb)",
+              border: "1px solid var(--ed-rule, #1b1818)",
+              color: "var(--ed-ink, #1b1818)",
+              fontSize: 14,
+            }}
+          >
+            <option value="all">All</option>
+            <option value="yes">Tapped CTA</option>
+            <option value="no">Did not tap</option>
+          </select>
+        </label>
+
         <label className="flex flex-col gap-1" style={{ flex: 1, minWidth: 200 }}>
           <span className="ed-caption" style={{ opacity: 0.75 }}>
-            SEARCH (EMAIL / PHONE / QUERY)
+            SEARCH (USER ID / ISSUER / QUERY)
           </span>
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="e.g. @gmail.com, 9876, muth"
+            placeholder="e.g. 20110, muthoot, vedika"
             className="ed-prose"
             style={{
               padding: "6px 8px",
@@ -524,12 +583,14 @@ export default function AssetSearchOutreachSection({
         >
           <thead>
             <tr>
-              <HeaderCell field="email" label="USER" sort={sort} setSort={setSort} />
-              <HeaderCell field="mapped_issuer" label="ISSUER" sort={sort} setSort={setSort} />
-              <HeaderCell field="query_text" label="QUERY" sort={sort} setSort={setSort} />
-              <HeaderCell field="click_count" label="CLICKS" sort={sort} setSort={setSort} align="right" />
-              <HeaderCell field="last_click_at" label="LAST SEEN" sort={sort} setSort={setSort} />
-              <HeaderCell field="status" label="STATUS" sort={sort} setSort={setSort} />
+              <HeaderCell field="user_id"        label="USER ID"      sort={sort} setSort={setSort} />
+              <HeaderCell field="priority_rank"  label="PRIORITY"     sort={sort} setSort={setSort} />
+              <HeaderCell field="mapped_issuer"  label="ISSUER"       sort={sort} setSort={setSort} />
+              <HeaderCell field="top_searches"   label="TOP SEARCHES" sort={sort} setSort={setSort} />
+              <HeaderCell field="hit_count"      label="HITS"         sort={sort} setSort={setSort} align="right" />
+              <HeaderCell field="last_active"    label="LAST SEEN"    sort={sort} setSort={setSort} />
+              <HeaderCell field="notified"       label="NOTIFIED"     sort={sort} setSort={setSort} />
+              <HeaderCell field="status"         label="STATUS"       sort={sort} setSort={setSort} />
               <th
                 scope="col"
                 className="ed-caption"
@@ -548,7 +609,7 @@ export default function AssetSearchOutreachSection({
             {sortedRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={9}
                   className="ed-prose-italic"
                   style={{ padding: 24, textAlign: "center", opacity: 0.7 }}
                 >
@@ -567,22 +628,14 @@ export default function AssetSearchOutreachSection({
                   }}
                 >
                   <td style={cellStyle}>
-                    <div
-                      style={{
-                        color: "var(--ed-ink, #1b1818)",
-                        fontWeight: 500,
-                      }}
+                    <span
+                      style={{ color: "var(--ed-ink, #1b1818)", fontWeight: 500 }}
                     >
-                      {row.email || "—"}
-                    </div>
-                    <div
-                      style={{
-                        color: "var(--ed-ink-muted, #5d5752)",
-                        fontSize: 11,
-                      }}
-                    >
-                      {row.phone || "—"}
-                    </div>
+                      {row.user_id}
+                    </span>
+                  </td>
+                  <td style={cellStyle}>
+                    <PriorityTag rank={row.priority_rank} label={row.priority_label} />
                   </td>
                   <td style={cellStyle}>
                     <div>{row.mapped_issuer}</div>
@@ -594,19 +647,49 @@ export default function AssetSearchOutreachSection({
                         letterSpacing: 0.5,
                       }}
                     >
-                      {row.issuer_category === "catalog_gap"
-                        ? "NOT ON PLATFORM"
-                        : "CYCLING / SOLD OUT"}
+                      {row.issuer_category === "catalog_gap"   ? "NOT ON PLATFORM" :
+                       row.issuer_category === "availability"  ? "CYCLING / SOLD OUT" :
+                       row.issuer_category === "alias"         ? "ALIAS GAP" :
+                                                                  "HEALTHY"}
                     </div>
                   </td>
-                  <td style={{ ...cellStyle, fontStyle: "italic" }}>
-                    “{row.query_text}”
+                  <td
+                    style={{
+                      ...cellStyle,
+                      fontStyle: "italic",
+                      maxWidth: 280,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={row.top_searches}
+                  >
+                    “{row.top_searches}”
                   </td>
                   <td style={{ ...cellStyle, textAlign: "right" }}>
-                    {row.click_count}
+                    {row.hit_count}
                   </td>
+                  <td style={cellStyle}>{formatWhen(row.last_active)}</td>
                   <td style={cellStyle}>
-                    {formatWhen(row.last_click_at)}
+                    {row.notified ? (
+                      <span
+                        className="ed-caption"
+                        style={{
+                          color: "var(--ed-forest, #3b5e3d)",
+                          fontWeight: 600,
+                          letterSpacing: 0.4,
+                        }}
+                      >
+                        ● TAPPED
+                      </span>
+                    ) : (
+                      <span
+                        className="ed-caption"
+                        style={{ opacity: 0.5, letterSpacing: 0.4 }}
+                      >
+                        —
+                      </span>
+                    )}
                   </td>
                   <td style={cellStyle}>
                     <StatusPill status={row.status} />
@@ -621,19 +704,13 @@ export default function AssetSearchOutreachSection({
                       }}
                     >
                       <ActionButton
-                        ariaLabel={`Copy email for ${row.email}`}
-                        onClick={() => handleCopy(row.email)}
+                        ariaLabel={`Copy user ID ${row.user_id}`}
+                        onClick={() => handleCopy(String(row.user_id))}
                       >
-                        Copy email
+                        Copy ID
                       </ActionButton>
                       <ActionButton
-                        ariaLabel={`Copy phone for ${row.email}`}
-                        onClick={() => handleCopy(row.phone)}
-                      >
-                        Copy phone
-                      </ActionButton>
-                      <ActionButton
-                        ariaLabel={`Cycle status for ${row.email}`}
+                        ariaLabel={`Cycle status for user ${row.user_id}`}
                         title="Cycle: new → contacted → converted → new"
                         onClick={() => handleStatusToggle(row)}
                       >
