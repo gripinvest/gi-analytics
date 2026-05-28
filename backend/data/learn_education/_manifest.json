@@ -1,37 +1,40 @@
 {
-  "refreshed_at": "2026-05-27T22:48:14Z",
+  "refreshed_at": "2026-05-28T05:38:45Z",
   "tables": {
     "weekly_ab_tracker": {
-      "last_refreshed_at": "2026-05-27T22:48:14Z"
+      "last_refreshed_at": "2026-05-28T05:38:45Z"
+    },
+    "hourly_breakdown": {
+      "last_refreshed_at": "2026-05-28T05:38:45Z"
     }
   },
   "margin_notes": {
     "as_of_week": "2026-05-25",
     "srm": {
-      "control_n": 1404,
-      "treatment_n": 1384,
-      "p_value": 0.7049,
+      "control_n": 2019,
+      "treatment_n": 1990,
+      "p_value": 0.6469,
       "verdict": "ok"
     },
     "control_leak": {
       "control_visitors": 1,
-      "control_cohort": 1404,
-      "leak_pct": 0.07,
+      "control_cohort": 2019,
+      "leak_pct": 0.05,
       "verdict": "warn"
     },
     "fti_lift_ci": {
-      "control_pct": 1.07,
-      "treatment_pct": 1.52,
-      "delta_pp": 0.45,
-      "ci_lower_pp": -0.39,
-      "ci_upper_pp": 1.29,
+      "control_pct": 1.24,
+      "treatment_pct": 1.66,
+      "delta_pp": 0.42,
+      "ci_lower_pp": -0.32,
+      "ci_upper_pp": 1.16,
       "verdict": "ok"
     },
     "mde": {
-      "n_per_arm": 1384,
-      "pooled_rate_pct": 1.29,
-      "mde_abs_pp": 1.2,
-      "mde_rel_pct": 93.1
+      "n_per_arm": 1990,
+      "pooled_rate_pct": 1.45,
+      "mde_abs_pp": 1.06,
+      "mde_rel_pct": 73.3
     }
   },
   "conversion_funnel": {
@@ -43,9 +46,9 @@
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 1404,
-            "fti_n": 15,
-            "fti_rate_pct": 1.07
+            "cohort_n": 2019,
+            "fti_n": 25,
+            "fti_rate_pct": 1.24
           },
           {
             "depth": "visited",
@@ -85,58 +88,58 @@
           }
         ],
         "days_to_fti_median": 0.01,
-        "days_to_fti_n": 15
+        "days_to_fti_n": 25
       },
       "treatment": {
         "bands": [
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 1384,
-            "fti_n": 21,
-            "fti_rate_pct": 1.52
+            "cohort_n": 1990,
+            "fti_n": 33,
+            "fti_rate_pct": 1.66
           },
           {
             "depth": "visited",
             "label": "Visited /learn",
-            "cohort_n": 100,
-            "fti_n": 3,
-            "fti_rate_pct": 3.0
+            "cohort_n": 143,
+            "fti_n": 6,
+            "fti_rate_pct": 4.2
           },
           {
             "depth": "played",
             "label": "Played \u22651 video",
-            "cohort_n": 29,
+            "cohort_n": 41,
             "fti_n": 2,
-            "fti_rate_pct": 6.9
+            "fti_rate_pct": 4.88
           },
           {
             "depth": "multi_played",
             "label": "Played multiple",
-            "cohort_n": 20,
+            "cohort_n": 27,
             "fti_n": 1,
-            "fti_rate_pct": 5.0
+            "fti_rate_pct": 3.7
           },
           {
             "depth": "completed",
             "label": "Completed (\u226575%)",
-            "cohort_n": 19,
+            "cohort_n": 26,
             "fti_n": 1,
-            "fti_rate_pct": 5.26
+            "fti_rate_pct": 3.85
           }
         ],
         "by_entry_source": [
           {
             "source": "bottom_nav",
-            "cohort_n": 70,
-            "fti_n": 2,
-            "fti_rate_pct": 2.86
+            "cohort_n": 106,
+            "fti_n": 4,
+            "fti_rate_pct": 3.77
           },
           {
             "source": "top_chip",
-            "cohort_n": 28,
-            "fti_n": 1,
-            "fti_rate_pct": 3.57
+            "cohort_n": 35,
+            "fti_n": 2,
+            "fti_rate_pct": 5.71
           },
           {
             "source": "direct",
@@ -145,8 +148,8 @@
             "fti_rate_pct": 0.0
           }
         ],
-        "days_to_fti_median": 0.01,
-        "days_to_fti_n": 21
+        "days_to_fti_median": 0.02,
+        "days_to_fti_n": 33
       }
     },
     "prior_variants": null
