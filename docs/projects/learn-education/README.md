@@ -20,6 +20,7 @@ Depending on what you need to do, jump to the right doc:
 | If you want to… | Read |
 |---|---|
 | Understand **what the dashboard does** + what it answers | [README — Surface contract](#surface-contract) (below) |
+| **Defend a number to leadership** — every metric in plain English | [`metrics-for-product.md`](./metrics-for-product.md) |
 | See **how it works end-to-end** — data flow, repos, deployments | [`architecture.md`](./architecture.md) |
 | Find **the exact SQL or event payload** for a metric | [`data-sources.md`](./data-sources.md) |
 | Understand **why** we chose DB 24 / 12-week window / "Margin Notes" / etc. | [`decisions.md`](./decisions.md) |
