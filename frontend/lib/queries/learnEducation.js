@@ -291,3 +291,107 @@ export function computeFtiLift(rows) {
   const lifts = computeFtiLifts(rows);
   return lifts[0] || null;
 }
+
+/* ═══════════════════════════════ §V THE DAILY ═══════════════════════════════
+ * Hourly-source breakdown rolled up to the dropdown-selected granularity.
+ * One source CSV (`hourly_breakdown.csv` → DuckDB table
+ * `learn_education__hourly_breakdown`) serves all four grains: Hour, Day,
+ * Week, Month. DuckDB's date_trunc does the rollup at query time.
+ */
+
+export const DAILY_GRANULARITIES = [
+  { key: 'hour',  label: 'Hour-on-Hour',  trunc: 'hour'  },
+  { key: 'day',   label: 'Day-on-Day',    trunc: 'day'   },
+  { key: 'week',  label: 'Week-on-Week',  trunc: 'week'  },
+  { key: 'month', label: 'Month-on-Month', trunc: 'month' },
+];
+
+/* Columns rendered in The Daily table, in display order. The 4 treatment
+ * FTI columns nest (total ⊇ visited ⊇ played_1p ⊇ played_2p); the table
+ * indents them so the nesting reads at a glance. */
+export const DAILY_COLUMNS = [
+  { key: 'new_cohort_control',      label: 'Control · new',         arm: 'control'   },
+  { key: 'new_cohort_treatment',    label: 'Treatment · new',       arm: 'treatment' },
+  { key: 'new_visitors_treatment',  label: 'T · visited /learn',    arm: 'treatment' },
+  { key: 'fti_control',             label: 'C · FTI',               arm: 'control',   fti: true },
+  { key: 'fti_treatment_total',     label: 'T · FTI',               arm: 'treatment', fti: true },
+  { key: 'fti_treatment_visited',   label: 'T · FTI · visited',     arm: 'treatment', fti: true, indent: 1 },
+  { key: 'fti_treatment_played_1p', label: 'T · FTI · played ≥1',   arm: 'treatment', fti: true, indent: 2 },
+  { key: 'fti_treatment_played_2p', label: 'T · FTI · played ≥2',   arm: 'treatment', fti: true, indent: 3 },
+];
+
+/* Granularity-aware SQL: rolls up the hourly CSV via DuckDB date_trunc
+ * to the selected grain. For week we anchor on Monday (matches the
+ * weekly_ab_tracker's convention). */
+function buildDailySql(trunc) {
+  return [
+    "SELECT",
+    `  strftime(date_trunc('${trunc}', CAST(hour_start AS TIMESTAMP)), '%Y-%m-%d %H:%M:%S') AS bucket,`,
+    "  SUM(new_cohort_control)       AS new_cohort_control,",
+    "  SUM(new_cohort_treatment)     AS new_cohort_treatment,",
+    "  SUM(new_visitors_control)     AS new_visitors_control,",
+    "  SUM(new_visitors_treatment)   AS new_visitors_treatment,",
+    "  SUM(fti_control)              AS fti_control,",
+    "  SUM(fti_treatment_total)      AS fti_treatment_total,",
+    "  SUM(fti_treatment_visited)    AS fti_treatment_visited,",
+    "  SUM(fti_treatment_played_1p)  AS fti_treatment_played_1p,",
+    "  SUM(fti_treatment_played_2p)  AS fti_treatment_played_2p",
+    "FROM learn_education__hourly_breakdown",
+    "GROUP BY bucket",
+    "ORDER BY bucket DESC",
+  ].join("\n");
+}
+
+export function useDailyBreakdown(nonce = 0, granularity = 'day') {
+  const [data, setData] = React.useState({ rows: [], granularity });
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
+
+  const trunc =
+    DAILY_GRANULARITIES.find((g) => g.key === granularity)?.trunc ?? 'day';
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    runQuery(PROJECT_ID, buildDailySql(trunc), 1000)
+      .then((res) => {
+        if (cancelled) return;
+        const rows = res && Array.isArray(res.rows) ? res.rows : [];
+        setData({ rows, granularity });
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(String((e && e.message) || e));
+        setData({ rows: [], granularity });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [nonce, granularity, trunc]);
+
+  return { data, loading, error };
+}
+
+/* Display a bucket label per granularity: human-readable, no timezone
+ * shenanigans (the bucket is already truncated to the right grain). */
+export function formatDailyBucket(bucket, granularity) {
+  if (!bucket) return '—';
+  const m = /^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/.exec(bucket);
+  if (!m) return bucket;
+  const [, y, mo, d, h, mi] = m;
+  const date = new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi));
+  const opts =
+    granularity === 'hour'
+      ? { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }
+      : granularity === 'day'
+        ? { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }
+        : granularity === 'week'
+          ? { month: 'short', day: 'numeric', timeZone: 'UTC' }
+          : { month: 'long', year: 'numeric', timeZone: 'UTC' };
+  const label = date.toLocaleString('en-IN', opts);
+  return granularity === 'week' ? `Week of ${label}` : label;
+}

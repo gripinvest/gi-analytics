@@ -6,6 +6,54 @@ considered, and what would force a revisit.**
 
 ---
 
+## D-25 · 2026-05-28 — §V "The Daily" tab with invest-time attribution + granularity dropdown
+
+**Decided.** A new §V dashboard tab "The Daily" shows a tabular breakdown with **FTI attributed to invest-time** (the period in which the FTI happened), not bucketing week. A dropdown selects the rollup grain: **Hour-on-Hour / Day-on-Day / Week-on-Week / Month-on-Month**.
+
+A single hourly source CSV (`hourly_breakdown.csv` → DuckDB table `learn_education__hourly_breakdown`) serves every grain — the frontend rolls up via DuckDB `date_trunc` at query time. ~2,016 rows at hour grain over 12 weeks; trivial cost.
+
+**Why this is a different question than §II Ledger.** The Ledger uses sticky-week attribution (a user assigned in W1 who FTIs in W3 credits to W1). That answers the cohort-acquisition question: "how is the W1 cohort performing over time?". The Daily answers the operational question: "what was our FTI conversion in this hour/day/week?". Both are valid; they answer different questions.
+
+**The 9-column shape per row:**
+- `new_cohort_control` / `new_cohort_treatment` — users newly assigned to each arm in this bucket
+- `new_visitors_control` / `new_visitors_treatment` — users whose first /learn visit was this bucket
+- `fti_control` — control users who FTI'd this bucket (post-assignment-only)
+- `fti_treatment_total` — total treatment FTIs this bucket
+- `fti_treatment_visited` — subset who had visited /learn before this FTI
+- `fti_treatment_played_1p` — subset who had ≥1 video play before this FTI
+- `fti_treatment_played_2p` — subset who had ≥2 video plays before this FTI
+
+**Nesting:** total ⊇ visited ⊇ played_1p ⊇ played_2p. Visual indent in the table makes the subset relationship readable.
+
+**Causal-ordering filter still applies.** Pre-experiment FTIs (gate-leak users whose FTI was before their bucketing) are filtered out via the same `_fti_is_post_assignment()` check used in `aggregate_rows`. The `fti_control` and `fti_treatment_total` columns are causally honest.
+
+**SQL change:** the plays CTE in `build_engagement_sql` now emits `second_play_at` (the timestamp of the second play) via `(array_agg(timestamp ORDER BY timestamp ASC))[2]`. Needed to precisely classify "played ≥2 videos before FTI" — without it we'd approximate via `play_count >= 2 AND first_play_at <= fti_date`, which is biased if the 2nd play happened post-FTI.
+
+**Why hour grain in the source, not day:**
+- Launch-day stakeholders want Hour-on-Hour to see immediate uptake (D+0).
+- Rolling UP to coarser grains is cheap in DuckDB. Rolling DOWN from day to hour requires re-running the cron with finer data. Pay the storage cost once (~2k rows × 12 columns × 12 weeks = tiny).
+
+**Considered + rejected:**
+- **Separate CSVs per granularity** (daily.csv + weekly.csv + …): duplication of data; DuckDB `date_trunc` is the right primitive.
+- **Client-side rollup from a flat events table**: too large; the per-bucket aggregation makes sense at backend write time.
+- **No `second_play_at`, approximate via play_count**: biased estimator; we already pay one extra CTE column to fix it precisely.
+- **Use bucketing week (sticky)** for FTI attribution here too: defeats the point. §II Ledger already does that; §V exists specifically for the invest-time view.
+
+**Revisit if:** the hourly CSV grows past ~10K rows (would happen at 12-month windows). At that point reconsider whether the hourly grain pays for itself.
+
+**Tests added (+7):**
+- `test_hourly_breakdown_empty_inputs_returns_empty`
+- `test_hourly_breakdown_attributes_fti_to_invest_hour_not_assignment_hour` — the core attribution test
+- `test_hourly_breakdown_treatment_engagement_nesting` — verifies the 4 nested columns
+- `test_hourly_breakdown_excludes_pre_assignment_ftis` — causal-ordering regression
+- `test_hourly_breakdown_skips_ftis_for_non_cohort_users` — out-of-cohort defense
+- `test_hourly_breakdown_control_vs_treatment_split` — variant split at hour grain
+- `test_iso_to_hour_handles_various_timestamp_formats` — helper unit test
+
+Total: 88 → 95 tests passing.
+
+---
+
 ## D-24 · 2026-05-28 — `fti_users` filter tightens to per-user `assignment_timestamp`
 
 **Decided.** `aggregate_rows()`'s FTI causal-ordering check now uses each user's actual `assignment_timestamp` (not the week's Monday-truncated `assigned_week`). A unified helper `_fti_is_post_assignment(fti_date, engagement_row)` is the single source of truth — both `aggregate_rows()` and the funnel's `_has_post_assignment_fti()` route through it. Falls back to the legacy `assigned_week` check when `assignment_timestamp` is missing.

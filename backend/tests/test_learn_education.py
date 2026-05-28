@@ -158,7 +158,10 @@ def test_run_writes_csv_when_probes_pass(tmp_path, sample_engagement_rows, sampl
 
     assert result["status"] == "ok"
     assert result["rows_written"] == 2  # control + treatment
-    assert result["tables_written"] == ["weekly_ab_tracker"]
+    # tables_written now includes both the weekly aggregated CSV AND
+    # the new hourly_breakdown CSV (different attribution model —
+    # FTI attributed to invest-time, frontend rolls up to D/W/M).
+    assert result["tables_written"] == ["weekly_ab_tracker", "hourly_breakdown"]
 
     csv_path = tmp_path / "weekly_ab_tracker.csv"
     assert csv_path.exists()
@@ -1103,3 +1106,146 @@ def test_funnel_post_assignment_fti_also_uses_assignment_timestamp():
         "Only user 2 (FTI post-assignment) should count; user 1 was "
         "invested before bucketing (gate leak)"
     )
+
+
+# ─── §V Hourly breakdown — FTI attributed to invest-time ────────────────────
+# Different attribution model from aggregate_rows() (which uses bucketing
+# week). Each FTI counts toward the HOUR the user invested. Frontend
+# rolls up to D/W/M via DuckDB date_trunc.
+
+def test_hourly_breakdown_empty_inputs_returns_empty():
+    assert learn_education.build_hourly_breakdown([], []) == []
+
+
+def test_hourly_breakdown_attributes_fti_to_invest_hour_not_assignment_hour():
+    """The whole point of this attribution model: a user assigned in
+    H1 who FTIs in H3 credits to H3, NOT H1."""
+    eng = [{
+        "user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+        "assignment_timestamp": "2026-05-27T13:00:00",  # H1
+        "visit_count": 0, "play_count": 0, "completed_play_count": 0,
+        "first_page_viewed_at": None, "first_play_at": None,
+        "second_play_at": None, "first_entry_source": None,
+    }]
+    fti = [{"user_id": 1, "fti_date": "2026-05-27T15:30:00"}]  # H3
+    rows = learn_education.build_hourly_breakdown(eng, fti)
+    # One row for H1 (cohort addition), one for H3 (FTI).
+    assert len(rows) == 2
+    h1 = next(r for r in rows if r["hour_start"] == "2026-05-27 13:00:00")
+    h3 = next(r for r in rows if r["hour_start"] == "2026-05-27 15:00:00")
+    assert h1["new_cohort_treatment"] == 1
+    assert h1["fti_treatment_total"] == 0  # FTI didn't happen in H1
+    assert h3["new_cohort_treatment"] == 0
+    assert h3["fti_treatment_total"] == 1  # FTI happened in H3
+
+
+def test_hourly_breakdown_treatment_engagement_nesting():
+    """The 4 treatment FTI columns must nest: total ⊇ visited ⊇
+    played_1p ⊇ played_2p.
+
+    Note user_ids are numeric — Rudder/ur_tblorders are integer-backed,
+    and _user_id_key() rejects non-numeric strings (anonymous_id leakage)."""
+    eng = [
+        # User 1001: FTI'd Wed 15:00. Visited /learn Tue 10:30. No plays.
+        # Should count in: total, visited.
+        {"user_id": "1001", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-26T10:00:00",
+         "visit_count": 1, "play_count": 0, "completed_play_count": 0,
+         "first_page_viewed_at": "2026-05-26T10:30:00",
+         "first_play_at": None, "second_play_at": None,
+         "first_entry_source": "top_chip"},
+        # User 1002: FTI'd Wed 15:00. Played 1 video Tue 11:05.
+        # Should count in: total, visited, played_1p.
+        {"user_id": "1002", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-26T11:00:00",
+         "visit_count": 1, "play_count": 1, "completed_play_count": 0,
+         "first_page_viewed_at": "2026-05-26T11:00:00",
+         "first_play_at": "2026-05-26T11:05:00",
+         "second_play_at": None, "first_entry_source": "top_chip"},
+        # User 1003: FTI'd Wed 15:00. Played 3 videos Tue 12:05-12:07.
+        # Should count in: total, visited, played_1p, played_2p.
+        {"user_id": "1003", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-26T12:00:00",
+         "visit_count": 1, "play_count": 3, "completed_play_count": 0,
+         "first_page_viewed_at": "2026-05-26T12:00:00",
+         "first_play_at": "2026-05-26T12:05:00",
+         "second_play_at": "2026-05-26T12:07:00",
+         "first_entry_source": "top_chip"},
+    ]
+    fti = [
+        {"user_id": 1001, "fti_date": "2026-05-27T15:00:00"},
+        {"user_id": 1002, "fti_date": "2026-05-27T15:00:00"},
+        {"user_id": 1003, "fti_date": "2026-05-27T15:00:00"},
+    ]
+    rows = learn_education.build_hourly_breakdown(eng, fti)
+    fti_hour = next(r for r in rows if r["hour_start"] == "2026-05-27 15:00:00")
+    assert fti_hour["fti_treatment_total"] == 3      # A + B + C
+    assert fti_hour["fti_treatment_visited"] == 3    # all 3 visited
+    assert fti_hour["fti_treatment_played_1p"] == 2  # B + C
+    assert fti_hour["fti_treatment_played_2p"] == 1  # C only
+
+
+def test_hourly_breakdown_excludes_pre_assignment_ftis():
+    """An FTI that happened BEFORE the user's assignment is a gate-leak
+    and must not appear in the hourly counts."""
+    eng = [{
+        "user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+        "assignment_timestamp": "2026-05-27T15:00:00",  # Wed 3pm
+        "visit_count": 0, "play_count": 0, "completed_play_count": 0,
+        "first_page_viewed_at": None, "first_play_at": None,
+        "second_play_at": None, "first_entry_source": None,
+    }]
+    # FTI was Wed 11:00 — BEFORE bucketing at 15:00. Gate-leak user.
+    fti = [{"user_id": 1, "fti_date": "2026-05-27T11:00:00"}]
+    rows = learn_education.build_hourly_breakdown(eng, fti)
+    # No fti row for any hour.
+    assert all(r.get("fti_treatment_total", 0) == 0 for r in rows)
+
+
+def test_hourly_breakdown_skips_ftis_for_non_cohort_users():
+    """An FTI for a user_id NOT in our cohort engagement_rows must be
+    ignored — they're not part of the experiment."""
+    eng = [{
+        "user_id": "1", "variant": "treatment", "assigned_week": "2026-05-25",
+        "assignment_timestamp": "2026-05-26T10:00:00",
+        "visit_count": 0, "play_count": 0, "completed_play_count": 0,
+        "first_page_viewed_at": None, "first_play_at": None,
+        "second_play_at": None, "first_entry_source": None,
+    }]
+    # FTI for user 99 (not in cohort) — must be silently skipped.
+    fti = [{"user_id": 99, "fti_date": "2026-05-27T10:00:00"}]
+    rows = learn_education.build_hourly_breakdown(eng, fti)
+    # Only the cohort addition row, no FTI.
+    assert all(r.get("fti_treatment_total", 0) == 0 for r in rows)
+
+
+def test_hourly_breakdown_control_vs_treatment_split():
+    """Cohort additions split by variant, even at the hour grain."""
+    eng = [
+        {"user_id": "c1", "variant": "control", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-27T13:00:00",
+         "visit_count": 0, "play_count": 0, "completed_play_count": 0,
+         "first_page_viewed_at": None, "first_play_at": None,
+         "second_play_at": None, "first_entry_source": None},
+        {"user_id": "t1", "variant": "treatment", "assigned_week": "2026-05-25",
+         "assignment_timestamp": "2026-05-27T13:30:00",
+         "visit_count": 0, "play_count": 0, "completed_play_count": 0,
+         "first_page_viewed_at": None, "first_play_at": None,
+         "second_play_at": None, "first_entry_source": None},
+    ]
+    rows = learn_education.build_hourly_breakdown(eng, [])
+    hour = next(r for r in rows if r["hour_start"] == "2026-05-27 13:00:00")
+    assert hour["new_cohort_control"] == 1
+    assert hour["new_cohort_treatment"] == 1
+
+
+def test_iso_to_hour_handles_various_timestamp_formats():
+    """Defensive helper: should produce same hour key for the multiple
+    timestamp shapes Metabase / Rudder emit."""
+    h = learn_education._iso_to_hour
+    assert h("2026-05-27T13:42:00") == "2026-05-27 13:00:00"
+    assert h("2026-05-27T13:42:00+05:30") == "2026-05-27 13:00:00"
+    assert h("2026-05-27 13:42:00") == "2026-05-27 13:00:00"
+    assert h("2026-05-27") == "2026-05-27 00:00:00"  # date-only
+    assert h(None) is None
+    assert h("garbage") is None
