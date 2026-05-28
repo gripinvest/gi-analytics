@@ -1,64 +1,89 @@
 // Outreach query builder + mock dataset for the Asset Search dashboard's
 // CS-facing Outreach section.
 //
-// While `asset_search_notify_me_clicked` is not yet flowing, the live query
-// returns 0 rows and the section renders the mock data below + a pending
-// pill. dataState() drives the cutover; no code change at the boundary.
+// Live SQL runs against the DuckDB build of the dashboard project — same
+// path every other QUERY_SPEC takes. While the cutover-window
+// `notify_me_clicked` tables are missing or empty, the live query returns
+// 0 rows and the section falls back to the mock dataset + a pending pill.
+// dataState() drives the cutover; no code change at the boundary.
 //
 // Status tracking (new / contacted / converted) lives in localStorage —
 // CS uses the dashboard without a CRM integration. Status keys are scoped
 // per `${user_id}:${issuer}` so the same lead under two issuers tracks
 // separately.
 
+import { TEST_USERS } from "./assetSearch";
+
+const EXC = `(user_id IS NULL OR user_id NOT IN (${TEST_USERS.join(",")}))`;
+
+/** UNION ALL helper — projects a uniform column set across week-tables and
+ *  applies the test-user exclusion in one place. Returns null when no
+ *  tables are given so callers can short-circuit (the dashboard's run()
+ *  treats null SQL as a zero-row result). */
+function unionAll(tableList, cols) {
+  if (!tableList || tableList.length === 0) return null;
+  return tableList
+    .map((t) => `SELECT ${cols} FROM "${t}" WHERE ${EXC}`)
+    .join("\nUNION ALL\n");
+}
+
 // ── live SQL builders ───────────────────────────────────────────────────────
 
 /**
  * Per-issuer Notify Me click rollup. Drives the "Demand snapshot" KPI cards
- * and the issuer dropdown in the filter bar.
+ * and the issuer dropdown in the filter bar. Reads from the union of all
+ * available notify_me_clicked tables (cutover-era only).
  */
-export const notifyMeByIssuer = `
-  SELECT
-    mapped_issuer,
-    issuer_category,
-    COUNT(*)                    AS clicks,
-    COUNT(DISTINCT user_id)     AS unique_users,
-    MAX(timestamp)              AS last_click_at
-  FROM asset_search_notify_me_clicked
-  WHERE engine_version = 'v2'
-    AND timestamp >= now() - INTERVAL '4 weeks'
-  GROUP BY 1, 2
-  ORDER BY clicks DESC;
-`;
+export function notifyMeByIssuer({ tables } = {}) {
+  const inner = unionAll(
+    tables && tables.notify_me_clicked,
+    "user_id, mapped_issuer, issuer_category, query_text, active_tab, timestamp, engine_version"
+  );
+  if (!inner) return null;
+  return `
+    SELECT
+      mapped_issuer,
+      issuer_category,
+      COUNT(*)                AS clicks,
+      COUNT(DISTINCT user_id) AS unique_users,
+      MAX(timestamp)          AS last_click_at
+    FROM (${inner}) t
+    WHERE engine_version = 'v2'
+    GROUP BY 1, 2
+    ORDER BY clicks DESC
+  `;
+}
 
 /**
- * Per-user outreach detail. Drives the main table. The join to `users`
- * happens server-side (Metabase native question parameterised by date
- * range + optional issuer). FE only filters/sorts what comes back.
- *
- * `[[AND … {{issuer}}]]` is Metabase's optional-parameter syntax — the
- * whole bracketed clause drops out when the param is missing. Using a
- * plain `{{issuer}} IS NULL OR …` would error on an empty parameter.
+ * Per-user outreach detail. Drives the main table. Email/phone enrichment
+ * would join an external users table — DuckDB doesn't have one, so the live
+ * variant ships only the event fields. CS still gets `user_id`, issuer,
+ * query, click count and timestamps — enough to action via the existing
+ * CRM. Email/phone backfill is a follow-up via the Metabase ur_tblusers
+ * enrichment pipeline (see CS_call_list.csv flow).
  */
-export const notifyMeOutreachDetail = `
-  SELECT
-    n.user_id,
-    u.email,
-    u.phone,
-    n.mapped_issuer,
-    n.issuer_category,
-    n.query_text,
-    n.active_tab,
-    MIN(n.timestamp) AS first_click_at,
-    MAX(n.timestamp) AS last_click_at,
-    COUNT(*)         AS click_count
-  FROM asset_search_notify_me_clicked n
-  LEFT JOIN users u ON u.user_id = n.user_id
-  WHERE n.engine_version = 'v2'
-    AND n.timestamp >= {{from_date}}
-    [[AND n.mapped_issuer = {{issuer}}]]
-  GROUP BY 1, 2, 3, 4, 5, 6, 7
-  ORDER BY last_click_at DESC;
-`;
+export function notifyMeOutreachDetail({ tables } = {}) {
+  const inner = unionAll(
+    tables && tables.notify_me_clicked,
+    "user_id, mapped_issuer, issuer_category, query_text, active_tab, timestamp, engine_version"
+  );
+  if (!inner) return null;
+  return `
+    SELECT
+      user_id,
+      mapped_issuer,
+      issuer_category,
+      query_text,
+      active_tab,
+      MIN(timestamp)   AS first_click_at,
+      MAX(timestamp)   AS last_click_at,
+      COUNT(*)         AS click_count
+    FROM (${inner}) t
+    WHERE engine_version = 'v2'
+    GROUP BY 1, 2, 3, 4, 5
+    ORDER BY last_click_at DESC
+  `;
+}
 
 // ── mock data (used until events flow) ──────────────────────────────────────
 

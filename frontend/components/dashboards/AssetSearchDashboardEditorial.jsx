@@ -26,6 +26,7 @@ import { METRIC_DEFS, ISSUER_MAP, ISSUER_CATEGORY } from "@/lib/queries/assetSea
 import * as C from "@/lib/queries/conversion";
 import { CONV_METRIC_DEFS } from "@/lib/queries/conversion";
 import * as EC from "@/lib/queries/engineComparison";
+import * as OR from "@/lib/queries/outreach";
 import AssetSearchOutreachSection from "./AssetSearchOutreachSection";
 import AssetSearchCutoverStrip from "./AssetSearchCutoverStrip";
 
@@ -59,6 +60,10 @@ const QUERY_SPECS = {
       ? EC.engineOutcomeCutover({ queryTbl, clickTbl })
       : null;
   },
+  // V2 outreach — per-user notify-me click rollup. SQL skips (returns null)
+  // when no notify_me_clicked tables exist yet; the section then falls
+  // back to its own mock-sample state via dataState([]).
+  outreach_detail:  (ctx) => OR.notifyMeOutreachDetail(ctx),
 };
 const CONV_SPECS = {
   conv_headline:  (conv) => C.conversionHeadline(conv),
@@ -407,6 +412,35 @@ export default function AssetSearchDashboardEditorial({ project }) {
   })();
   const adoptionFirst = adoption.length ? Number(adoption[0].adoption_pct) : null;
   const adoptionLast = adoption.length ? Number(adoption[adoption.length - 1].adoption_pct) : null;
+  // Latest week whose visitor count looks like a full feature-week — the cron
+  // writes partial rows for the in-progress week (e.g. W9 day 1 ≈ 1–2% of a
+  // typical week's traffic), and pooling those into the headline tile reads
+  // as "stuck at 6%" because the in-progress sample barely moves the average.
+  // Skip the last bucket whenever its visitors fall below half of the previous
+  // week's. Reader-facing exhibits use this; the per-week chart still shows
+  // every week so the partial-week dip remains visible.
+  const adoptionLatestComplete = (() => {
+    if (!adoption.length) return null;
+    const last = adoption[adoption.length - 1];
+    if (adoption.length > 1) {
+      const prev = adoption[adoption.length - 2];
+      if (Number(last.visitors) < Number(prev.visitors) * 0.5) {
+        return Number(prev.adoption_pct);
+      }
+    }
+    return Number(last.adoption_pct);
+  })();
+  const adoptionLatestCompleteWeek = (() => {
+    if (!adoption.length) return null;
+    const last = adoption[adoption.length - 1];
+    if (adoption.length > 1) {
+      const prev = adoption[adoption.length - 2];
+      if (Number(last.visitors) < Number(prev.visitors) * 0.5) {
+        return String(prev.week);
+      }
+    }
+    return String(last.week);
+  })();
 
   // Search lift (cohort)
   const lift = (() => {
@@ -588,9 +622,9 @@ export default function AssetSearchDashboardEditorial({ project }) {
             value={sessions != null ? nf.format(sessions) : "—"}
             sub={`distinct browser sessions with ≥1 query · ${weeks.length} weeks`} />
           {adoptionOverallPct != null && (
-            <Exhibit letter="B" label={<Term n={3}>adoption rate</Term>} value={pct(adoptionOverallPct)}
-              sub={`${nf.format(sum(adoption, "searchers"))} of ${nf.format(sum(adoption, "visitors"))}`}
-              delta={{ from: adoptionFirst, to: adoptionLast, suffix: "pt" }}
+            <Exhibit letter="B" label={<Term n={3}>adoption rate</Term>} value={pct(adoptionLatestComplete)}
+              sub={`${adoptionLatestCompleteWeek} — latest complete week`}
+              delta={{ from: adoptionFirst, to: adoptionLatestComplete, suffix: "pt" }}
               deltaGoodIsDown={false} loading={loading} />
           )}
           <Exhibit letter={adoptionOverallPct != null ? "C" : "B"} label={<Term n={4}>zero-result rate</Term>}
@@ -671,12 +705,14 @@ export default function AssetSearchDashboardEditorial({ project }) {
         <InstrumentationSection clears={clears} totalClears={totalClears} weeks={weeks} lastWeek={lastWeek} loading={loading} data={data} />
       )}
       {section === "outreach" && (
-        // liveRows arrives empty until the asset_search_notify_me_clicked
-        // event ships on V2; the section auto-renders mock data + a
-        // pending pill until then. sectionNumber stays in sync with
-        // the dynamic nav numbering (V/VI based on convOk).
+        // Wired to the live notify-me click rollup (outreach_detail). The
+        // section's dataState() flips pending→sparse→live based on row
+        // count; when the cutover-window tables are missing or empty the
+        // SQL spec returns null → run() yields rows=[], section falls
+        // back to its own mock-sample state. sectionNumber stays in
+        // sync with the dynamic nav numbering (V/VI based on convOk).
         <AssetSearchOutreachSection
-          liveRows={[]}
+          liveRows={rowsOf(data, "outreach_detail")}
           sectionNumber={sections.find((s) => s.key === "outreach")?.no ?? "VI"}
         />
       )}

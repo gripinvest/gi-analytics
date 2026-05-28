@@ -22,13 +22,23 @@
 export const TEST_USERS = [3, 4, 207871, 207875, 207878, 207879];
 const EXC = `(user_id IS NULL OR user_id NOT IN (${TEST_USERS.join(",")}))`;
 const EVENTS = ["initiated", "query", "result_clicked", "empty_state", "cleared", "suggestion_clicked"];
+// V2-only events. Surfaced as optional `tables.notify_me_clicked` /
+// `tables.chip_clicked` so the cutover-week-only data (these started arriving
+// W8 with the V2 release) doesn't trip the dashboard's "every event must
+// have rows for every week" load gate.
+const OPTIONAL_EVENTS = ["notify_me_clicked", "chip_clicked"];
 
-/** Group a project's table list into { event: [t1..tn ordered by week], ... } + week labels. */
+/** Group a project's table list into { event: [t1..tn ordered by week], ... } + week labels.
+ *  Core EVENTS are gated by `ok` (every event needs data in every week); OPTIONAL_EVENTS
+ *  surface alongside the core lists but are not gated — they may be present on cutover-
+ *  era weeks only. */
 export function groupTables(tableNames) {
   const byEvent = {};
+  const allEventNames = [...EVENTS, ...OPTIONAL_EVENTS];
+  const eventRe = new RegExp(`_asset_search_(${allEventNames.join("|")})$`);
   for (const t of tableNames) {
     const wk = t.match(/(?:^|_)W(\d+)_/);
-    const ev = t.match(/_asset_search_(initiated|query|result_clicked|empty_state|cleared|suggestion_clicked)$/);
+    const ev = t.match(eventRe);
     if (!wk || !ev) continue;
     (byEvent[ev[1]] ||= []).push({ wk: Number(wk[1]), table: t });
   }
@@ -36,7 +46,10 @@ export function groupTables(tableNames) {
   const reference = byEvent.query || byEvent.initiated || Object.values(byEvent)[0] || [];
   const weeks = reference.map((x) => `W${x.wk}`);
   const tables = {};
-  for (const ev of EVENTS) tables[ev] = (byEvent[ev] || []).map((x) => x.table);
+  for (const ev of allEventNames) tables[ev] = (byEvent[ev] || []).map((x) => x.table);
+  // Gate is checked against the core EVENTS only — OPTIONAL_EVENTS (V2-era
+  // notify_me_clicked / chip_clicked) only exist from W8 onward; gating on
+  // them would fatal the whole dashboard for the entire W1–W7 history.
   const ok = EVENTS.every((ev) => tables[ev].length === weeks.length && weeks.length > 0);
   return { tables, weeks, ok, lastWeek: weeks[weeks.length - 1] };
 }

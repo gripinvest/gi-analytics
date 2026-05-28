@@ -67,6 +67,9 @@ export function cutoverContext({ tables } = {}) {
  * we look at a 4-week window straddling the cutover for a stable diff.
  */
 export function engineHealthCutover({ assetTbl }) {
+  // No trailing `;` — the dashboard's runQuery wraps user SQL as
+  // `SELECT * FROM (${sql}) _q LIMIT N`, which makes any in-statement
+  // semicolon a syntax error.
   return `
     SELECT
       COALESCE(engine_version, 'v1')           AS engine,
@@ -79,7 +82,7 @@ export function engineHealthCutover({ assetTbl }) {
     FROM ${assetTbl}
     WHERE query_text IS NOT NULL
     GROUP BY 1
-    ORDER BY engine;
+    ORDER BY engine
   `;
 }
 
@@ -117,7 +120,7 @@ export function engineOutcomeCutover({ queryTbl, clickTbl }) {
       SUM(CASE WHEN NOT clicked AND NOT any_results THEN 1 ELSE 0 END) AS dead_end
     FROM classified
     GROUP BY engine
-    ORDER BY engine;
+    ORDER BY engine
   `;
 }
 

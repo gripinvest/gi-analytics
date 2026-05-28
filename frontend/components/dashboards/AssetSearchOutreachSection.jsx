@@ -181,7 +181,12 @@ export default function AssetSearchOutreachSection({
 }) {
   const live = Array.isArray(liveRows) ? liveRows : [];
   const state = dataState(live);
-  const sourceRows = state === "live" ? live : outreachMockSample;
+  // Show live rows whenever any exist — even sparse. The dataState badge
+  // still surfaces "sparse" so CS knows the sample is small, but the rows
+  // themselves are real (the previous behaviour swapped to mock under 5
+  // rows, which is what made the dashboard look "stuck on sample" once
+  // the first real notify-me clicks landed).
+  const sourceRows = live.length > 0 ? live : outreachMockSample;
 
   // ── filter state ────────────────────────────────────────────────────────
   const [issuerFilter, setIssuerFilter] = React.useState(ALL_ISSUER);
