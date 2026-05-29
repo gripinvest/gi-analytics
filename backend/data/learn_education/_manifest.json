@@ -1,40 +1,40 @@
 {
-  "refreshed_at": "2026-05-29T04:26:09Z",
+  "refreshed_at": "2026-05-29T21:21:17Z",
   "tables": {
     "weekly_ab_tracker": {
-      "last_refreshed_at": "2026-05-29T04:26:09Z"
+      "last_refreshed_at": "2026-05-29T21:21:17Z"
     },
     "hourly_breakdown": {
-      "last_refreshed_at": "2026-05-29T04:26:09Z"
+      "last_refreshed_at": "2026-05-29T21:21:17Z"
     }
   },
   "margin_notes": {
     "as_of_week": "2026-05-25",
     "srm": {
-      "control_n": 3457,
-      "treatment_n": 3450,
-      "p_value": 0.9329,
+      "control_n": 4626,
+      "treatment_n": 4652,
+      "p_value": 0.7872,
       "verdict": "ok"
     },
     "control_leak": {
       "control_visitors": 1,
-      "control_cohort": 3457,
-      "leak_pct": 0.03,
+      "control_cohort": 4626,
+      "leak_pct": 0.02,
       "verdict": "warn"
     },
     "fti_lift_ci": {
-      "control_pct": 1.56,
-      "treatment_pct": 1.86,
-      "delta_pp": 0.29,
-      "ci_lower_pp": -0.32,
-      "ci_upper_pp": 0.9,
+      "control_pct": 1.66,
+      "treatment_pct": 1.68,
+      "delta_pp": 0.01,
+      "ci_lower_pp": -0.51,
+      "ci_upper_pp": 0.53,
       "verdict": "ok"
     },
     "mde": {
-      "n_per_arm": 3450,
-      "pooled_rate_pct": 1.71,
-      "mde_abs_pp": 0.87,
-      "mde_rel_pct": 51.2
+      "n_per_arm": 4626,
+      "pooled_rate_pct": 1.67,
+      "mde_abs_pp": 0.75,
+      "mde_rel_pct": 44.7
     }
   },
   "conversion_funnel": {
@@ -46,9 +46,9 @@
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 3457,
-            "fti_n": 54,
-            "fti_rate_pct": 1.56
+            "cohort_n": 4626,
+            "fti_n": 77,
+            "fti_rate_pct": 1.66
           },
           {
             "depth": "visited",
@@ -88,58 +88,58 @@
           }
         ],
         "days_to_fti_median": 0.02,
-        "days_to_fti_n": 54
+        "days_to_fti_n": 77
       },
       "treatment": {
         "bands": [
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 3450,
-            "fti_n": 64,
-            "fti_rate_pct": 1.86
+            "cohort_n": 4652,
+            "fti_n": 78,
+            "fti_rate_pct": 1.68
           },
           {
             "depth": "visited",
             "label": "Visited /learn",
-            "cohort_n": 266,
-            "fti_n": 17,
-            "fti_rate_pct": 6.39
+            "cohort_n": 356,
+            "fti_n": 21,
+            "fti_rate_pct": 5.9
           },
           {
             "depth": "played",
             "label": "Played \u22651 video",
-            "cohort_n": 74,
-            "fti_n": 3,
-            "fti_rate_pct": 4.05
+            "cohort_n": 87,
+            "fti_n": 4,
+            "fti_rate_pct": 4.6
           },
           {
             "depth": "multi_played",
             "label": "Played multiple",
-            "cohort_n": 49,
-            "fti_n": 2,
-            "fti_rate_pct": 4.08
+            "cohort_n": 60,
+            "fti_n": 3,
+            "fti_rate_pct": 5.0
           },
           {
             "depth": "completed",
             "label": "Completed (\u226575%)",
-            "cohort_n": 44,
-            "fti_n": 2,
-            "fti_rate_pct": 4.55
+            "cohort_n": 50,
+            "fti_n": 3,
+            "fti_rate_pct": 6.0
           }
         ],
         "by_entry_source": [
           {
             "source": "bottom_nav",
-            "cohort_n": 203,
-            "fti_n": 14,
-            "fti_rate_pct": 6.9
+            "cohort_n": 282,
+            "fti_n": 18,
+            "fti_rate_pct": 6.38
           },
           {
             "source": "top_chip",
-            "cohort_n": 61,
+            "cohort_n": 72,
             "fti_n": 3,
-            "fti_rate_pct": 4.92
+            "fti_rate_pct": 4.17
           },
           {
             "source": "direct",
@@ -149,7 +149,7 @@
           }
         ],
         "days_to_fti_median": 0.02,
-        "days_to_fti_n": 64
+        "days_to_fti_n": 78
       }
     },
     "prior_variants": null
