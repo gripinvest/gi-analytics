@@ -1,54 +1,153 @@
 {
-  "refreshed_at": "2026-05-30T20:32:34Z",
+  "refreshed_at": "2026-05-31T20:36:32Z",
   "tables": {
     "weekly_ab_tracker": {
-      "last_refreshed_at": "2026-05-30T20:32:34Z"
+      "last_refreshed_at": "2026-05-31T20:36:32Z"
     },
     "hourly_breakdown": {
-      "last_refreshed_at": "2026-05-30T20:32:34Z"
+      "last_refreshed_at": "2026-05-31T20:36:32Z"
     }
   },
   "margin_notes": {
-    "as_of_week": "2026-05-25",
+    "as_of_week": "2026-06-01",
     "srm": {
-      "control_n": 5770,
-      "treatment_n": 5794,
-      "p_value": 0.8234,
+      "control_n": 42,
+      "treatment_n": 59,
+      "p_value": 0.0907,
       "verdict": "ok"
     },
     "control_leak": {
-      "control_visitors": 1,
-      "control_cohort": 5770,
-      "leak_pct": 0.02,
-      "verdict": "warn"
-    },
-    "fti_lift_ci": {
-      "control_pct": 2.24,
-      "treatment_pct": 2.17,
-      "delta_pp": -0.06,
-      "ci_lower_pp": -0.6,
-      "ci_upper_pp": 0.47,
+      "control_visitors": 0,
+      "control_cohort": 42,
+      "leak_pct": 0.0,
       "verdict": "ok"
     },
+    "fti_lift_ci": {
+      "control_pct": 0.0,
+      "treatment_pct": 0.0,
+      "delta_pp": 0.0,
+      "ci_lower_pp": null,
+      "ci_upper_pp": null,
+      "verdict": "insufficient_data"
+    },
     "mde": {
-      "n_per_arm": 5770,
-      "pooled_rate_pct": 2.21,
-      "mde_abs_pp": 0.77,
-      "mde_rel_pct": 34.7
+      "n_per_arm": 42,
+      "pooled_rate_pct": 0.0,
+      "mde_abs_pp": 30.57,
+      "mde_rel_pct": null
     }
   },
   "conversion_funnel": {
-    "as_of_week": "2026-05-25",
-    "prior_week": null,
+    "as_of_week": "2026-06-01",
+    "prior_week": "2026-05-25",
     "variants": {
       "control": {
         "bands": [
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 5770,
-            "fti_n": 129,
-            "fti_rate_pct": 2.24
+            "cohort_n": 42,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          },
+          {
+            "depth": "visited",
+            "label": "Visited /learn",
+            "cohort_n": 0,
+            "fti_n": 0,
+            "fti_rate_pct": null
+          },
+          {
+            "depth": "played",
+            "label": "Played \u22651 video",
+            "cohort_n": 0,
+            "fti_n": 0,
+            "fti_rate_pct": null
+          },
+          {
+            "depth": "multi_played",
+            "label": "Played multiple",
+            "cohort_n": 0,
+            "fti_n": 0,
+            "fti_rate_pct": null
+          },
+          {
+            "depth": "completed",
+            "label": "Completed (\u226575%)",
+            "cohort_n": 0,
+            "fti_n": 0,
+            "fti_rate_pct": null
+          }
+        ],
+        "by_entry_source": [],
+        "days_to_fti_median": null,
+        "days_to_fti_n": 0
+      },
+      "treatment": {
+        "bands": [
+          {
+            "depth": "bucketed",
+            "label": "Bucketed (all)",
+            "cohort_n": 59,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          },
+          {
+            "depth": "visited",
+            "label": "Visited /learn",
+            "cohort_n": 9,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          },
+          {
+            "depth": "played",
+            "label": "Played \u22651 video",
+            "cohort_n": 2,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          },
+          {
+            "depth": "multi_played",
+            "label": "Played multiple",
+            "cohort_n": 0,
+            "fti_n": 0,
+            "fti_rate_pct": null
+          },
+          {
+            "depth": "completed",
+            "label": "Completed (\u226575%)",
+            "cohort_n": 1,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          }
+        ],
+        "by_entry_source": [
+          {
+            "source": "bottom_nav",
+            "cohort_n": 8,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          },
+          {
+            "source": "top_chip",
+            "cohort_n": 1,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
+          }
+        ],
+        "days_to_fti_median": null,
+        "days_to_fti_n": 0
+      }
+    },
+    "prior_variants": {
+      "control": {
+        "bands": [
+          {
+            "depth": "bucketed",
+            "label": "Bucketed (all)",
+            "cohort_n": 6680,
+            "fti_n": 132,
+            "fti_rate_pct": 1.98
           },
           {
             "depth": "visited",
@@ -88,58 +187,58 @@
           }
         ],
         "days_to_fti_median": 0.04,
-        "days_to_fti_n": 129
+        "days_to_fti_n": 132
       },
       "treatment": {
         "bands": [
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 5794,
-            "fti_n": 126,
-            "fti_rate_pct": 2.17
+            "cohort_n": 6702,
+            "fti_n": 130,
+            "fti_rate_pct": 1.94
           },
           {
             "depth": "visited",
             "label": "Visited /learn",
-            "cohort_n": 464,
-            "fti_n": 33,
-            "fti_rate_pct": 7.11
+            "cohort_n": 563,
+            "fti_n": 34,
+            "fti_rate_pct": 6.04
           },
           {
             "depth": "played",
             "label": "Played \u22651 video",
-            "cohort_n": 113,
+            "cohort_n": 133,
             "fti_n": 6,
-            "fti_rate_pct": 5.31
+            "fti_rate_pct": 4.51
           },
           {
             "depth": "multi_played",
             "label": "Played multiple",
-            "cohort_n": 75,
+            "cohort_n": 86,
             "fti_n": 4,
-            "fti_rate_pct": 5.33
+            "fti_rate_pct": 4.65
           },
           {
             "depth": "completed",
             "label": "Completed (\u226575%)",
-            "cohort_n": 60,
+            "cohort_n": 72,
             "fti_n": 4,
-            "fti_rate_pct": 6.67
+            "fti_rate_pct": 5.56
           }
         ],
         "by_entry_source": [
           {
             "source": "bottom_nav",
-            "cohort_n": 368,
-            "fti_n": 30,
-            "fti_rate_pct": 8.15
+            "cohort_n": 455,
+            "fti_n": 31,
+            "fti_rate_pct": 6.81
           },
           {
             "source": "top_chip",
-            "cohort_n": 94,
+            "cohort_n": 106,
             "fti_n": 3,
-            "fti_rate_pct": 3.19
+            "fti_rate_pct": 2.83
           },
           {
             "source": "direct",
@@ -149,9 +248,8 @@
           }
         ],
         "days_to_fti_median": 0.02,
-        "days_to_fti_n": 126
+        "days_to_fti_n": 130
       }
-    },
-    "prior_variants": null
+    }
   }
 }
