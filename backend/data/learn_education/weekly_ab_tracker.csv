@@ -1,5 +1,7 @@
 week_start,variant,total_non_invested_users,learn_page_visitors,learn_visit_rate_pct,unique_video_players,total_video_plays,avg_videos_per_user,avg_watch_time_sec,fti_users,fti_users_who_watched,fti_rate_pct,engaged_visitor_rate_pct,plays_per_visitor,drop_after_first_pct,completion_rate_pct,median_time_to_first_play_sec,outbound_click_rate_pct,banner_ctr_on_learn_pct
-2026-05-25,control,6683,1,0.01,1,7,7.0,1.7,238,0,3.56,100.0,7.0,0.0,0.0,324,0.0,0.0
-2026-05-25,treatment,6705,652,9.72,154,454,2.95,44.4,221,7,3.3,23.62,0.7,35.71,40.09,11,2.45,12.42
-2026-06-01,control,5795,0,0.0,0,0,,,129,0,2.23,,,,,,,
-2026-06-01,treatment,5654,644,11.39,117,319,2.73,38.1,131,5,2.32,18.17,0.5,40.17,37.3,11,2.02,12.11
+2026-05-25,control,6683,1,0.01,1,7,7.0,1.7,243,0,3.64,100.0,7.0,0.0,0.0,324,0.0,0.0
+2026-05-25,treatment,6706,656,9.78,157,457,2.91,44.2,225,7,3.36,23.93,0.7,36.94,40.04,11,2.74,12.35
+2026-06-01,control,6576,0,0.0,0,0,,,157,0,2.39,,,,,,,
+2026-06-01,treatment,6399,729,11.39,138,385,2.79,41.9,151,6,2.36,18.93,0.53,39.86,40.52,11,2.33,11.93
+2026-06-08,control,21,0,0.0,0,0,,,0,0,0.0,,,,,,,
+2026-06-08,treatment,21,2,9.52,0,0,,,0,0,0.0,0.0,0.0,,,,0.0,0.0
