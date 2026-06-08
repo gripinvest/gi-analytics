@@ -47,7 +47,7 @@ jobs:
     steps:
       # SHAs pinned to commit (not tag) per CB4-fix. Dependabot will bump.
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332     # actions/checkout v4.1.7
-      - uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d   # actions/setup-python v5.1.0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405   # actions/setup-python v6.2.0
         with:
           python-version: "3.12"
       - name: Preflight — verify secrets present
