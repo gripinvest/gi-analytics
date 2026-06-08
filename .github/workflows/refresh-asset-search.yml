@@ -1,21 +1,41 @@
 name: Refresh Asset Search data
 
 # Durable populator for the Asset Search live-data pipeline (spec §9 / D7).
-# Pulls the current + prior feature week from Metabase daily and commits the
-# canonical CSVs so accumulated history survives redeploys (Render's container
-# disk is ephemeral; git is the durable store).
+# Pulls the trailing live feature weeks (current + prior) from Metabase daily
+# and commits the canonical CSVs so accumulated history survives redeploys
+# (Render's container disk is ephemeral; git is the durable store).
 #
-# The daily/weekly fetch split (search events daily, heavy browse/conversion
-# tables on a feature-week rollover) lives inside services.integrations.refresh
-# — this workflow just runs it every day.
+# All event tables — the small search events AND the heavy browse/conversion
+# tables — are fetched on every run for that trailing window, so the heavy
+# tables self-heal like the search events. (The old design fetched the heavy
+# tables only on the once-a-week rollover run; a single lost push there left
+# them permanently stuck — the May–Jun 2026 W9/W10 incident.) The
+# daily-vs-weekly logic lives in services.integrations.refresh.
 #
-# Security note: the only ${{ }} interpolations are secrets passed via env:
-# and python-version. No untrusted github.event.* input reaches a run: step.
+# Backfill: a `workflow_dispatch` with `weeks` (e.g. "7-10") recovers specific
+# feature weeks — it passes --weeks to the refresh CLI and validates that range.
+#
+# Security note: `weeks` is the only github.event.* value that reaches a run
+# step; it is consumed via an env var (never interpolated into the shell) and
+# `_parse_weeks` rejects anything that is not a week range. Secrets reach the
+# run step via env: only.
 
 on:
   schedule:
-    - cron: "30 18 * * *"   # 00:00 IST daily (spec D7)
-  workflow_dispatch: {}
+    # 00:05 IST daily. Staggered 5 min off fra-youtube (which also pulls from
+    # Metabase at midnight IST) so the two don't land on the same scheduling
+    # minute; the push-retry loop below is the real race-safety — this just
+    # reduces contention.
+    - cron: "35 18 * * *"
+  workflow_dispatch:
+    inputs:
+      weeks:
+        description: >-
+          Optional feature-week backfill range, e.g. "7-10", "9", or "7,8,9".
+          Leave blank for the normal trailing-window refresh. Passed to
+          --weeks to recover weeks whose data was lost.
+        required: false
+        default: ""
 
 permissions:
   contents: write          # required for the commit-back step to push
@@ -38,35 +58,99 @@ jobs:
       - name: Install deps
         run: pip install -r backend/requirements.txt
       - name: Run refresh
+        id: refresh
         working-directory: backend
         env:
           METABASE_URL: https://metabase.gripinvest.in
           METABASE_API_KEY: ${{ secrets.METABASE_API_KEY }}
           METABASE_EMAIL: ${{ secrets.METABASE_EMAIL }}
           METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
-        # --validate runs the §14 post-fetch checks and exits non-zero on a
-        # suspect fetch, so the commit step below is skipped and the failure
-        # alert fires — bad data never gets committed.
-        run: python -m services.integrations.refresh asset_search --validate
+          # `weeks` reaches the shell only as a quoted env var — never
+          # interpolated into the command — and _parse_weeks rejects anything
+          # that is not a week range, so this is not a shell-injection vector.
+          WEEKS: ${{ github.event.inputs.weeks }}
+        # --validate runs the §14 post-fetch checks. It exits non-zero only on
+        # HARD corruption (schema drift / test-user leak / out-of-window rows),
+        # which skips the commit so bad data never lands. The row-count swing
+        # heuristic is NON-blocking (it was the W9/W10 incident's false trigger,
+        # and self-healing removed that false-positive source) — so the data
+        # still commits — BUT a swing must NOT be silent (the whole point of the
+        # incident was that nobody noticed). We capture it and fail the run
+        # *after* committing, below, so the data lands AND the alert fires.
+        run: |
+          ARGS="asset_search --validate"
+          if [ -n "$WEEKS" ]; then ARGS="$ARGS --weeks $WEEKS"; fi
+          set +e
+          python -m services.integrations.refresh $ARGS 2>&1 | tee /tmp/refresh.log
+          code=${PIPESTATUS[0]}
+          set -e
+          if [ "$code" -ne 0 ]; then exit "$code"; fi   # hard error → block commit
+          # A swing warning OR a partial fetch failure (some events FAILed but
+          # the run still committed good data) must be surfaced, not silent.
+          if grep -qE "WARN \(non-blocking\)|^FAIL " /tmp/refresh.log; then
+            echo "warnings=1" >> "$GITHUB_OUTPUT"
+          fi
       - name: Commit refreshed data if changed
+        # Commit ONCE, then retry only the push (rebasing between attempts).
+        # Sibling refresh workflows push to main concurrently, so a push can
+        # lose the race. The earlier shape — commit *inside* the loop and
+        # re-check `git diff --staged` after a rebase — exits green WITHOUT
+        # re-pushing: iteration 2's rebase replays the local commit, the tree
+        # is clean, `diff --staged --quiet` is true, and the loop breaks with
+        # the commit stranded locally (lost on the next checkout). That is the
+        # exact silent-loss class of the W9/W10 incident, so the retry must
+        # re-attempt the *push*, not re-stage. The explicit success flag fails
+        # the step (firing the alert) if all attempts are exhausted.
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add backend/data/asset_search/
-          git diff --staged --quiet || git commit -m "chore: refresh Asset Search data"
-          git push
+          if git diff --staged --quiet; then
+            echo "no data changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: refresh Asset Search data"
+          success=0
+          for i in 1 2 3; do
+            if git push; then
+              success=1
+              break
+            fi
+            # Lost the race — rebase our commit onto the updated main and retry.
+            git pull --rebase --autostash
+            sleep $((i * 10))
+          done
+          [ "$success" -eq 1 ]
+      # A non-blocking swing warning means the data DID commit (above) but a
+      # row-count looks anomalous. We surface it loudly *after* the commit so it
+      # is never silent — the dashboard updates AND a human is told to eyeball
+      # it. Failing the run here (post-commit) is what triggers GitHub's
+      # run-failure email today; the data is already pushed, so nothing is lost.
+      - name: Flag non-blocking data warnings
+        if: steps.refresh.outputs.warnings == '1'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          echo "::error::Asset Search refresh committed, but a row-count swing was flagged — the data landed (dashboard is current) but verify it looks right. See the run log for the WARN lines."
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -sf -X POST -H 'Content-type: application/json' \
+              --data '{"text":"Asset Search refresh committed with a row-count swing warning — data landed, please eyeball the dashboard."}' \
+              "$SLACK_WEBHOOK_URL" || true
+          fi
+          exit 1
       # Failure alerting (spec §15) — a silently-failed daily cron is the worst
-      # outcome for an "auto-fresh" dashboard. GitHub already emails the run on
-      # failure; this makes it loud in the Actions UI and pings Slack when a
-      # SLACK_WEBHOOK_URL secret is configured (skipped cleanly when it is not).
+      # outcome for an "auto-fresh" dashboard. Fires for a hard validation
+      # failure, a failed commit/push, OR the swing-warning step above. GitHub
+      # emails the run on failure; this makes it loud in the Actions UI and
+      # pings Slack when SLACK_WEBHOOK_URL is set (skipped cleanly when not).
       - name: Notify on failure
         if: failure()
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
-          echo "::error::Asset Search daily refresh failed — the dashboard will go stale until this is fixed."
+          echo "::error::Asset Search refresh run needs attention — check the Actions log (a fetch/commit/push failed, or a data warning was flagged)."
           if [ -n "$SLACK_WEBHOOK_URL" ]; then
             curl -sf -X POST -H 'Content-type: application/json' \
-              --data '{"text":"Asset Search daily refresh failed — see GitHub Actions."}' \
+              --data '{"text":"Asset Search refresh needs attention — see GitHub Actions."}' \
               "$SLACK_WEBHOOK_URL" || true
           fi
