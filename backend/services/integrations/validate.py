@@ -38,6 +38,14 @@ ASSET_SEARCH_REQUIRED_COLS = {
     "asset_search_empty_state": {"timestamp", "query_text"},
     "asset_search_cleared": {"timestamp", "context_session_id"},
     "asset_search_suggestion_clicked": {"timestamp", "context_session_id"},
+    # Heavy browse/conversion tables — pruned to a curated column set in the
+    # fetch. Pin those columns so a future mistaken prune (dropping e.g.
+    # asset_id) is caught as schema drift here, rather than surfacing as
+    # silently-empty Conversion-tab exhibits.
+    "assets_page_views": {"user_id", "anonymous_id", "context_session_id",
+                          "timestamp"},
+    "invest_now_button_clicked": {"user_id", "timestamp", "asset_id",
+                                  "product_category"},
 }
 
 

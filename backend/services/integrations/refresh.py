@@ -29,6 +29,34 @@ VALIDATORS = {
 }
 
 
+def _parse_weeks(spec: str | None) -> list[int] | None:
+    """Parse a `--weeks` spec into a sorted list of feature-week numbers.
+
+    Accepts an inclusive range `"7-10"`, a comma list `"7,8,9"`, a single
+    `"9"`, or a mix. Returns None when `spec` is None (no backfill — use the
+    default trailing window). Raises ValueError on malformed input so a typo
+    fails loudly rather than silently backfilling the wrong weeks.
+    """
+    if spec is None:
+        return None
+    weeks: set[int] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            lo_s, hi_s = part.split("-", 1)
+            lo, hi = int(lo_s), int(hi_s)
+            if lo > hi:
+                raise ValueError(f"--weeks range '{part}' is reversed")
+            weeks.update(range(lo, hi + 1))
+        else:
+            weeks.add(int(part))
+    if not weeks:
+        raise ValueError(f"--weeks '{spec}' parsed to no weeks")
+    return sorted(weeks)
+
+
 def run_refresh(project_id: str, client, data_dir) -> dict:
     """Dispatch a refresh to the project's fetch module."""
     runner = REGISTRY.get(project_id)
@@ -58,6 +86,12 @@ def main(argv: list[str] | None = None) -> int:
              if argv[i].startswith("--") and not argv[i + 1].startswith("--")}
     do_validate = "--validate" in argv
     project_id = positional[0] if positional else "grip_connect"
+
+    # `--weeks 7-10` / `--weeks 9` / `--weeks 7,8,9` — backfill a specific
+    # feature-week range (asset_search only). Drives both the refresh window
+    # and the post-fetch validation range, so a backfill is validated
+    # end-to-end rather than only against the live trailing window.
+    backfill_weeks = _parse_weeks(flags.get("--weeks"))
 
     if project_id not in REGISTRY:
         print(f"ERROR: unknown project '{project_id}' — one of {sorted(REGISTRY)}",
@@ -98,6 +132,15 @@ def main(argv: list[str] | None = None) -> int:
             client.login(email, password)
         kwargs = {}
 
+    # `--weeks` only applies to the per-feature-week projects (asset_search).
+    # Other runners don't accept the kwarg, so only pass it where it's valid.
+    if backfill_weeks is not None:
+        if project_id != "asset_search":
+            print(f"ERROR: --weeks is only supported for 'asset_search', "
+                  f"not '{project_id}'", file=sys.stderr)
+            return 1
+        kwargs["weeks"] = backfill_weeks
+
     data_dir = Path(os.getenv("DATA_DIR", "./data")) / project_id  # underscore-style (CB1)
     result = REGISTRY[project_id](client, data_dir, **kwargs)
     print("\n".join(result["log"]))
@@ -108,14 +151,32 @@ def main(argv: list[str] | None = None) -> int:
         if validator is None:
             print(f"note: --validate not supported for '{project_id}', skipping")
         else:
-            errors = validator(data_dir)
-            if errors:
+            # asset_search's validator returns (errors, warnings) and accepts a
+            # `weeks` range; other validators return a plain error list.
+            if project_id == "asset_search":
+                errors, warnings = validator(data_dir, weeks=backfill_weeks)
+            else:
+                errors, warnings = validator(data_dir), []
+            # A backfill (--weeks) is an attended, one-way whole-file overwrite
+            # of historical weeks. There a row-count swing most likely means
+            # source-retention truncation silently shrinking a complete week, so
+            # warnings are BLOCKING for a backfill. For the unattended daily run
+            # a swing is non-blocking (it self-heals or is real movement) — it is
+            # surfaced for the cron alert but still commits.
+            warnings_block = backfill_weeks is not None
+            for w in warnings:
+                prefix = "" if warnings_block else " (non-blocking)"
+                print(f"WARN{prefix}: {w}", file=sys.stderr)
+            blocking = list(errors) + (warnings if warnings_block else [])
+            if blocking:
                 print("VALIDATION FAILED — fetch output is suspect:",
                       file=sys.stderr)
-                for e in errors:
+                for e in blocking:
                     print(f"  - {e}", file=sys.stderr)
                 return 1
-            print(f"validation: ok ({project_id})")
+            print(f"validation: ok ({project_id})"
+                  + (f" — {len(warnings)} non-blocking warning(s)"
+                     if warnings else ""))
     # `awaiting_first_event` is a successful idle for pre-launch projects —
     # treat it as success so the daily cron does not page until live data
     # actually exists. (Used by learn_education pre-launch.)

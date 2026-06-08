@@ -4,7 +4,8 @@ from datetime import date
 import pytest
 
 from services.integrations import grip_connect
-from services.integrations.refresh import REGISTRY, VALIDATORS, run_refresh
+from services.integrations.refresh import (
+    REGISTRY, VALIDATORS, _parse_weeks, run_refresh)
 
 
 class FakeClient:
@@ -55,3 +56,29 @@ def test_validators_registry_wires_asset_search():
     # The --validate CLI step dispatches through VALIDATORS (spec §14).
     from services.integrations import asset_search
     assert VALIDATORS["asset_search"] is asset_search.validate_data_dir
+
+
+# ── --weeks backfill spec parsing ────────────────────────────────────────────
+
+def test_parse_weeks_none_means_default_window():
+    assert _parse_weeks(None) is None
+
+
+def test_parse_weeks_range():
+    assert _parse_weeks("7-10") == [7, 8, 9, 10]
+
+
+def test_parse_weeks_single_and_list_and_dedup():
+    assert _parse_weeks("9") == [9]
+    assert _parse_weeks("7,8,9") == [7, 8, 9]
+    assert _parse_weeks("9,7-8,8") == [7, 8, 9]      # mixed + de-duplicated + sorted
+
+
+def test_parse_weeks_rejects_reversed_range():
+    with pytest.raises(ValueError, match="reversed"):
+        _parse_weeks("10-7")
+
+
+def test_parse_weeks_rejects_garbage():
+    with pytest.raises(ValueError):
+        _parse_weeks("abc")

@@ -13,7 +13,10 @@ Key decisions carried here:
          the service account does not always carry — pagination is portable.
   · D3 — each run fetches the current + prior feature week; older weeks frozen.
   · D5 — whole-week CSV is rewritten atomically; no row-level upsert.
-  · D7 — search events fetched daily; heavy browse/conversion tables weekly.
+  · D7 — every run fetches all (non-off) events for the trailing live-week
+         window, heavy browse/conversion tables included, so they self-heal
+         like the search events (revised after the W9/W10 incident; the
+         original D7 fetched the heavy tables only on the weekly rollover).
   · D8 — the five payment-stage tables are registered but `off` until roadmap #2.
   · D10 — every query excludes the test users.
 
@@ -48,9 +51,9 @@ MAX_PAGES = 200          # 400k rows ceiling — well above any single feature w
 
 # Feature weeks are IST-aligned (the spec defines them off Apr 2 2026 IST).
 # The GitHub Actions runner clock is UTC, so a cron firing at 18:30 UTC
-# (= 00:00 IST) sees yesterday's UTC date — without this, `is_rollover`
-# misfires on every feature-week boundary and the weekly heavy tables
-# (`assets_page_views`, `invest_now`) fetch one day late.
+# (= 00:00 IST) sees yesterday's UTC date. Computing `today` in IST keeps
+# `week_of`/`current_and_prior` on the correct feature-week boundary instead
+# of trailing a day behind whenever the run straddles UTC midnight.
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
@@ -58,9 +61,15 @@ IST = timezone(timedelta(hours=5, minutes=30))
 class Event:
     """One tracked event table.
 
-    cadence: "daily"  — fetched every run (the small search events);
-             "weekly" — fetched only on a feature-week-rollover run (heavy
-                        browse/conversion tables — spec D7);
+    cadence: "daily" / "weekly" — both are fetched on *every* run for the
+             trailing live-week window (D3). The label is now only a size hint
+             (weekly = the heavy browse/conversion tables, kept column-pruned);
+             it no longer gates *when* a table is fetched. Fetching the heavy
+             tables daily makes them self-healing exactly like the search
+             events: a failed push or transient fetch error is corrected on the
+             next run, instead of being lost until the once-a-week rollover run
+             (the May–Jun 2026 W9/W10 incident — a lost rollover push left the
+             heavy tables permanently stuck).
              "off"    — registered but not fetched (the payment-stage tables,
                         enabled with roadmap #2 — spec D8).
     has_user_id: whether the source table carries a `user_id` column, i.e.
@@ -71,6 +80,15 @@ class Event:
              balloons from ~10 MB (W1-W6 hand-export) to >100 MB (GitHub's
              single-file limit) because the live schema has ~126 columns and
              only six are consumed downstream.
+    must_have_rows: high-volume tables that should NEVER be empty for a live
+             feature week. A 0-row/absent fetch for one of these is treated as
+             a hard failure (run() logs FAIL → holds the freshness clock + the
+             cron alerts; validate() flags an absent file as a blocking error)
+             rather than the silent skip a genuinely-sparse event gets. This
+             closes the gap where a heavy browse/conversion table collapsing to
+             zero — a broken WHERE, an empty source, retention truncation on a
+             backfill — would otherwise commit "broken-but-green" (the W9/W10
+             incident's residual silent failure mode).
     """
     key: str
     source_table: str
@@ -78,6 +96,13 @@ class Event:
     cadence: str
     has_user_id: bool = True
     columns: tuple[str, ...] | None = None
+    must_have_rows: bool = False
+
+    @property
+    def is_off(self) -> bool:
+        """`off` events are registered but never fetched (the payment-stage
+        tables, enabled with roadmap #2 — spec D8)."""
+        return self.cadence == "off"
 
 
 # The event registry — spec §6.2. `stem` MUST match the on-disk CSV names for
@@ -100,8 +125,19 @@ EVENTS: dict[str, Event] = {e.key: e for e in [
           # too, but the live Rudder schema renamed both away and no dashboard
           # query reads them — keep the fetch minimal so the CSV stays under
           # GitHub's 100 MB single-file cap (full SELECT * was 104 MB).
-          columns=("user_id", "anonymous_id", "context_session_id", "timestamp")),
-    Event("invest_now",         "invest_now_button_clicked",       "invest_now_button_clicked",       "weekly"),
+          columns=("user_id", "anonymous_id", "context_session_id", "timestamp"),
+          must_have_rows=True),
+    Event("invest_now",         "invest_now_button_clicked",       "invest_now_button_clicked",       "weekly",
+          # Pruned to the four columns conversion.js actually reads
+          # (user_id, timestamp, asset_id, product_category). SELECT * is ~126
+          # Rudder-context columns / ~16 MB per feature week; now that the
+          # heavy tables re-fetch daily (self-healing), the unpruned file would
+          # re-churn ~16 MB into git every day. The pagination ORDER BY id does
+          # not require id in the SELECT list (assets_page_views already relies
+          # on this). quick_checkout carries the same four columns, so the
+          # frontend's invest_now ∪ quick_checkout UNION stays valid.
+          columns=("user_id", "timestamp", "asset_id", "product_category"),
+          must_have_rows=True),
     Event("quick_checkout",     "quick_checkout_invest_clicked",   "quick_checkout_invest_clicked",   "daily"),
     # D8 — registered, fetched only once roadmap #2 flips these to "weekly"/"daily".
     Event("payment_page",       "view_payment_page_loaded",        "view_payment_page_loaded",        "off"),
@@ -136,14 +172,13 @@ def build_sql(source_table: str, start: date, end: date,
     return f"SELECT {select_list}\nFROM client_web.{source_table}\nWHERE {where}"
 
 
-def _active_events(include_weekly: bool) -> list[Event]:
-    """The events to fetch this run: always the daily ones; the weekly (heavy)
-    ones only on a rollover run; never the `off` ones."""
-    out = []
-    for ev in EVENTS.values():
-        if ev.cadence == "daily" or (ev.cadence == "weekly" and include_weekly):
-            out.append(ev)
-    return out
+def _active_events() -> list[Event]:
+    """The events to fetch this run: every registered event except the `off`
+    ones. Daily and weekly tables alike are fetched on every run (for the
+    trailing live-week window) so the heavy tables self-heal like the search
+    events — see the `Event.cadence` docstring for why the daily/weekly split
+    no longer gates fetching."""
+    return [ev for ev in EVENTS.values() if not ev.is_off]
 
 
 def _fetch_paginated(client, source_table: str, start: date, end: date,
@@ -170,7 +205,7 @@ def _fetch_paginated(client, source_table: str, start: date, end: date,
         f"({MAX_PAGES * PAGE_SIZE} rows) — window unexpectedly large")
 
 
-def build_layer1(client, weeks: list[int], *, include_weekly: bool = False,
+def build_layer1(client, weeks: list[int], *,
                  database_id: int = DATABASE_ID,
                  log: list[str] | None = None) -> dict[str, list[dict]]:
     """Fetch each active event for each week; return `{csv_stem: rows}`.
@@ -186,7 +221,7 @@ def build_layer1(client, weeks: list[int], *, include_weekly: bool = False,
     out: dict[str, list[dict]] = {}
     failures = 0
     attempts = 0
-    for ev in _active_events(include_weekly):
+    for ev in _active_events():
         for n in weeks:
             attempts += 1
             start, end = feature_week.bounds(n)
@@ -247,31 +282,57 @@ def _read_csv_rows(path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def validate_data_dir(data_dir, *, today: date | None = None) -> list[str]:
+def validate_data_dir(data_dir, *, today: date | None = None,
+                      weeks: list[int] | None = None
+                      ) -> tuple[list[str], list[str]]:
     """Post-fetch validation of the Asset Search CSVs (spec §14) — the body of
-    the `--validate` CLI step, run after a refresh. Validates the freshly-
-    fetched current + prior feature weeks: per-week schema / test-user / window
-    checks, plus the cross-week row-count sanity band. Returns a list of error
-    strings; empty means the fetch output looks sound. Frozen historical weeks
-    are out of scope — `current_and_prior` only yields live weeks.
+    the `--validate` CLI step, run after a refresh.
+
+    Returns `(errors, warnings)`:
+      · `errors`  — BLOCKING. Hard fetch-output corruption: schema drift, a
+                    test-user leak, a timestamp outside the week window. A
+                    non-empty list means the data is genuinely wrong and the
+                    cron must not commit it.
+      · `warnings` — NON-BLOCKING. The cross-week row-count sanity band — a
+                    >10x swing between consecutive weeks. This is a heuristic
+                    alert, NOT a gate: it was the W9/W10 incident's trigger,
+                    where a frozen heavy table made the projection fail every
+                    day and blocked the *whole* commit (good daily data
+                    included). Now that the heavy tables self-heal a real swing
+                    is either genuine product movement (accept it) or a
+                    transient that next-day's fetch corrects — neither should
+                    block the commit. The cron surfaces warnings to the alert
+                    channel but still commits.
+
+    By default validates the trailing live-week window (`current_and_prior`);
+    pass an explicit `weeks` list to validate a backfill range end-to-end.
     """
     from .validate import (validate_asset_search_row_counts,
                            validate_asset_search_week)
     data_dir = Path(data_dir)
     today = today or datetime.now(IST).date()
-    weeks = feature_week.current_and_prior(today)
+    if weeks is None:
+        weeks = feature_week.current_and_prior(today)
     errors: list[str] = []
+    warnings: list[str] = []
     counts: dict[str, dict[int, int]] = {}
     for ev in EVENTS.values():
-        if ev.cadence == "off":
+        if ev.is_off:
             continue
         for n in weeks:
             start, end = feature_week.bounds(n)
             stem = f"{feature_week.label(n)}_{ev.stem}"
             path = data_dir / f"{stem}.csv"
             if not path.exists():
-                # A weekly table on a non-rollover run is not re-fetched — its
-                # absence here is expected, not a validation failure.
+                # A sparse low-volume event with no rows leaves no file — that
+                # is expected. But a `must_have_rows` heavy table absent for a
+                # live week is the silent-collapse failure mode: flag it as a
+                # blocking error so the cron does not commit a week missing its
+                # browse/conversion data behind healthy search events.
+                if ev.must_have_rows:
+                    errors.append(
+                        f"{stem}: required heavy table is absent "
+                        f"(must_have_rows) — fetch returned no rows or failed")
                 continue
             rows = _read_csv_rows(path)
             errors += validate_asset_search_week(stem, rows, start, end)
@@ -280,11 +341,11 @@ def validate_data_dir(data_dir, *, today: date | None = None) -> list[str]:
     week_start, _ = feature_week.bounds(current_week)
     days_elapsed = (today - week_start).days + 1
     for ev_key, by_week in counts.items():
-        errors += validate_asset_search_row_counts(
+        warnings += validate_asset_search_row_counts(
             ev_key, by_week,
             current_week=current_week,
             current_week_days_elapsed=days_elapsed)
-    return errors
+    return errors, warnings
 
 
 def _now() -> str:
@@ -292,8 +353,18 @@ def _now() -> str:
 
 
 def run(client, data_dir, *, today: date | None = None,
-        database_id: int = DATABASE_ID) -> dict:
+        database_id: int = DATABASE_ID,
+        weeks: list[int] | None = None) -> dict:
     """Registry entry point (spec D6) — fetch → write CSVs → write manifest.
+
+    By default fetches the trailing live-week window (`current_and_prior`).
+    Pass an explicit `weeks` list to backfill specific feature weeks (the
+    `--weeks` CLI flag / a `workflow_dispatch` backfill) — e.g. to recover a
+    week whose heavy tables were lost. Frozen weeks (< FIRST_LIVE_WEEK) are
+    rejected so a backfill can never overwrite the hand-export history.
+
+    All non-`off` events (search *and* heavy browse/conversion) are fetched on
+    every run, so the heavy tables self-heal like the search events.
 
     Returns `{status, log, refreshed_at}`. `status` is "ok" when every fetch
     landed, "partial" when some events failed but others succeeded; a total
@@ -303,24 +374,42 @@ def run(client, data_dir, *, today: date | None = None,
     today = today or datetime.now(IST).date()
     log: list[str] = []
 
-    weeks = feature_week.current_and_prior(today)
+    if weeks is None:
+        weeks = feature_week.current_and_prior(today)
+    else:
+        frozen = [w for w in weeks if w < feature_week.FIRST_LIVE_WEEK]
+        if frozen:
+            raise ValueError(
+                f"refusing to fetch frozen weeks {sorted(frozen)} "
+                f"(< FIRST_LIVE_WEEK={feature_week.FIRST_LIVE_WEEK}) — "
+                f"W1–W6 are hand-export history (spec §11)")
+        weeks = sorted(set(weeks))
     if not weeks:
         return {"status": "ok", "log": ["no live feature week to fetch yet"],
                 "refreshed_at": _now()}
-    include_weekly = feature_week.is_rollover(today)
-    log.append(f"weeks={weeks} include_weekly={include_weekly}")
+    log.append(f"weeks={weeks}")
 
-    layer1 = build_layer1(client, weeks, include_weekly=include_weekly,
+    layer1 = build_layer1(client, weeks,
                           database_id=database_id, log=log)
+
+    # Stem-suffixes of the high-volume tables that must never be empty for a
+    # live week — used to escalate a 0-row fetch from a soft WARN to a FAIL.
+    must_have = tuple(f"_{ev.stem}" for ev in EVENTS.values() if ev.must_have_rows)
 
     written: list[str] = []
     for stem, rows in layer1.items():
         n = write_csv_atomic(data_dir / f"{stem}.csv", rows)
         if n == 0:
-            # A zero-row event is suspect (we fetch whole feature weeks). The
-            # CSV is left untouched; the `--validate` step (validate.py §14)
-            # is what flags this as a hard error and blocks the cron commit.
-            log.append(f"WARN {stem}: 0 rows — file left unwritten")
+            # A zero-row event leaves the CSV untouched (the prior copy stands).
+            # For a must_have_rows table that is a hard failure, not a benign
+            # WARN: log FAIL so `had_fail` holds the freshness clock back and
+            # the cron's FAIL-grep fires the alert — a collapsed heavy table
+            # must never pass as "fresh" behind the still-healthy daily events.
+            # A genuinely-sparse event (e.g. notify_me_clicked) stays a WARN.
+            if stem.endswith(must_have):
+                log.append(f"FAIL {stem}: 0 rows — heavy table must not be empty")
+            else:
+                log.append(f"WARN {stem}: 0 rows — file left unwritten")
         else:
             written.append(stem)
 
@@ -337,14 +426,24 @@ def run(client, data_dir, *, today: date | None = None,
             log.append(f"WARN _manifest.json unreadable, resetting: {exc}")
             manifest = {"refreshed_at": now, "tables": {}}
     manifest.setdefault("tables", {})
-    # Advance the freshness clock only when this run actually wrote a CSV. A
-    # run that fetched zero rows everywhere must leave `refreshed_at` stale so
-    # the dashboard's 26 h staleness warning still fires (spec §12) instead of
-    # being silenced by a no-op refresh.
-    if written:
+    # Per-table freshness advances for every table this run actually wrote —
+    # the granular audit trail (`last_refreshed_at` per stem).
+    for stem in written:
+        manifest["tables"][stem] = {"last_refreshed_at": now}
+    # The GLOBAL freshness clock — which drives the dashboard's "as of" stamp
+    # and 26 h staleness warning (spec §12) — advances only on a *fully clean*
+    # run: at least one CSV written AND no fetch failed. This is the
+    # broken-but-green fix from the W9/W10 incident: previously `refreshed_at`
+    # advanced whenever *any* table was written, so a run that refreshed the
+    # daily search events while a heavy table was stuck still looked fresh and
+    # the staleness badge never fired. Now a persistent fetch failure on any
+    # active table holds the clock back, so >26 h later the dashboard warns.
+    # (A zero-row event is a successful fetch, not a failure — it does not
+    # count as `had_fail`.) Paired with self-healing fetches, a *transient*
+    # failure is corrected on the next run before the 26 h threshold.
+    had_fail = any(l.startswith("FAIL") for l in log)
+    if written and not had_fail:
         manifest["refreshed_at"] = now
-        for stem in written:
-            manifest["tables"][stem] = {"last_refreshed_at": now}
     manifest.setdefault("refreshed_at", now)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     # Atomic write — a reader catching a half-written manifest mid-cron
