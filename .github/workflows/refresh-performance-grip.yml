@@ -65,19 +65,33 @@ jobs:
         working-directory: backend
         run: python -m services.integrations.refresh performance_grip
       - name: Commit refreshed data if changed
+        # Commit once, then retry only the push (rebasing between attempts).
+        # Two bugs in the prior shape: (1) `git push && break || sleep` exits 0
+        # on the final iteration even when the push failed (the trailing sleep
+        # succeeds) → silent loss + no alert; (2) committing inside the loop and
+        # re-checking `git diff --staged` after a rebase exits green WITHOUT
+        # re-pushing (the rebase replays the local commit, the tree goes clean,
+        # the loop breaks). Retry the PUSH, not the staging, with an explicit
+        # success flag so an exhausted retry fails the step and fires the alert.
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # CD1-fix: retry the pull-and-push loop. Sibling refresh workflows
-          # (asset-search, grip-connect, fra-youtube) push to main concurrently;
-          # a single pull --rebase + push can lose the race.
+          git add backend/data/performance_grip/
+          if git diff --staged --quiet; then
+            echo "no data changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: refresh Performance Grip data"
+          success=0
           for i in 1 2 3; do
+            if git push; then
+              success=1
+              break
+            fi
             git pull --rebase --autostash
-            git add backend/data/performance_grip/
-            git diff --staged --quiet && break
-            git commit -m "chore: refresh Performance Grip data"
-            git push && break || sleep $((i * 10))
+            sleep $((i * 10))
           done
+          [ "$success" -eq 1 ]
       - name: Notify on failure
         # H13-fix: copies the asset-search pattern. Slack curl is gated on
         # SLACK_WEBHOOK_URL — stays disabled (K1) until configured.
