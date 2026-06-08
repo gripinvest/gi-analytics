@@ -27,7 +27,7 @@ name: Refresh Learn Education data
 
 on:
   schedule:
-    - cron: "30 19 * * *"   # 01:00 IST (UTC+5:30) — 1h after Asset Search
+    - cron: "40 19 * * *"   # 01:10 IST — staggered 10 min off performance-grip (also 19:30 UTC)
   workflow_dispatch: {}
 
 permissions:
@@ -58,26 +58,30 @@ jobs:
           METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
         run: python -m services.integrations.refresh learn_education
       - name: Commit refreshed data if changed
-        # Track success across retries — bare `git push && break || sleep`
-        # exits 0 on the final iteration even when the push failed (because
-        # the trailing `sleep` succeeds). We need an explicit success flag
-        # so the failure step below actually fires.
+        # Commit once, then retry only the push (rebasing between attempts).
+        # The prior shape committed *inside* the loop and re-checked `git diff
+        # --staged` after a rebase — which exits green WITHOUT re-pushing: on a
+        # lost-race retry the rebase replays the local commit, the tree goes
+        # clean, `diff --staged --quiet` is true, and the loop breaks with the
+        # commit stranded locally (lost on the next checkout). Retry the PUSH,
+        # not the staging. The explicit success flag fails the step (firing the
+        # alert) if all attempts are exhausted.
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backend/data/learn_education/
+          if git diff --staged --quiet; then
+            echo "no data changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: refresh Learn Education data"
           success=0
           for i in 1 2 3; do
-            git pull --rebase --autostash
-            git add backend/data/learn_education/
-            if git diff --staged --quiet; then
-              success=1
-              break
-            fi
-            git commit -m "chore: refresh Learn Education data"
             if git push; then
               success=1
               break
             fi
+            git pull --rebase --autostash
             sleep $((i * 10))
           done
           [ "$success" -eq 1 ]
