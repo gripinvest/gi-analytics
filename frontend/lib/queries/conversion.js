@@ -98,6 +98,11 @@ const unionP = (tables, cols) => tables.map((t) => `SELECT ${cols} FROM ${qi(t)}
 const unionW = (tables, cols) =>
   tables.map((t) => `SELECT '${weekTag(t)}' AS week, ${cols} FROM ${qi(t)}`).join("\nUNION ALL\n");
 
+/** ORDER BY feature week NUMERICALLY — the `week` column holds the 'W<n>' label,
+ *  so a plain `ORDER BY week` sorts lexically and W10 lands between W1 and W2.
+ *  Sort by the integer after the 'W'. `col` qualifies the column (e.g. "s.week"). */
+const weekNum = (col = "week") => `CAST(SUBSTR(${col}, 2) AS INTEGER)`;
+
 // Normalised sub-selects: (uid, dt) / (uid) / (week, uid, dt), test users + nulls dropped.
 const searchDays = (tables) =>
   `SELECT DISTINCT ${UID()} AS uid, ${DAY} AS dt FROM (${unionP(tables, "user_id, timestamp")}) _r WHERE ${NOTEST}`;
@@ -186,7 +191,7 @@ LEFT JOIN sc USING (week)
 LEFT JOIN c  USING (week)
 LEFT JOIN cc USING (week)
 LEFT JOIN inv_w iw USING (week)
-ORDER BY s.week`;
+ORDER BY ${weekNum("s.week")}`;
 }
 
 /* ── 5. invest events by product category (light context) ───────────────────── */
@@ -240,7 +245,7 @@ export function weeklyAdoption(conv) {
 SELECT v.week, v.visitors, COALESCE(s.searchers, 0) AS searchers,
   ROUND(100.0 * COALESCE(s.searchers, 0) / NULLIF(v.visitors, 0), 1) AS adoption_pct
 FROM v LEFT JOIN s USING (week)
-ORDER BY v.week`;
+ORDER BY ${weekNum("v.week")}`;
 }
 
 /* ── 7. full-window cohort (W1–W6) from the weekly assets-page-views ─────────── */
@@ -327,7 +332,7 @@ SELECT
     2)                                                          AS lift
 FROM per_week p
 CROSS JOIN baseline b
-ORDER BY p.week`;
+ORDER BY ${weekNum("p.week")}`;
 }
 
 // Info-tooltip definitions for the conversion metrics (mirrors METRIC_DEFS shape).

@@ -70,6 +70,12 @@ function unionAllWeeks(tableList, weeks, cols, extraWhere) {
     .join("\nUNION ALL\n");
 }
 
+/** SQL expression to ORDER BY feature week NUMERICALLY. The `week` column holds
+ *  the 'W<n>' label, so a plain `ORDER BY week` sorts it lexically — once W10
+ *  exists it lands between W1 and W2 ('W1' < 'W10' < 'W2'). Sort by the integer
+ *  after the 'W'. `col` lets callers qualify the column (e.g. "i.week"). */
+const weekNum = (col = "week") => `CAST(SUBSTR(${col}, 2) AS INTEGER)`;
+
 // ── per-week series ─────────────────────────────────────────────────────────
 
 /** Weekly query volume, zero-result count, ZRR%, refinement count, refinement%. */
@@ -81,7 +87,7 @@ export function queryHealthByWeek({ tables, weeks }) {
       SUM(CASE WHEN is_refinement THEN 1 ELSE 0 END) AS refinements,
       ROUND(100.0 * SUM(CASE WHEN is_refinement THEN 1 ELSE 0 END) / COUNT(*), 1) AS refinement_pct
     FROM (${unionAllWeeks(tables.query, weeks, "results_count, is_refinement")}) t
-    GROUP BY week ORDER BY week`;
+    GROUP BY week ORDER BY ${weekNum()}`;
 }
 
 /** Distinct-session funnel per week: focused -> queried -> clicked a result. */
@@ -93,7 +99,7 @@ export function funnelByWeek({ tables, weeks }) {
       q AS (SELECT week, COUNT(DISTINCT sid) AS queried   FROM ${part(tables.query)}     GROUP BY week),
       c AS (SELECT week, COUNT(DISTINCT sid) AS clicked   FROM ${part(tables.result_clicked)} GROUP BY week)
     SELECT i.week, i.initiated, q.queried, c.clicked
-    FROM i JOIN q USING (week) JOIN c USING (week) ORDER BY i.week`;
+    FROM i JOIN q USING (week) JOIN c USING (week) ORDER BY ${weekNum("i.week")}`;
 }
 
 /** Suggestion clicks per week and click-through vs sessions that focused search. */
@@ -105,13 +111,13 @@ export function suggestionsByWeek({ tables, weeks }) {
             FROM (${unionAllWeeks(tables.initiated, weeks, "context_session_id")}) t GROUP BY week)
     SELECT i.week, COALESCE(s.suggestion_clicks, 0) AS suggestion_clicks, i.focused,
       ROUND(100.0 * COALESCE(s.sessions_with_click, 0) / NULLIF(i.focused, 0), 1) AS ctr_pct
-    FROM i LEFT JOIN s USING (week) ORDER BY i.week`;
+    FROM i LEFT JOIN s USING (week) ORDER BY ${weekNum("i.week")}`;
 }
 
 /** Clear events per week — a secondary friction signal (not the primary metric). */
 export function clearsByWeek({ tables, weeks }) {
   return `SELECT week, COUNT(*) AS clears
-    FROM (${unionAllWeeks(tables.cleared, weeks, "1 AS one")}) t GROUP BY week ORDER BY week`;
+    FROM (${unionAllWeeks(tables.cleared, weeks, "1 AS one")}) t GROUP BY week ORDER BY ${weekNum()}`;
 }
 
 /**
@@ -149,7 +155,7 @@ export function sessionOutcomeByWeek({ tables, weeks }) {
         SUM(CASE WHEN c.sid IS NULL AND q.any_results = 0 THEN 1 ELSE 0 END) AS dead_end,
         ROUND(100.0 * SUM(CASE WHEN c.sid IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*), 1) AS success_pct
       FROM q LEFT JOIN c ON q.week = c.week AND q.sid = c.sid
-      GROUP BY q.week ORDER BY q.week`;
+      GROUP BY q.week ORDER BY ${weekNum("q.week")}`;
 }
 
 // ── leaderboards / distributions (all weeks) ────────────────────────────────
@@ -333,7 +339,7 @@ export function issuerHealthByWeek({ tables, weeks }) {
     ) classified
     WHERE issuer IS NOT NULL
     GROUP BY week, issuer
-    ORDER BY issuer, week`;
+    ORDER BY issuer, ${weekNum("week")}`;
 }
 
 /**
@@ -398,5 +404,5 @@ export function sessionOutcomeByIssuerWeek({ tables, weeks }) {
         SUM(CASE WHEN c.sid IS NULL AND q.any_results = 1 THEN 1 ELSE 0 END) AS relevance_gap,
         SUM(CASE WHEN c.sid IS NULL AND q.any_results = 0 THEN 1 ELSE 0 END) AS dead_end
       FROM q LEFT JOIN c ON q.week = c.week AND q.sid = c.sid
-      GROUP BY q.week, q.issuer ORDER BY q.issuer, q.week`;
+      GROUP BY q.week, q.issuer ORDER BY q.issuer, ${weekNum("q.week")}`;
 }
