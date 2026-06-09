@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { fetchProjects, uploadCSVs } from "@/lib/api";
 import { ChatPanel } from "@/components/ChatPanel";
 import { PageChrome } from "@/components/PageChrome";
+import BuildStamp from "@/components/BuildStamp";
 import { useDesign } from "@/lib/design";
 import {
   PageHeader, Card, CardHeader, CardTitle, CardBody, Button, Badge, Stat, Skeleton,
@@ -120,6 +121,9 @@ export default function Home() {
 
         <p className="mt-8 t-body-xs text-tertiary">
           Backend on <span className="font-mono">localhost:8000</span> · data at <span className="font-mono">backend/data/&lt;project&gt;/*.csv</span> · chat = Claude tool_use → DuckDB → streamed answer.
+        </p>
+        <p className="mt-2 t-body-xs text-tertiary">
+          <BuildStamp />
         </p>
       </div>
 
@@ -285,6 +289,9 @@ function EditorialHome({ projects, loadError, showUpload, setShowUpload, chatPro
             <strong style={{ fontWeight: 500, fontStyle: "normal" }}> Newsreader</strong>, and
             <strong style={{ fontWeight: 500, fontStyle: "normal" }}> IBM Plex Mono</strong>.
             Printed on screen at 144dpi. © Grip Invest 2026.
+          </p>
+          <p className="ed-byline mt-2" style={{ fontSize: 12, opacity: 0.7 }}>
+            <BuildStamp />
           </p>
         </footer>
       </div>
