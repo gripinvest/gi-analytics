@@ -17,18 +17,41 @@
 // tracks separately.
 
 import { TEST_USERS, ISSUER_MAP, issuerCaseExpr } from "./assetSearch";
+import { CUTOVER_WEEK } from "./engineComparison";
 
 const EXC = `(user_id IS NULL OR user_id NOT IN (${TEST_USERS.join(",")}))`;
 
-/** UNION ALL helper — projects a uniform column set across week-tables and
- *  applies the test-user exclusion in one place. Returns null when no
- *  tables are given so callers can short-circuit (the dashboard's run()
- *  treats null SQL as a zero-row result). */
+const wkOf = (t) => {
+  const m = t.match(/(?:^|_)W(\d+)_/);
+  return m ? Number(m[1]) : null;
+};
+
+/** Per-table SELECT-list that NULL-projects `engine_version` for pre-cutover
+ *  weeks. The column is V2-era — absent from the W1–W7 thin schemas — so
+ *  selecting it directly across the all-week union raises a binder error.
+ *  Pre-cutover tables get a NULL projection ("assume V1 if not found"); the
+ *  consumer coalesces NULL → 'v1'. Same convention as daily.js /
+ *  engineComparison.js (shared CUTOVER_WEEK). */
+function colsWithEngineVersion(baseCols) {
+  return (t) => {
+    const w = wkOf(t);
+    return w != null && w >= CUTOVER_WEEK
+      ? `${baseCols}, engine_version`
+      : `${baseCols}, CAST(NULL AS VARCHAR) AS engine_version`;
+  };
+}
+
+/** UNION ALL helper — applies the test-user exclusion in one place. `cols` is
+ *  either a string (same columns from every table) or a `(table) => string`
+ *  function for per-table projection (e.g. NULL-filling a late-added column).
+ *  Returns null when no tables are given so callers can short-circuit (the
+ *  dashboard's run() treats null SQL as a zero-row result). */
 function unionAll(tableList, cols, extraWhere) {
   if (!tableList || tableList.length === 0) return null;
   const where = extraWhere ? `${EXC} AND (${extraWhere})` : EXC;
+  const colsOf = typeof cols === "function" ? cols : () => cols;
   return tableList
-    .map((t) => `SELECT ${cols} FROM "${t}" WHERE ${where}`)
+    .map((t) => `SELECT ${colsOf(t)} FROM "${t}" WHERE ${where}`)
     .join("\nUNION ALL\n");
 }
 
@@ -47,15 +70,11 @@ function unionAll(tableList, cols, extraWhere) {
 export function notifyMeOutreachDetail({ tables } = {}) {
   // Zero-result rows of the query event — the strongest failure signal
   // (we know the user typed something the engine couldn't resolve).
-  // NOTE: do NOT select `engine_version` here. It is a V2-era column absent
-  // from the pre-V2 week schemas (W1–W4 are the thin hand-export). Selecting it
-  // across the all-week failure union throws a DuckDB binder error ("Referenced
-  // column engine_version not found"), which fails the whole query and silently
-  // drops the section to its mock-sample fallback. `active_tab` IS present in
-  // every week, so it stays. seen_v2 is derived below from the V2-only events.
+  // `engine_version` is NULL-projected for pre-cutover weeks (they lack the
+  // column) so the all-week union binds; seen_v2 coalesces NULL → 'v1'.
   const queryFailures = unionAll(
     tables && tables.query,
-    "user_id, query_text, timestamp, active_tab",
+    colsWithEngineVersion("user_id, query_text, timestamp, active_tab"),
     "results_count = 0 AND user_id IS NOT NULL AND query_text IS NOT NULL"
   );
   // Empty-state event — fires whether the failure was zero-result or
@@ -63,7 +82,7 @@ export function notifyMeOutreachDetail({ tables } = {}) {
   // this covers all flavours of dead-end on the search dropdown.
   const emptyStates = unionAll(
     tables && tables.empty_state,
-    "user_id, query_text, timestamp, active_tab",
+    colsWithEngineVersion("user_id, query_text, timestamp, active_tab"),
     "user_id IS NOT NULL AND query_text IS NOT NULL"
   );
   if (!queryFailures && !emptyStates) return null;
@@ -79,23 +98,12 @@ export function notifyMeOutreachDetail({ tables } = {}) {
     "user_id IS NOT NULL"
   ) || `SELECT CAST(NULL AS BIGINT) AS user_id, CAST(NULL AS VARCHAR) AS mapped_issuer WHERE FALSE`;
 
-  // V2-engagement signal for seen_v2. The notify-me and chip events only exist
-  // from the V2 cutover, so a user appearing in either has engaged with V2 —
-  // a schema-safe substitute for the old `engine_version = 'v2'` check that
-  // does not depend on a column the early weeks lack. Optional → stub fallback.
-  const v2Tables = [
-    ...((tables && tables.notify_me_clicked) || []),
-    ...((tables && tables.chip_clicked) || []),
-  ];
-  const v2Users = unionAll(v2Tables, "user_id", "user_id IS NOT NULL")
-    || `SELECT CAST(NULL AS BIGINT) AS user_id WHERE FALSE`;
-
   return `
     WITH failures AS (
       ${failureUnion}
     ),
     classified AS (
-      SELECT user_id, query_text, timestamp, active_tab,
+      SELECT user_id, query_text, timestamp, active_tab, engine_version,
              ${issuerCaseExpr("query_text")} AS mapped_issuer
       FROM failures
     ),
@@ -105,6 +113,9 @@ export function notifyMeOutreachDetail({ tables } = {}) {
              MAX(timestamp)                            AS last_active,
              MIN(timestamp)                            AS first_active,
              STRING_AGG(DISTINCT query_text, ' | ')    AS top_searches,
+             -- "assume V1 if not found": pre-cutover weeks NULL-project
+             -- engine_version, COALESCE'd to 'v1', so only a real 'v2' counts.
+             MAX(CASE WHEN COALESCE(engine_version, 'v1') = 'v2' THEN 1 ELSE 0 END) AS seen_v2,
              MAX(active_tab)                           AS active_tab
       FROM classified
       WHERE mapped_issuer IS NOT NULL
@@ -113,9 +124,6 @@ export function notifyMeOutreachDetail({ tables } = {}) {
     notified AS (
       SELECT DISTINCT user_id, mapped_issuer
       FROM (${notifyMe}) n
-    ),
-    v2users AS (
-      SELECT DISTINCT user_id FROM (${v2Users}) v
     )
     SELECT
       r.user_id,
@@ -125,13 +133,12 @@ export function notifyMeOutreachDetail({ tables } = {}) {
       r.first_active,
       r.top_searches,
       r.active_tab,
-      CASE WHEN v.user_id IS NOT NULL THEN 1 ELSE 0 END AS seen_v2,
+      r.seen_v2,
       CASE WHEN n.user_id IS NOT NULL THEN 1 ELSE 0 END AS notified
     FROM rolled r
     LEFT JOIN notified n
       ON n.user_id = r.user_id
      AND n.mapped_issuer = r.mapped_issuer
-    LEFT JOIN v2users v ON v.user_id = r.user_id
     ORDER BY notified DESC, hit_count DESC, last_active DESC
   `;
 }
