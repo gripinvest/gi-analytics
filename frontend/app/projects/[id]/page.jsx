@@ -6,6 +6,7 @@ import { fetchProject } from "@/lib/api";
 import { getDashboard } from "@/components/dashboards";
 import { ChatPanel } from "@/components/ChatPanel";
 import { PageChrome } from "@/components/PageChrome";
+import BuildStamp from "@/components/BuildStamp";
 import { useDesign } from "@/lib/design";
 import { PageHeader, Button, Badge, Card, Skeleton } from "@/components/ui";
 
@@ -54,6 +55,9 @@ export default function ProjectPage({ params }) {
           ) : (
             <Dashboard project={project} />
           )}
+          <p className="ed-byline mt-10" style={{ fontSize: 12, opacity: 0.7 }}>
+            <BuildStamp />
+          </p>
         </div>
 
         {/* Floating "Ask the editor" trigger — bottom-right, paper-on-ink. */}
@@ -132,6 +136,10 @@ export default function ProjectPage({ params }) {
             <Dashboard project={project} />
           )}
         </div>
+
+        <p className="mt-8 t-body-xs text-tertiary">
+          <BuildStamp />
+        </p>
       </div>
 
       <ChatPanel projectId={id} isOpen={chatOpen} onClose={() => setChatOpen(false)} />
