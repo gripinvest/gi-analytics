@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import BuildStamp from "@/components/BuildStamp";
 
 // Login is always editorial-styled — a single, memorable first impression
 // that sets the tone before the dashboard's design preference even applies.
@@ -191,6 +192,9 @@ function LoginInner() {
             <span>Printed on screen at 144dpi.</span>
             <span>·</span>
             <span>© Grip Invest 2026</span>
+          </p>
+          <p className="ed-byline mt-2" style={{ opacity: 0.7 }}>
+            <BuildStamp />
           </p>
         </footer>
       </div>
