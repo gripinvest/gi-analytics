@@ -28,6 +28,19 @@
   - Query builders for the new events in `lib/queries/outreach.js`
     + `lib/queries/engineComparison.js`. Both follow the same
     "mock until events flow, then auto-switch" pattern.
+- **Grip Connect vs own-platform dimension** — every search event carries
+  `gc_id` / `gc_name` (the global `trackEvent` stamp from gi-client-web
+  `utils/gtm.ts`): GC = `gc_id` set (a partner journey — ET money, Mobikwik, …),
+  own platform = empty. Segment builders (`gcOverview`, `gcMixByWeek`,
+  `gcFunnelBySegment`, `byPartner`, `topPartnerTerms` in `assetSearch.js`, gated
+  by `Q.hasGcWeeks` / restricted to GC-capable weeks via `gcScope`) feed a shared
+  `AssetSearchGCSection` — rendered as a "Grip Connect" tab (Classic) / §
+  (Editorial) — plus a `GCComparisonCard` on each Overview so the split is visible
+  alongside the headline metrics. Covers **W4 (Apr 23) onward** only — `gc_id` is
+  absent from the W1–W3 thin exports. First read: GC is **13.7%** of queries but
+  **57.8% ZRR vs 33%** own-platform and a **40.5% vs 59.5%** click-rate — partner
+  journeys hit far more dead-ends. Segment definition in
+  [`data-sources.md`](./data-sources.md) § 2f.
 
 ## Why the metric changed — keep this context
 
@@ -88,6 +101,21 @@ search-vs-browse deal size. Each is a query builder + a Conversion-tab exhibit.
 
 Current search CVR is same-day only. Add a 7-day attribution window via an
 `anonymous_id` join across dates — needs no new export.
+
+### 4a. Backfill the GC dimension into W1–W3 🟡 (investigate — later)
+
+`gc_id` / `gc_name` only exist from **W4 (Apr 23)** — the W1–W3 CSVs are narrow
+hand-exports that predate the wide `SELECT *` format, so GC segmentation starts
+at W4 (`GC_MIN_WEEK = 4` in `assetSearch.js`). But the global `trackEvent` GC
+stamp has been on *every* event since well before launch, so the **raw Rudder
+tables for Apr 2–22 should still carry `gc_id`**. If retention covers that
+window, a re-fetch of W1–W3 via the #1 Metabase pipeline (wide `SELECT *`) would
+widen those CSVs and let `GC_MIN_WEEK` drop to 1 — giving full-history GC
+segmentation. Action when picked up: (a) verify Rudder retention for Apr 2–22;
+(b) if present, re-fetch W1–W3 wide and lower `GC_MIN_WEEK`; (c) if the rows are
+gone, GC history simply starts at W4 (acceptable — documented in the section
+copy). Unlocked by #1; also relevant to the `invest_now_button_clicked` prune
+(currently 4 cols, no `gc_id`) — widen it there to enable GC-split conversion.
 
 ### 4. Daily-granularity dashboard views 🟡 (its own project)
 
