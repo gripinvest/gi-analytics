@@ -31,6 +31,7 @@ import * as D from "@/lib/queries/daily";
 import AssetSearchOutreachSection from "./AssetSearchOutreachSection";
 import AssetSearchCutoverStrip from "./AssetSearchCutoverStrip";
 import AssetSearchDailySection from "./AssetSearchDailySection";
+import AssetSearchGCSection, { GCComparisonCard } from "./AssetSearchGCSection";
 
 /* ── data loading (mirrors the classic dashboard's hook) ──────────────────── */
 
@@ -91,10 +92,23 @@ const COHORT_W_SPECS = {
   conv_adoption:       (conv) => C.weeklyAdoption(conv),
   conv_cohortW_byWeek: (conv) => C.weeklyCohortCvrByWeek(conv),
 };
+// Grip Connect vs own-platform segmentation (W4+; gcScope guards the W1–W3
+// exports that predate gc_id). Mirrors the classic dashboard's GC_SPECS.
+const GC_SPECS = {
+  gc_overview: (ctx) => Q.gcOverview(ctx),
+  gc_mix:      (ctx) => Q.gcMixByWeek(ctx),
+  gc_funnel:   (ctx) => Q.gcFunnelBySegment(ctx),
+  gc_partner:  (ctx) => Q.byPartner(ctx),
+  gc_terms:    (ctx) => Q.topPartnerTerms(ctx),
+};
 
 function useDashboard(project, nonce) {
   const grouped = React.useMemo(() => Q.groupTables(project.tables || []), [project.tables]);
   const conv = React.useMemo(() => C.conversionTables(project.tables || []), [project.tables]);
+  const gcOk = React.useMemo(
+    () => Q.hasGcWeeks({ tables: grouped.tables, weeks: grouped.weeks }),
+    [grouped]
+  );
   const [state, setState] = React.useState({ loading: true, fatal: null, data: {} });
 
   React.useEffect(() => {
@@ -123,6 +137,7 @@ function useDashboard(project, nonce) {
         ...(conv.ok ? Object.entries(CONV_SPECS).map(([key, build]) => run(key, build(conv))) : []),
         ...(conv.cohortOk ? Object.entries(COHORT_SPECS).map(([key, build]) => run(key, build(conv))) : []),
         ...(conv.pageViewsOk ? Object.entries(COHORT_W_SPECS).map(([key, build]) => run(key, build(conv))) : []),
+        ...(gcOk ? Object.entries(GC_SPECS).map(([key, build]) => run(key, build(ctx))) : []),
       ];
       const entries = await Promise.all(jobs);
       if (!cancelled) setState({ loading: false, fatal: null, data: Object.fromEntries(entries) });
@@ -137,7 +152,7 @@ function useDashboard(project, nonce) {
   }, [project.id, nonce]);
 
   return { ...state, weeks: grouped.weeks, lastWeek: grouped.lastWeek,
-           convOk: conv.ok, pageViewsOk: conv.pageViewsOk };
+           convOk: conv.ok, pageViewsOk: conv.pageViewsOk, gcOk };
 }
 
 /* ── small helpers ─────────────────────────────────────────────────────────── */
@@ -365,7 +380,7 @@ function Term({ n, children }) {
 
 export default function AssetSearchDashboardEditorial({ project }) {
   const refreshState = useProjectRefresh(project);
-  const { loading, fatal, data, weeks, lastWeek, convOk, pageViewsOk } = useDashboard(project, refreshState.nonce);
+  const { loading, fatal, data, weeks, lastWeek, convOk, pageViewsOk, gcOk } = useDashboard(project, refreshState.nonce);
 
   // ── masthead derivations — keep the editorial copy honest against live data
   // The masthead used to carry hardcoded dates ("APR 2 – MAY 13, 2026"),
@@ -492,18 +507,22 @@ export default function AssetSearchDashboardEditorial({ project }) {
 
   // ── section state ────────────────────────────────────────────────────────
   // Daily Pulse is a separate tab so day-grain signals don't compete with
-  // the weekly editorial narrative. Roman numerals downstream shift by one.
+  // the weekly editorial narrative. Roman numerals are assigned by position so
+  // optional sections (conversion, grip-connect) can drop in/out without
+  // hand-renumbering everything downstream.
+  const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
   const sections = [
-    { key: "overview",        no: "I",                                       italic: "The Overview" },
-    { key: "daily",           no: "II",                                      italic: "The Daily Pulse" },
-    ...(convOk ? [{ key: "conversion", no: "III",                            italic: "The Conversion" }] : []),
-    { key: "issuers",         no: convOk ? "IV"  : "III",                    italic: "The Issuers" },
-    { key: "terms",           no: convOk ? "V"   : "IV",                     italic: "The Terms" },
-    { key: "instrumentation", no: convOk ? "VI"  : "V",                      italic: "The Instrumentation" },
+    { key: "overview",        italic: "The Overview" },
+    { key: "daily",           italic: "The Daily Pulse" },
+    ...(convOk ? [{ key: "conversion", italic: "The Conversion" }] : []),
+    ...(gcOk ? [{ key: "grip-connect", italic: "Grip Connect" }] : []),
+    { key: "issuers",         italic: "The Issuers" },
+    { key: "terms",           italic: "The Terms" },
+    { key: "instrumentation", italic: "The Instrumentation" },
     // V2 outreach surface — CS-facing queue. Deep-linkable via
     // ?section=outreach so CS can bookmark it.
-    { key: "outreach",        no: convOk ? "VII" : "VI",                     italic: "The Outreach" },
-  ];
+    { key: "outreach",        italic: "The Outreach" },
+  ].map((s, i) => ({ ...s, no: ROMAN[i] }));
   const [section, setSection] = React.useState("overview");
 
   // Deep-linking: honour ?section=<key> on first mount so a CS team member
@@ -681,6 +700,8 @@ export default function AssetSearchDashboardEditorial({ project }) {
 
       {/* ── SECTION CONTENT ───────────────────────────────────────────────── */}
       {section === "overview" && (
+        <>
+        {gcOk && <GCComparisonCard data={data} loading={loading} />}
         <OverviewSection
           loading={loading}
           data={data}
@@ -696,9 +717,13 @@ export default function AssetSearchDashboardEditorial({ project }) {
           zrrFirst={zrrFirst} zrrLast={zrrLast}
           adoptionFirst={adoptionFirst} adoptionLast={adoptionLast}
         />
+        </>
       )}
       {section === "conversion" && convOk && (
         <ConversionSection data={data} loading={loading} weeks={weeks} lastWeek={lastWeek} lift={lift} cohort={cohort} pageViewsOk={pageViewsOk} />
+      )}
+      {section === "grip-connect" && gcOk && (
+        <AssetSearchGCSection data={data} loading={loading} />
       )}
       {section === "issuers" && (
         <IssuersSection

@@ -216,6 +216,127 @@ export function totalQuerySessions({ tables }) {
     FROM (${unionAll(tables.query, "context_session_id")}) t`;
 }
 
+// ── Grip Connect vs own-platform segmentation ───────────────────────────────
+//
+// Every event row carries gc_id / gc_name (the global trackEvent stamp from
+// gi-client-web): for a Grip Connect partner journey gc_id is the partner's
+// gci config id and gc_name the partner name; for an own-platform user both are
+// empty. So the segment is derivable per row with no mapping table.
+//
+// COLUMN AVAILABILITY: gc_id / gc_name only exist from feature-week W4 onward
+// (the live-fetch `SELECT *` weeks). W1–W3 are narrow hand-exports that predate
+// the wide format, so referencing gc_id over them would error the UNION. Every
+// builder here runs over `gcScope(ctx)` — the ctx restricted to GC-capable
+// weeks — and the dashboard labels these views "W4 (Apr 23) onward". Re-fetching
+// W1–W3 from source to backfill the columns is tracked as future ideation in
+// docs/projects/asset-search/roadmap.md.
+
+/** First feature-week whose CSVs carry gc_id / gc_name. W1–W3 predate it. */
+export const GC_MIN_WEEK = 4;
+
+/** Per-row segment label. Own-platform rows have an empty gc_id. */
+const GC_SEG = `CASE WHEN gc_id IS NULL OR TRIM(CAST(gc_id AS VARCHAR)) = '' THEN 'Own Platform' ELSE 'Grip Connect' END`;
+/** Per-row partner name (NULL for own-platform / blank). */
+const GC_NAME = `NULLIF(TRIM(CAST(gc_name AS VARCHAR)), '')`;
+
+const tableWeekNum = (t) => {
+  const m = t.match(/(?:^|_)W(\d+)_/);
+  return m ? Number(m[1]) : null;
+};
+
+/** Restrict a ctx to GC-capable weeks (>= GC_MIN_WEEK). Filters by the week
+ *  number parsed from each table name, so it needs no index alignment and is
+ *  safe for both core and optional event lists. */
+export function gcScope({ tables, weeks }) {
+  const keep = (n) => n != null && n >= GC_MIN_WEEK;
+  const ft = {};
+  for (const ev of Object.keys(tables || {})) {
+    ft[ev] = (tables[ev] || []).filter((t) => keep(tableWeekNum(t)));
+  }
+  const fw = (weeks || []).filter((w) => keep(Number(String(w).slice(1))));
+  return { tables: ft, weeks: fw, lastWeek: fw[fw.length - 1] };
+}
+
+/** True once at least one GC-capable week is loaded. */
+export function hasGcWeeks(ctx) {
+  return gcScope(ctx).weeks.length > 0;
+}
+
+/** Binary GC vs own-platform mix: query volume, share, distinct sessions, ZRR. */
+export function gcOverview(ctx) {
+  const { tables } = gcScope(ctx);
+  return `SELECT ${GC_SEG} AS segment,
+      COUNT(*) AS queries,
+      ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS query_share_pct,
+      COUNT(DISTINCT context_session_id) AS sessions,
+      SUM(CASE WHEN results_count = 0 THEN 1 ELSE 0 END) AS zero_result,
+      ROUND(100.0 * SUM(CASE WHEN results_count = 0 THEN 1 ELSE 0 END) / COUNT(*), 1) AS zrr_pct
+    FROM (${unionAll(tables.query, "gc_id, context_session_id, results_count")}) t
+    GROUP BY segment ORDER BY queries DESC`;
+}
+
+/** Per-week query volume + ZRR split by segment (GC vs own platform). */
+export function gcMixByWeek(ctx) {
+  const { tables, weeks } = gcScope(ctx);
+  return `SELECT week, ${GC_SEG} AS segment,
+      COUNT(*) AS queries,
+      ROUND(100.0 * SUM(CASE WHEN results_count = 0 THEN 1 ELSE 0 END) / COUNT(*), 1) AS zrr_pct
+    FROM (${unionAllWeeks(tables.query, weeks, "gc_id, results_count")}) t
+    GROUP BY week, segment ORDER BY ${weekNum()}, segment`;
+}
+
+/** Distinct-session funnel (focused -> queried -> clicked) by segment. */
+export function gcFunnelBySegment(ctx) {
+  const { tables } = gcScope(ctx);
+  const part = (list) => `(${unionAll(list, `${GC_SEG} AS segment, context_session_id AS sid`)})`;
+  return `WITH
+      i AS (SELECT segment, COUNT(DISTINCT sid) AS initiated FROM ${part(tables.initiated)} GROUP BY segment),
+      q AS (SELECT segment, COUNT(DISTINCT sid) AS queried   FROM ${part(tables.query)}     GROUP BY segment),
+      c AS (SELECT segment, COUNT(DISTINCT sid) AS clicked   FROM ${part(tables.result_clicked)} GROUP BY segment)
+    SELECT i.segment, i.initiated, q.queried, COALESCE(c.clicked, 0) AS clicked,
+        ROUND(100.0 * COALESCE(c.clicked, 0) / NULLIF(q.queried, 0), 1) AS click_rate_pct
+      FROM i JOIN q USING (segment) LEFT JOIN c USING (segment)
+      ORDER BY i.initiated DESC`;
+}
+
+/** Per-partner (gc_name) search health — the dedicated Grip Connect tab table.
+ *  GC rows only (own-platform excluded by the partner IS NOT NULL filter). */
+export function byPartner(ctx, limit = 20) {
+  const { tables } = gcScope(ctx);
+  return `WITH
+      q AS (
+        SELECT partner, sid, results_count FROM (
+          ${unionAll(tables.query, `${GC_NAME} AS partner, context_session_id AS sid, results_count`)}
+        ) t WHERE partner IS NOT NULL
+      ),
+      c AS (
+        SELECT partner, COUNT(*) AS clicks, COUNT(DISTINCT sid) AS click_sessions FROM (
+          ${unionAll(tables.result_clicked, `${GC_NAME} AS partner, context_session_id AS sid`)}
+        ) t WHERE partner IS NOT NULL GROUP BY partner
+      )
+    SELECT q.partner,
+        COUNT(*) AS queries,
+        COUNT(DISTINCT q.sid) AS sessions,
+        SUM(CASE WHEN q.results_count = 0 THEN 1 ELSE 0 END) AS zero_result,
+        ROUND(100.0 * SUM(CASE WHEN q.results_count = 0 THEN 1 ELSE 0 END) / COUNT(*), 1) AS zrr_pct,
+        COALESCE(MAX(c.clicks), 0) AS clicks,
+        ROUND(100.0 * COALESCE(MAX(c.click_sessions), 0) / NULLIF(COUNT(DISTINCT q.sid), 0), 1) AS click_rate_pct
+      FROM q LEFT JOIN c ON c.partner = q.partner
+      GROUP BY q.partner
+      ORDER BY queries DESC LIMIT ${limit}`;
+}
+
+/** Top search terms within Grip Connect traffic (GC rows only). */
+export function topPartnerTerms(ctx, limit = 14, minCount = 10) {
+  const { tables } = gcScope(ctx);
+  return `SELECT LOWER(TRIM(query_text)) AS term, COUNT(*) AS searches,
+      ROUND(100.0 * SUM(CASE WHEN results_count = 0 THEN 1 ELSE 0 END) / COUNT(*), 1) AS zrr_pct
+    FROM (${unionAll(tables.query, `${GC_NAME} AS partner, query_text, results_count`)}) t
+    WHERE partner IS NOT NULL AND query_text IS NOT NULL AND TRIM(query_text) <> ''
+    GROUP BY term HAVING COUNT(*) >= ${minCount}
+    ORDER BY searches DESC LIMIT ${limit}`;
+}
+
 // ── issuer roll-up ──────────────────────────────────────────────────────────
 //
 // The raw events have no issuer column — issuerCaseExpr (below) does the
@@ -406,3 +527,19 @@ export function sessionOutcomeByIssuerWeek({ tables, weeks }) {
       FROM q LEFT JOIN c ON q.week = c.week AND q.sid = c.sid
       GROUP BY q.week, q.issuer ORDER BY q.issuer, ${weekNum("q.week")}`;
 }
+
+// ── Grip Connect metric definitions (dashboard tooltips) ────────────────────
+export const GC_METRIC_DEFS = {
+  gcSegment: { title: "Grip Connect vs own platform", live: true,
+    body: "Every search event carries gc_id / gc_name from the global tracking stamp. A row is 'Grip Connect' when gc_id is set (a partner journey — ET money, Mobikwik, …) and 'Own Platform' when it is empty. The split is exact per row, no mapping. Available from feature-week W4 (Apr 23) onward; W1–W3 predate the wide export.",
+    source: "asset_search_query.gc_id (empty = own platform, set = GC)" },
+  gcShare: { title: "GC query share", live: true,
+    body: "Share of all search query events that came from a Grip Connect partner journey, over GC-capable weeks (W4+).",
+    source: "asset_search_query -> COUNT(*) by segment / total" },
+  gcClickRate: { title: "Click-through by segment", live: true,
+    body: "Of the distinct sessions that ran a query, the share that clicked a result — computed separately for Grip Connect and own-platform traffic. The headline engagement-gap metric.",
+    source: "asset_search_query + asset_search_result_clicked distinct sessions by segment" },
+  gcPartner: { title: "Per-partner search health", live: true,
+    body: "Query volume, distinct sessions, zero-result rate and click-through for each Grip Connect partner (gc_name). Own-platform traffic is excluded. W4 (Apr 23) onward.",
+    source: "asset_search_query / _result_clicked grouped by gc_name" },
+};

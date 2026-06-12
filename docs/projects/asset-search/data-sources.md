@@ -147,6 +147,39 @@ GROUP BY 1;
 the constant. No event-schema migration; the warehouse picks up the new
 value automatically.
 
+### 2f. Grip Connect segmentation — `gc_id` / `gc_name` (W4+ only)
+
+Every event row carries the global GC stamp from gi-client-web
+(`utils/gtm.ts` → `trackGCObject`): `gc_id` (partner gci config id),
+`gc_name` (partner name), `external_user_id`. For an **own-platform** user these
+are empty; for a **Grip Connect** partner journey `gc_id` / `gc_name` are set.
+The split is exact per row — no mapping table.
+
+**Segment definition (used by every GC builder in `assetSearch.js`):**
+
+```sql
+CASE WHEN gc_id IS NULL OR TRIM(CAST(gc_id AS VARCHAR)) = ''
+     THEN 'Own Platform' ELSE 'Grip Connect' END
+```
+
+**Column availability — the one gotcha:** `gc_id` / `gc_name` exist only from
+**W4 (Apr 23 2026) onward**. W1–W3 are narrow hand-exports (7/10/5 cols) that
+predate the wide live-fetch `SELECT *` format and have **no** `gc_id` column, so
+a UNION that references it over those tables errors. The dashboard handles this
+with `gcScope()` + `GC_MIN_WEEK = 4`, which restricts every GC builder to
+GC-capable weeks; the GC tab/section is labelled "W4 onward". Backfilling W1–W3
+is tracked in [`roadmap.md`](./roadmap.md) § 4a.
+
+| Column | Own platform | Grip Connect | Weeks |
+|--------|--------------|--------------|-------|
+| `gc_id` | empty | partner gci config id | W4+ |
+| `gc_name` | empty | partner name (ET money, Mobikwik, …) | W4+ |
+| `external_user_id` | empty | partner's external user id | W4+ |
+
+Present on `asset_search_*` and `quick_checkout_invest_clicked`; **not** on the
+pruned `invest_now_button_clicked` (4 cols) — so GC-split on the invest-now leg
+is export-gated (see roadmap § 4a).
+
 ### 2b. Browse denominator ✅
 
 | Table | Rows W1–W7 | Key columns |

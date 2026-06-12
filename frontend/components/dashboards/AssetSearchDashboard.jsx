@@ -51,6 +51,7 @@ function Metric({ k, children, align }) {
 }
 import { ChartCard, TooltipBox, axisProps, gridProps } from "@/components/charts";
 import { useProjectRefresh, RefreshControl } from "@/components/RefreshControl";
+import AssetSearchGCSection, { GCComparisonCard } from "./AssetSearchGCSection";
 
 /* ── data loading ─────────────────────────────────────────────────────────── */
 
@@ -92,10 +93,24 @@ const COHORT_W_SPECS = {
   conv_adoption:       (conv) => C.weeklyAdoption(conv),
   conv_cohortW_byWeek: (conv) => C.weeklyCohortCvrByWeek(conv),
 };
+// Grip Connect vs own-platform segmentation. Runs only when GC-capable weeks
+// (W4+) are loaded — gcScope inside each builder restricts the UNION to weeks
+// carrying gc_id, so this never references the column on the W1–W3 exports.
+const GC_SPECS = {
+  gc_overview: (ctx) => Q.gcOverview(ctx),
+  gc_mix:      (ctx) => Q.gcMixByWeek(ctx),
+  gc_funnel:   (ctx) => Q.gcFunnelBySegment(ctx),
+  gc_partner:  (ctx) => Q.byPartner(ctx),
+  gc_terms:    (ctx) => Q.topPartnerTerms(ctx),
+};
 
 function useDashboard(project, nonce) {
   const grouped = React.useMemo(() => Q.groupTables(project.tables || []), [project.tables]);
   const conv = React.useMemo(() => C.conversionTables(project.tables || []), [project.tables]);
+  const gcOk = React.useMemo(
+    () => Q.hasGcWeeks({ tables: grouped.tables, weeks: grouped.weeks }),
+    [grouped]
+  );
   const [state, setState] = React.useState({ loading: true, fatal: null, data: {} });
 
   React.useEffect(() => {
@@ -120,6 +135,7 @@ function useDashboard(project, nonce) {
         ...(conv.ok ? Object.entries(CONV_SPECS).map(([key, build]) => run(key, build(conv))) : []),
         ...(conv.cohortOk ? Object.entries(COHORT_SPECS).map(([key, build]) => run(key, build(conv))) : []),
         ...(conv.pageViewsOk ? Object.entries(COHORT_W_SPECS).map(([key, build]) => run(key, build(conv))) : []),
+        ...(gcOk ? Object.entries(GC_SPECS).map(([key, build]) => run(key, build(ctx))) : []),
       ];
       const entries = await Promise.all(jobs);
       if (!cancelled) setState({ loading: false, fatal: null, data: Object.fromEntries(entries) });
@@ -134,7 +150,7 @@ function useDashboard(project, nonce) {
   }, [project.id, nonce]);
 
   return { ...state, weeks: grouped.weeks, lastWeek: grouped.lastWeek,
-           convOk: conv.ok, pageViewsOk: conv.pageViewsOk };
+           convOk: conv.ok, pageViewsOk: conv.pageViewsOk, gcOk };
 }
 
 /* ── small helpers ────────────────────────────────────────────────────────── */
@@ -167,7 +183,7 @@ function DeltaChip({ from, to, goodIsDown = true, suffix = "" }) {
 
 export default function AssetSearchDashboard({ project }) {
   const refreshState = useProjectRefresh(project);
-  const { loading, fatal, data, weeks, lastWeek, convOk, pageViewsOk } = useDashboard(project, refreshState.nonce);
+  const { loading, fatal, data, weeks, lastWeek, convOk, pageViewsOk, gcOk } = useDashboard(project, refreshState.nonce);
 
   const health = rowsOf(data, "health");
   const funnel = rowsOf(data, "funnel");
@@ -293,6 +309,7 @@ export default function AssetSearchDashboard({ project }) {
         <TabList>
           <Tab value="overview">Overview</Tab>
           {convOk && <Tab value="conversion">Conversion</Tab>}
+          {gcOk && <Tab value="gc">Grip Connect</Tab>}
           <Tab value="issuers">Issuers</Tab>
           <Tab value="terms">Terms &amp; assets</Tab>
           <Tab value="tracking">Instrumentation</Tab>
@@ -301,6 +318,7 @@ export default function AssetSearchDashboard({ project }) {
         {/* ── OVERVIEW ─────────────────────────────────────────────────── */}
         <TabPanel value="overview" className="mt-5 flex flex-col gap-6">
           {cohort && <ConversionImpactCard cohort={cohort} daily={daily} label={cohortLabel} />}
+          {gcOk && <GCComparisonCard data={data} loading={loading} />}
           {adoption.length > 0 && (
             <ChartCard
               title={<Metric k="adoption">Search adoption by week</Metric>}
@@ -450,6 +468,13 @@ export default function AssetSearchDashboard({ project }) {
         {convOk && (
           <TabPanel value="conversion" className="mt-5">
             <ConversionView data={data} loading={loading} weeks={weeks} lastWeek={lastWeek} pageViewsOk={pageViewsOk} />
+          </TabPanel>
+        )}
+
+        {/* ── GRIP CONNECT ─────────────────────────────────────────────── */}
+        {gcOk && (
+          <TabPanel value="gc" className="mt-5">
+            <AssetSearchGCSection data={data} loading={loading} />
           </TabPanel>
         )}
 
