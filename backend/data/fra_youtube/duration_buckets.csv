@@ -181,3 +181,10 @@ channel_handle,snapshot_date,bucket,video_count,avg_views,engagement_rate_pct
 @fixedreturnsacademy,2026-06-14,5–10m,3,1814.3,7.578
 @fixedreturnsacademy,2026-06-14,10–20m,0,0.0,0.0
 @fixedreturnsacademy,2026-06-14,20m+,0,0.0,0.0
+@fixedreturnsacademy,2026-06-15,0–30s,0,0.0,0.0
+@fixedreturnsacademy,2026-06-15,30–60s,15,453.7,2.356
+@fixedreturnsacademy,2026-06-15,1–2m,122,1275.1,2.271
+@fixedreturnsacademy,2026-06-15,2–5m,77,2352.8,2.823
+@fixedreturnsacademy,2026-06-15,5–10m,3,1815.0,7.575
+@fixedreturnsacademy,2026-06-15,10–20m,0,0.0,0.0
+@fixedreturnsacademy,2026-06-15,20m+,0,0.0,0.0
