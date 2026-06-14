@@ -468,7 +468,7 @@ def chat(project_id: str, messages: list[dict], stream_callback=None) -> str:
         response = client.messages.create(
             model=model_id,
             max_tokens=2048,
-            system=system,
+            system=_cached_system(system),
             tools=CHAT_TOOLS,
             messages=current_messages,
         )
@@ -559,6 +559,17 @@ def _prompt_chars(system: str, messages: list[dict]) -> int:
         return len(system)
 
 
+def _cached_system(system: str) -> list[dict]:
+    """Wrap the system prompt as a cacheable block. The breakpoint sits at the
+    end of the system text; since render order is tools -> system -> messages,
+    this caches BOTH the (stable) tool definitions and the system prompt. The
+    answer model re-sends this identical prefix on every tool-loop iteration and
+    every multi-turn message, so caching it cuts repeat input cost. Verify with
+    usage.cache_read_input_tokens. (Glossary/data-map must stay byte-stable for
+    a given project — no timestamps — or the cache silently misses.)"""
+    return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+
 MAX_TOOL_ITERATIONS = 6
 # Cap on how many SQL-call rounds we'll do in one chat turn. Without this a
 # model that keeps proposing failing SQL (e.g. for a malformed question) can
@@ -618,7 +629,7 @@ async def stream_chat(project_id: str, messages: list[dict]):
             response = client.messages.create(
                 model=model_id,
                 max_tokens=2048,
-                system=system,
+                system=_cached_system(system),
                 tools=CHAT_TOOLS,
                 messages=current_messages,
             )
@@ -671,7 +682,7 @@ async def stream_chat(project_id: str, messages: list[dict]):
         with client.messages.stream(
             model=model_id,
             max_tokens=2048,
-            system=system,
+            system=_cached_system(system),
             messages=current_messages,
         ) as stream:
             for text in stream.text_stream:
