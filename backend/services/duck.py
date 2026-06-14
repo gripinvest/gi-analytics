@@ -27,9 +27,14 @@ once (at build time or first startup); subsequent queries hit RAM in tens of ms.
 """
 
 import os
+import re
 import threading
 import duckdb
 from pathlib import Path
+
+# Matches a weekly-partition prefix like "W10_jun04_jun10_" so all of a project's
+# per-week tables collapse to one logical dataset name in the chat data map.
+_WEEK_PREFIX_RE = re.compile(r"^W\d+_[A-Za-z0-9]+_[A-Za-z0-9]+_")
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 PREBUILT = DATA_DIR / "grip.duckdb"
@@ -99,15 +104,32 @@ class DuckService:
                 if table_name not in self._tables:
                     self._tables.append(table_name)
 
-    def execute(self, sql: str, limit: int = 500) -> dict:
+    def execute(self, sql: str, limit: int = 500, project_id: str | None = None) -> dict:
         """
         Execute a SQL query and return JSON-serialisable result.
         Automatically wraps in a LIMIT if not already present.
+
+        When ``project_id`` is given (the chat path), the query is constrained to
+        that project's tables: if it references any *other* project's table the
+        call is rejected. The model only sees this project's data map, but this
+        is the hard guard that keeps "Ask the data" isolated to one project.
         """
         # Safety: don't allow mutations
         stmt = sql.strip().upper()
         if any(stmt.startswith(k) for k in ("INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "ATTACH", "PRAGMA", "COPY", "CALL")):
             raise ValueError("Only SELECT queries are allowed.")
+
+        if project_id is not None:
+            lowered = sql.lower()
+            foreign = sorted({
+                t for t in self._tables
+                if not t.startswith(f"{project_id}__") and t.lower() in lowered
+            })
+            if foreign:
+                raise ValueError(
+                    f"Query references tables outside project '{project_id}': "
+                    f"{foreign[:5]}. Only {project_id}__ tables may be queried here."
+                )
 
         if "LIMIT" not in stmt:
             sql = f"SELECT * FROM ({sql}) _q LIMIT {limit}"
@@ -148,6 +170,82 @@ class DuckService:
                 lines.append(f"Table: {table} [schema error: {e}]\n")
 
         return "\n".join(lines)
+
+    def _entity_of(self, table: str, project_id: str) -> str:
+        """Logical dataset name for a table: strip the ``{project}__`` prefix and
+        any weekly-partition prefix. e.g.
+        ``asset_search__W10_jun04_jun10_asset_search_query`` -> ``asset_search_query``.
+        Tables without a weekly prefix (aggregates, other layouts) map to themselves."""
+        rest = table[len(project_id) + 2:] if table.startswith(f"{project_id}__") else table
+        return _WEEK_PREFIX_RE.sub("", rest)
+
+    def get_data_map(self, project_id: str) -> str:
+        """Compact, always-on map of a project's logical datasets — names only, no
+        columns or sample rows. Per-week partition tables collapse to a single
+        entry, so this stays small and flat no matter how many weekly tables
+        accumulate. Column/table detail is fetched on demand via ``describe_table``.
+
+        This replaces ``get_schema`` in the chat system prompt: dumping every
+        table's full columns + sample rows blew past the model's context window
+        (see backend/evals/chat_eval.py)."""
+        tables = self.tables_for_project(project_id)
+        if not tables:
+            return "No data loaded for this project."
+        groups: dict[str, list[str]] = {}
+        for t in tables:
+            groups.setdefault(self._entity_of(t, project_id), []).append(t)
+        lines = [
+            f"Project '{project_id}' has {len(groups)} datasets "
+            f"(some partitioned into per-week tables).",
+            "Use the describe_table tool with a dataset name to get its columns and "
+            "the exact table names before writing SQL for it.",
+            "",
+            "Datasets:",
+        ]
+        for e in sorted(groups):
+            n = len(groups[e])
+            lines.append(f"- {e}" + (f"  ({n} weekly tables)" if n > 1 else ""))
+        return "\n".join(lines)
+
+    def describe_table(self, project_id: str, name: str) -> str:
+        """On-demand schema for ONE dataset: its columns (listed once) plus the
+        exact table names that back it. ``name`` may be a logical dataset name
+        (``asset_search_query``) or a concrete table name. Scoped to ``project_id``."""
+        tables = self.tables_for_project(project_id)
+        if not tables:
+            return f"No data loaded for project '{project_id}'."
+        members = [t for t in tables if self._entity_of(t, project_id) == name]
+        if not members:  # accept a concrete/qualified table name too
+            members = [t for t in tables if t == name or t == f"{project_id}__{name}" or name in t]
+        if not members:
+            avail = sorted({self._entity_of(t, project_id) for t in tables})
+            return f"No dataset matching '{name}' in '{project_id}'. Available datasets: {avail}"
+        # Schema can EVOLVE across partitions (e.g. asset_search gained gc_id /
+        # gc_name from W4), so describe the WIDEST member, not just the first —
+        # otherwise newer columns would be invisible to the model.
+        best, best_desc, widths = None, [], {}
+        try:
+            with self._lock:
+                for m in members:
+                    d = self.con.execute(f"DESCRIBE SELECT * FROM {m} LIMIT 0").fetchall()
+                    widths[m] = len(d)
+                    if len(d) > len(best_desc):
+                        best, best_desc = m, d
+        except Exception as e:
+            return f"Could not describe '{name}': {e}"
+        cols = "\n".join(f"  {r[0]} ({r[1]})" for r in best_desc)
+        names = "\n".join(f"  {m}" for m in members)
+        note = ""
+        if len(members) > 1:
+            note = (f"\n\nThis dataset is split across {len(members)} per-week tables — "
+                    f"UNION ALL across them to span all weeks.")
+            if len(set(widths.values())) > 1:
+                note += (" NOTE: column counts differ across partitions (the schema "
+                         "changed over time — newer columns like gc_id/gc_name exist "
+                         "only in later weeks). Columns above are the widest/latest "
+                         "schema; a column may be absent in an older partition, so a "
+                         "query referencing it must restrict to the weeks that have it.")
+        return f"Dataset '{name}' — columns:\n{cols}\n\nTable name(s) to query:\n{names}{note}"
 
     def list_tables(self) -> list[str]:
         return self._tables
