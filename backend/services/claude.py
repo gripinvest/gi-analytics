@@ -317,6 +317,37 @@ EXECUTE_SQL_TOOL = {
     }
 }
 
+# Lets Claude pull a dataset's columns + exact table names ON DEMAND instead of
+# us front-loading every table's schema (which overflowed the 200K context
+# window — see backend/evals/chat_eval.py). Mirrors how skills / tool-search
+# load detail only when needed; keeps the system prompt flat as weekly tables
+# accumulate.
+DESCRIBE_TABLE_TOOL = {
+    "name": "describe_table",
+    "description": (
+        "Get the columns and exact table names for ONE dataset before querying it. "
+        "Pass a dataset name from the data map in the system prompt (e.g. "
+        "'asset_search_query'). Returns column names/types and the per-week table "
+        "names to use in execute_sql. Call this only for datasets needed to answer a "
+        "DATA question — skip it entirely for definition/methodology questions, which "
+        "you answer from the metric glossary."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "dataset": {
+                "type": "string",
+                "description": "Dataset (or concrete table) name to describe.",
+            }
+        },
+        "required": ["dataset"],
+    },
+}
+
+# The fixed tool set sent on every answer call. Stable order so it stays a
+# cacheable prefix.
+CHAT_TOOLS = [DESCRIBE_TABLE_TOOL, EXECUTE_SQL_TOOL]
+
 # Default domain context for the asset_search project. Projects can override
 # this with a `chat_context` string in their project.json (see
 # _project_chat_context below) — asset_search keeps this hardcoded default for
@@ -377,35 +408,43 @@ def _project_chat_context(project_id: str) -> str:
 
 
 def build_system_prompt(project_id: str) -> str:
-    schema = db.get_schema(project_id)
+    # Compact data MAP (dataset names only), not a full schema dump. Columns +
+    # exact table names are fetched on demand via the describe_table tool — this
+    # keeps the prompt small and bounded regardless of how many weekly tables
+    # accumulate (the full-schema dump overflowed the 200K context window).
+    data_map = db.get_data_map(project_id)
     context = _project_chat_context(project_id)
     return f"""You are an analytics assistant for Grip Invest's internal analytics platform.
-You have direct access to raw product event data via the execute_sql tool.
+You answer questions about ONE project's product data, using the metric glossary
+and the data tools below.
 
-{schema}
-
+--- METRIC GLOSSARY & PROJECT CONTEXT ---
 {context}
+--- END GLOSSARY ---
 
-Guidelines:
-- ONLY answer questions about this project's data (the schema and project
-  context above). If the user asks something off-topic (small talk, general
-  knowledge, programming, jokes, hypotheticals), politely decline and suggest
-  they ask about the metrics, tables, or trends this project covers. Do NOT
-  speculate, do NOT roleplay, do NOT answer the off-topic question even
-  partially — a clean redirect is the right response.
-- Use execute_sql for DATA questions (anything requiring numbers from the
-  tables). For DEFINITION / METHODOLOGY questions about a metric you may
-  answer directly from the project context above WITHOUT calling execute_sql
-  — those questions don't need a query, just a clear explanation grounded in
-  the schema.
-- Never guess numbers — if a number isn't available from execute_sql or
-  from a prior tool call in this turn, say you'd need to query.
-- Follow any project-specific rules in the project context above (test-user
-  exclusions, metric definitions, units, etc.).
-- After getting results, explain them in plain English for a product/business audience.
-- If a question is ambiguous, make a reasonable assumption, state it, then query.
-- When showing numbers, round appropriately (no floating point noise).
-"""
+--- DATA MAP (dataset names only — get columns/tables via describe_table) ---
+{data_map}
+--- END DATA MAP ---
+
+How to answer:
+- DEFINITION / METHODOLOGY / capability questions (e.g. "what is ZRR", "how is
+  dead-end computed", "what can I ask here"): answer directly from the glossary
+  above. Do NOT call any tool — no describe_table, no execute_sql. These need
+  no data.
+- DATA / NUMBER questions: first call describe_table(dataset) for each dataset
+  you need (it returns columns + the exact per-week table names), THEN call
+  execute_sql with a DuckDB SELECT against those exact tables. Never guess
+  column or table names — always get them from describe_table first.
+- Only ever query THIS project's tables (the data map above).
+- Exclude test users 3, 4, 207871, 207875, 207878, 207879 in every data query.
+- Never invent numbers; if you don't have a value from execute_sql, say you'd
+  need to query for it.
+- After getting results, explain them in plain English for a business audience;
+  when you cite a metric you may add a one-line note on how it's computed.
+- Off-topic questions (small talk, general knowledge, jokes, programming):
+  politely decline and redirect to this project's metrics. Don't answer even
+  partially.
+- When showing numbers, round appropriately (no floating-point noise)."""
 
 
 def chat(project_id: str, messages: list[dict], stream_callback=None) -> str:
@@ -430,7 +469,7 @@ def chat(project_id: str, messages: list[dict], stream_callback=None) -> str:
             model=model_id,
             max_tokens=2048,
             system=system,
-            tools=[EXECUTE_SQL_TOOL],
+            tools=CHAT_TOOLS,
             messages=current_messages,
         )
 
@@ -444,23 +483,27 @@ def chat(project_id: str, messages: list[dict], stream_callback=None) -> str:
             for block in response.content:
                 if block.type != "tool_use":
                     continue
-                tool_input = block.input
-                sql = tool_input.get("query", "")
-                explanation = tool_input.get("explanation", "")
 
-                try:
-                    result = db.execute(sql)
-                    result_text = (
-                        f"Query: {sql}\n"
-                        f"Purpose: {explanation}\n"
-                        f"Rows returned: {result['row_count']}\n"
-                        f"Columns: {result['columns']}\n"
-                        f"Data: {json.dumps(result['rows'][:50], default=str)}"
-                    )
-                    is_error = False
-                except Exception as e:
-                    result_text = f"SQL error: {e}"
-                    is_error = True
+                if block.name == "describe_table":
+                    ds = block.input.get("dataset", "")
+                    result_text, is_error = db.describe_table(project_id, ds), False
+                elif block.name == "execute_sql":
+                    sql = block.input.get("query", "")
+                    explanation = block.input.get("explanation", "")
+                    try:
+                        result = db.execute(sql)
+                        result_text = (
+                            f"Query: {sql}\n"
+                            f"Purpose: {explanation}\n"
+                            f"Rows returned: {result['row_count']}\n"
+                            f"Columns: {result['columns']}\n"
+                            f"Data: {json.dumps(result['rows'][:50], default=str)}"
+                        )
+                        is_error = False
+                    except Exception as e:
+                        result_text, is_error = f"SQL error: {e}", True
+                else:
+                    result_text, is_error = f"Unknown tool: {block.name}", True
 
                 tool_results.append({
                     "type": "tool_result",
@@ -534,7 +577,7 @@ async def stream_chat(project_id: str, messages: list[dict]):
                 model=model_id,
                 max_tokens=2048,
                 system=system,
-                tools=[EXECUTE_SQL_TOOL],
+                tools=CHAT_TOOLS,
                 messages=current_messages,
             )
 
@@ -551,23 +594,27 @@ async def stream_chat(project_id: str, messages: list[dict]):
             for block in response.content:
                 if block.type != "tool_use":
                     continue
-                sql = block.input.get("query", "")
-                explanation = block.input.get("explanation", "")
 
-                # Yield a "thinking" token so the UI shows progress
-                yield f"data: {json.dumps({'type': 'thinking', 'text': f'Running: {explanation}'})}\n\n"
-
-                try:
-                    result = db.execute(sql)
-                    result_text = (
-                        f"Query: {sql}\nPurpose: {explanation}\n"
-                        f"Rows: {result['row_count']}\nColumns: {result['columns']}\n"
-                        f"Data: {json.dumps(result['rows'][:50], default=str)}"
-                    )
-                    is_error = False
-                except Exception as e:
-                    result_text = f"SQL error: {e}"
-                    is_error = True
+                if block.name == "describe_table":
+                    ds = block.input.get("dataset", "")
+                    yield f"data: {json.dumps({'type': 'thinking', 'text': f'Looking up dataset: {ds}'})}\n\n"
+                    result_text, is_error = db.describe_table(project_id, ds), False
+                elif block.name == "execute_sql":
+                    sql = block.input.get("query", "")
+                    explanation = block.input.get("explanation", "")
+                    yield f"data: {json.dumps({'type': 'thinking', 'text': f'Running: {explanation}'})}\n\n"
+                    try:
+                        result = db.execute(sql)
+                        result_text = (
+                            f"Query: {sql}\nPurpose: {explanation}\n"
+                            f"Rows: {result['row_count']}\nColumns: {result['columns']}\n"
+                            f"Data: {json.dumps(result['rows'][:50], default=str)}"
+                        )
+                        is_error = False
+                    except Exception as e:
+                        result_text, is_error = f"SQL error: {e}", True
+                else:
+                    result_text, is_error = f"Unknown tool: {block.name}", True
 
                 tool_results.append({
                     "type": "tool_result",

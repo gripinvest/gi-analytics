@@ -27,9 +27,14 @@ once (at build time or first startup); subsequent queries hit RAM in tens of ms.
 """
 
 import os
+import re
 import threading
 import duckdb
 from pathlib import Path
+
+# Matches a weekly-partition prefix like "W10_jun04_jun10_" so all of a project's
+# per-week tables collapse to one logical dataset name in the chat data map.
+_WEEK_PREFIX_RE = re.compile(r"^W\d+_[A-Za-z0-9]+_[A-Za-z0-9]+_")
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 PREBUILT = DATA_DIR / "grip.duckdb"
@@ -148,6 +153,69 @@ class DuckService:
                 lines.append(f"Table: {table} [schema error: {e}]\n")
 
         return "\n".join(lines)
+
+    def _entity_of(self, table: str, project_id: str) -> str:
+        """Logical dataset name for a table: strip the ``{project}__`` prefix and
+        any weekly-partition prefix. e.g.
+        ``asset_search__W10_jun04_jun10_asset_search_query`` -> ``asset_search_query``.
+        Tables without a weekly prefix (aggregates, other layouts) map to themselves."""
+        rest = table[len(project_id) + 2:] if table.startswith(f"{project_id}__") else table
+        return _WEEK_PREFIX_RE.sub("", rest)
+
+    def get_data_map(self, project_id: str) -> str:
+        """Compact, always-on map of a project's logical datasets — names only, no
+        columns or sample rows. Per-week partition tables collapse to a single
+        entry, so this stays small and flat no matter how many weekly tables
+        accumulate. Column/table detail is fetched on demand via ``describe_table``.
+
+        This replaces ``get_schema`` in the chat system prompt: dumping every
+        table's full columns + sample rows blew past the model's context window
+        (see backend/evals/chat_eval.py)."""
+        tables = self.tables_for_project(project_id)
+        if not tables:
+            return "No data loaded for this project."
+        groups: dict[str, list[str]] = {}
+        for t in tables:
+            groups.setdefault(self._entity_of(t, project_id), []).append(t)
+        lines = [
+            f"Project '{project_id}' has {len(groups)} datasets "
+            f"(some partitioned into per-week tables).",
+            "Use the describe_table tool with a dataset name to get its columns and "
+            "the exact table names before writing SQL for it.",
+            "",
+            "Datasets:",
+        ]
+        for e in sorted(groups):
+            n = len(groups[e])
+            lines.append(f"- {e}" + (f"  ({n} weekly tables)" if n > 1 else ""))
+        return "\n".join(lines)
+
+    def describe_table(self, project_id: str, name: str) -> str:
+        """On-demand schema for ONE dataset: its columns (listed once) plus the
+        exact table names that back it. ``name`` may be a logical dataset name
+        (``asset_search_query``) or a concrete table name. Scoped to ``project_id``."""
+        tables = self.tables_for_project(project_id)
+        if not tables:
+            return f"No data loaded for project '{project_id}'."
+        members = [t for t in tables if self._entity_of(t, project_id) == name]
+        if not members:  # accept a concrete/qualified table name too
+            members = [t for t in tables if t == name or t == f"{project_id}__{name}" or name in t]
+        if not members:
+            avail = sorted({self._entity_of(t, project_id) for t in tables})
+            return f"No dataset matching '{name}' in '{project_id}'. Available datasets: {avail}"
+        rep = members[0]
+        try:
+            with self._lock:
+                desc = self.con.execute(f"DESCRIBE SELECT * FROM {rep} LIMIT 0").fetchall()
+        except Exception as e:
+            return f"Could not describe '{name}': {e}"
+        cols = "\n".join(f"  {r[0]} ({r[1]})" for r in desc)
+        note = ""
+        if len(members) > 1:
+            note = (f"\n\nThis dataset is split across {len(members)} per-week tables "
+                    f"with identical columns — UNION ALL across them to span all weeks.")
+        names = "\n".join(f"  {m}" for m in members)
+        return f"Dataset '{name}' — columns:\n{cols}\n\nTable name(s) to query:\n{names}{note}"
 
     def list_tables(self) -> list[str]:
         return self._tables
