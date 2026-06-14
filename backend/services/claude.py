@@ -491,14 +491,8 @@ def chat(project_id: str, messages: list[dict], stream_callback=None) -> str:
                     sql = block.input.get("query", "")
                     explanation = block.input.get("explanation", "")
                     try:
-                        result = db.execute(sql)
-                        result_text = (
-                            f"Query: {sql}\n"
-                            f"Purpose: {explanation}\n"
-                            f"Rows returned: {result['row_count']}\n"
-                            f"Columns: {result['columns']}\n"
-                            f"Data: {json.dumps(result['rows'][:50], default=str)}"
-                        )
+                        result = db.execute(sql, project_id=project_id)
+                        result_text = _format_sql_result(sql, explanation, result)
                         is_error = False
                     except Exception as e:
                         result_text, is_error = f"SQL error: {e}", True
@@ -522,6 +516,47 @@ def chat(project_id: str, messages: list[dict], stream_callback=None) -> str:
                 if hasattr(block, "text")
             )
             return final_text
+
+
+# Cap a single tool_result's serialized data. Wide event tables (~100 cols) at
+# 50 rows are huge and get re-sent on every subsequent turn, so the rolling
+# context can balloon. Bound it.
+TOOL_RESULT_MAX_ROWS = 40
+TOOL_RESULT_MAX_CHARS = 6000
+# Backstop: if the assembled prompt approaches the window, stop and answer with
+# what we have rather than 400. ~3 chars/token is conservative, so 540K chars
+# ≈ 180K tokens — safely under the 200K limit.
+MAX_PROMPT_CHARS = 540_000
+
+# Shown instead of the generic "something broke" when we (or the API) detect the
+# prompt is too large — actionable for the user.
+TOO_LONG_MESSAGE = (
+    "That question pulled in more data than I can reason over at once. Try "
+    "narrowing it — a specific week or segment, an aggregate, or a smaller "
+    "breakdown — and I'll answer."
+)
+
+
+def _format_sql_result(sql: str, explanation: str, result: dict) -> str:
+    """Serialize an execute_sql result for the model, capping rows + total size
+    so a wide/large result can't blow up the rolling context."""
+    data = json.dumps(result["rows"][:TOOL_RESULT_MAX_ROWS], default=str)
+    extra = ""
+    if len(data) > TOOL_RESULT_MAX_CHARS:
+        data = data[:TOOL_RESULT_MAX_CHARS]
+        extra = (f"\n…(truncated; {result['row_count']} rows total — aggregate or "
+                 f"add a tighter filter/LIMIT for a complete answer)")
+    return (f"Query: {sql}\nPurpose: {explanation}\n"
+            f"Rows: {result['row_count']}\nColumns: {result['columns']}\nData: {data}{extra}")
+
+
+def _prompt_chars(system: str, messages: list[dict]) -> int:
+    """Cheap char-based estimate of request size (avoids a count_tokens API call
+    every iteration). Used only for the fail-soft backstop."""
+    try:
+        return len(system) + len(json.dumps(messages, default=str))
+    except Exception:
+        return len(system)
 
 
 MAX_TOOL_ITERATIONS = 6
@@ -573,6 +608,13 @@ async def stream_chat(project_id: str, messages: list[dict]):
 
         # Run tool_use loop until Claude is ready to answer (or we hit the cap)
         for _ in range(MAX_TOOL_ITERATIONS):
+            # Fail-soft backstop: if accumulated tool results have grown the
+            # request near the context window, stop and tell the user rather
+            # than letting the API 400 with "prompt is too long".
+            if _prompt_chars(system, current_messages) > MAX_PROMPT_CHARS:
+                yield f"data: {json.dumps({'type': 'text', 'text': TOO_LONG_MESSAGE})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
             response = client.messages.create(
                 model=model_id,
                 max_tokens=2048,
@@ -604,12 +646,8 @@ async def stream_chat(project_id: str, messages: list[dict]):
                     explanation = block.input.get("explanation", "")
                     yield f"data: {json.dumps({'type': 'thinking', 'text': f'Running: {explanation}'})}\n\n"
                     try:
-                        result = db.execute(sql)
-                        result_text = (
-                            f"Query: {sql}\nPurpose: {explanation}\n"
-                            f"Rows: {result['row_count']}\nColumns: {result['columns']}\n"
-                            f"Data: {json.dumps(result['rows'][:50], default=str)}"
-                        )
+                        result = db.execute(sql, project_id=project_id)
+                        result_text = _format_sql_result(sql, explanation, result)
                         is_error = False
                     except Exception as e:
                         result_text, is_error = f"SQL error: {e}", True
@@ -665,5 +703,12 @@ async def stream_chat(project_id: str, messages: list[dict]):
         # Don't let a backend exception look like a stuck UI. Log loudly,
         # send a visible error chunk, terminate cleanly with [DONE].
         print(f"❌ stream_chat failed: {type(e).__name__}: {e}")
-        yield f"data: {json.dumps({'type': 'text', 'text': f'Something broke on the backend ({type(e).__name__}). Please retry — if it keeps happening, refresh the page.'})}\n\n"
+        # A "prompt is too long" 400 should never reach here now (data map +
+        # caps + backstop), but if it does, give the actionable message instead
+        # of the opaque generic one.
+        msg = TOO_LONG_MESSAGE if "prompt is too long" in str(e).lower() else (
+            f"Something broke on the backend ({type(e).__name__}). Please retry "
+            f"— if it keeps happening, refresh the page."
+        )
+        yield f"data: {json.dumps({'type': 'text', 'text': msg})}\n\n"
         yield "data: [DONE]\n\n"

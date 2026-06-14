@@ -104,15 +104,32 @@ class DuckService:
                 if table_name not in self._tables:
                     self._tables.append(table_name)
 
-    def execute(self, sql: str, limit: int = 500) -> dict:
+    def execute(self, sql: str, limit: int = 500, project_id: str | None = None) -> dict:
         """
         Execute a SQL query and return JSON-serialisable result.
         Automatically wraps in a LIMIT if not already present.
+
+        When ``project_id`` is given (the chat path), the query is constrained to
+        that project's tables: if it references any *other* project's table the
+        call is rejected. The model only sees this project's data map, but this
+        is the hard guard that keeps "Ask the data" isolated to one project.
         """
         # Safety: don't allow mutations
         stmt = sql.strip().upper()
         if any(stmt.startswith(k) for k in ("INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "ATTACH", "PRAGMA", "COPY", "CALL")):
             raise ValueError("Only SELECT queries are allowed.")
+
+        if project_id is not None:
+            lowered = sql.lower()
+            foreign = sorted({
+                t for t in self._tables
+                if not t.startswith(f"{project_id}__") and t.lower() in lowered
+            })
+            if foreign:
+                raise ValueError(
+                    f"Query references tables outside project '{project_id}': "
+                    f"{foreign[:5]}. Only {project_id}__ tables may be queried here."
+                )
 
         if "LIMIT" not in stmt:
             sql = f"SELECT * FROM ({sql}) _q LIMIT {limit}"
