@@ -44,7 +44,8 @@ EVALS = [
      "expect_any": ["search", "metric", "data", "zrr", "trend"]},
     # — data / numbers —
     {"q": "How many search queries were there in total?", "type": "data", "expect_digit": True},
-    {"q": "What is the zero-result rate broken down by Grip Connect partner?", "type": "data", "expect_digit": True},
+    {"q": "What is the zero-result rate broken down by Grip Connect partner?", "type": "data",
+     "expect_digit": True, "expect_any": ["et money", "mobikwik", "paisa", "%"]},
     # — off-topic (must refuse) —
     {"q": "What's the capital of France?", "type": "offtopic",
      "expect_any": ["only answer", "this project", "can only", "this dashboard"]},

@@ -379,6 +379,12 @@ Metric definitions (you may answer definition questions about these directly, no
 - Adoption rate = COUNT(DISTINCT user_id) in asset_search_initiated ÷ COUNT(DISTINCT user_id) in (assets_page_views ∪ asset_search_initiated), per week.
 - "Frustrated users" / abandonment = sessions in asset_search_cleared where had_results='false'.
 - "Relevance gap" = sessions in asset_search_cleared where had_results='true' AND any_result_clicked='false'.
+
+Grip Connect (GC) vs own-platform segmentation:
+- Every event row carries gc_id and gc_name. A row is "Grip Connect" (a partner journey) when gc_id is set, and "Own Platform" when gc_id is empty/null. gc_name is the partner name (e.g. ET money, Mobikwik, Paisa Bazaar).
+- Segment expression: CASE WHEN gc_id IS NULL OR TRIM(CAST(gc_id AS VARCHAR)) = '' THEN 'Own Platform' ELSE 'Grip Connect' END.
+- IMPORTANT: gc_id / gc_name exist only from feature-week W4 (Apr 23 2026) onward. The W1–W3 tables do NOT have these columns, so any GC breakdown must restrict to W4+ tables — a query referencing gc_id on a W1–W3 table will error. (describe_table flags this.)
+- GC query share = GC queries ÷ all queries (over W4+). Per-partner metrics: GROUP BY gc_name on asset_search_query / asset_search_result_clicked (e.g. per-partner ZRR = zero-result queries ÷ queries for that gc_name). "Own platform vs GC" = GROUP BY the segment expression above.
 """
 
 

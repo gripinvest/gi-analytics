@@ -220,18 +220,31 @@ class DuckService:
         if not members:
             avail = sorted({self._entity_of(t, project_id) for t in tables})
             return f"No dataset matching '{name}' in '{project_id}'. Available datasets: {avail}"
-        rep = members[0]
+        # Schema can EVOLVE across partitions (e.g. asset_search gained gc_id /
+        # gc_name from W4), so describe the WIDEST member, not just the first —
+        # otherwise newer columns would be invisible to the model.
+        best, best_desc, widths = None, [], {}
         try:
             with self._lock:
-                desc = self.con.execute(f"DESCRIBE SELECT * FROM {rep} LIMIT 0").fetchall()
+                for m in members:
+                    d = self.con.execute(f"DESCRIBE SELECT * FROM {m} LIMIT 0").fetchall()
+                    widths[m] = len(d)
+                    if len(d) > len(best_desc):
+                        best, best_desc = m, d
         except Exception as e:
             return f"Could not describe '{name}': {e}"
-        cols = "\n".join(f"  {r[0]} ({r[1]})" for r in desc)
+        cols = "\n".join(f"  {r[0]} ({r[1]})" for r in best_desc)
+        names = "\n".join(f"  {m}" for m in members)
         note = ""
         if len(members) > 1:
-            note = (f"\n\nThis dataset is split across {len(members)} per-week tables "
-                    f"with identical columns — UNION ALL across them to span all weeks.")
-        names = "\n".join(f"  {m}" for m in members)
+            note = (f"\n\nThis dataset is split across {len(members)} per-week tables — "
+                    f"UNION ALL across them to span all weeks.")
+            if len(set(widths.values())) > 1:
+                note += (" NOTE: column counts differ across partitions (the schema "
+                         "changed over time — newer columns like gc_id/gc_name exist "
+                         "only in later weeks). Columns above are the widest/latest "
+                         "schema; a column may be absent in an older partition, so a "
+                         "query referencing it must restrict to the weeks that have it.")
         return f"Dataset '{name}' — columns:\n{cols}\n\nTable name(s) to query:\n{names}{note}"
 
     def list_tables(self) -> list[str]:
