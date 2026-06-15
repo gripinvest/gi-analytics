@@ -82,6 +82,21 @@ Not done — known follow-up on the source side:
 | Causal lift estimate (Treatment FTI rate − Control FTI rate) with CI | After W4 (sample size) |
 | Drop-off histogram by `completion_pct` band | Anytime after D3 |
 
+### Phase 5 — Language & content health (post-Hindi-toggle)
+
+Spec: `specs/2026-06-16-language-and-content-health.md`. This is a **separate
+surface** from the A/B tracker — the Hindi toggle ships to everyone, is not an
+experiment arm, and these metrics outlive the experiment.
+
+| Step | What | Blocked by |
+|------|------|-----------|
+| L1 | Source-side `language` on `learn_video_viewed`/`_opened`/`_category_clicked` | ✅ done (gi-client-web `feat/learn-language-analytics-attrs`) |
+| L2 | Ingest `learn_language_toggled` + language column on view/open events | feature deployed + first prod week |
+| L3 | Tier-A language metrics: adoption, toggle/bounce-back, engagement-by-language | L2 |
+| L4 | Tier-B engagement-quality metrics (autoplay success, loop, exit-reason, session depth) — no source change | data flowing |
+| L5 | "Content Health & Language" dashboard section, separate from the A/B table | L3, L4 |
+| L6 | (Optional) source-side `initial_language` on page_viewed + `language`/`user_id` on outbound | product call (spec §2b, §6) |
+
 ---
 
 ## Open decisions
