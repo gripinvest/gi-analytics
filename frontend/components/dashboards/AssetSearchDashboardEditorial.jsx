@@ -31,7 +31,7 @@ import * as D from "@/lib/queries/daily";
 import AssetSearchOutreachSection from "./AssetSearchOutreachSection";
 import AssetSearchCutoverStrip from "./AssetSearchCutoverStrip";
 import AssetSearchDailySection from "./AssetSearchDailySection";
-import AssetSearchGCSection, { GCComparisonCard } from "./AssetSearchGCSection";
+import AssetSearchGCSection, { GCComparisonCard } from "./AssetSearchGCSectionEditorial";
 
 /* ── data loading (mirrors the classic dashboard's hook) ──────────────────── */
 
@@ -723,7 +723,11 @@ export default function AssetSearchDashboardEditorial({ project }) {
         <ConversionSection data={data} loading={loading} weeks={weeks} lastWeek={lastWeek} lift={lift} cohort={cohort} pageViewsOk={pageViewsOk} />
       )}
       {section === "grip-connect" && gcOk && (
-        <AssetSearchGCSection data={data} loading={loading} />
+        <AssetSearchGCSection
+          data={data}
+          loading={loading}
+          sectionNumber={sections.find((s) => s.key === "grip-connect")?.no ?? "III"}
+        />
       )}
       {section === "issuers" && (
         <IssuersSection
