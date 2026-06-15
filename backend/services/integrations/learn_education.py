@@ -303,6 +303,56 @@ def fetch_engagement_paginated(client, weeks: int = WEEKS_OF_HISTORY) -> list[di
     return out
 
 
+# ─── Language-toggle query (DB 8 — Rudder) ─────────────────────────────────
+# Content-health metric, independent of the A/B experiment: the Hindi toggle
+# (PT-38392) ships to everyone, so adoption is computed from the
+# `learn_language_toggled` event directly, not the experiment cohort. One row
+# per toggle event; aggregation to adoption/bounce-back happens in Python.
+def build_language_toggle_sql(
+    weeks: int = WEEKS_OF_HISTORY,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> str:
+    test_users_in = ",".join(f"'{u}'" for u in TEST_USERS)
+    pagination = f"\n    LIMIT {limit} OFFSET {offset}" if limit is not None else ""
+    return f"""
+    SELECT
+      user_id::text                          AS user_id,
+      LOWER(selected_language)               AS selected_language,
+      LOWER(previous_language)               AS previous_language,
+      active_tab                             AS active_tab,
+      DATE_TRUNC('week', timestamp)::date    AS week
+    FROM client_web.learn_language_toggled
+    WHERE timestamp >= NOW() - INTERVAL '{weeks} weeks'
+      AND user_id IS NOT NULL
+      AND user_id::text NOT IN ({test_users_in})
+    ORDER BY user_id::text, timestamp ASC{pagination}
+    """
+
+
+def fetch_language_toggles_paginated(
+    client, weeks: int = WEEKS_OF_HISTORY
+) -> list[dict]:
+    """Walk the language-toggle query in METABASE_ROW_CAP-sized pages.
+    Same paging contract as fetch_engagement_paginated(); stops on a short
+    read. Returns a flat list of toggle-event rows."""
+    out: list[dict] = []
+    offset = 0
+    while True:
+        sql = build_language_toggle_sql(
+            weeks=weeks, limit=METABASE_ROW_CAP, offset=offset
+        )
+        rows, _ = client.run_sql(RUDDER_DB_ID, sql)
+        if not rows:
+            break
+        out.extend(rows)
+        if len(rows) < METABASE_ROW_CAP:
+            break
+        offset += METABASE_ROW_CAP
+    return out
+
+
 # ─── FTI query (DB 24 — transactions) ──────────────────────────────────────
 # Canonical FTI definition per Metabase question 2672:
 # first BUY order per user where status indicates a successful purchase
@@ -593,6 +643,73 @@ def aggregate_rows(engagement_rows: list[dict], fti_rows: list[dict]) -> list[di
             ),
         })
     return out
+
+
+# ─── Language adoption — content-health, NOT an experiment metric ──────────
+# Computed purely from learn_language_toggled rows, so it needs no external
+# denominator and is fully unit-testable with synthetic rows. Engagement-by-
+# language (completion/watch split by content language) is intentionally NOT
+# here — it needs the `language` attribute on learn_video_viewed, which lands
+# with gi-client-web PR #6277. See specs/2026-06-16-language-and-content-health.md.
+def aggregate_language_adoption(toggle_rows: list[dict]) -> dict | None:
+    """Aggregate learn_language_toggled events into adoption indicators.
+
+    Returns None for no rows (pre-data) so the manifest simply omits the
+    section. Self-contained metrics only — adoption *rate* vs Learn visitors
+    is deferred until the visitor-denominator question is settled (spec §6).
+    """
+    if not toggle_rows:
+        return None
+
+    users_all: set[str] = set()
+    users_hi: set[str] = set()
+    users_en: set[str] = set()
+    tab_counts: dict[str, int] = defaultdict(int)
+    week_counts: dict[str, dict] = defaultdict(
+        lambda: {"toggles": 0, "hi_toggles": 0}
+    )
+    total = 0
+
+    for r in toggle_rows:
+        total += 1
+        uid = _user_id_key(r.get("user_id"))
+        selected = (r.get("selected_language") or "").lower()
+        tab = r.get("active_tab") or "unknown"
+        tab_counts[tab] += 1
+        if uid:
+            users_all.add(uid)
+            if selected == "hi":
+                users_hi.add(uid)
+            elif selected == "en":
+                users_en.add(uid)
+        week = r.get("week")
+        wk = _to_iso(week) if week else None
+        if wk:
+            week_counts[wk]["toggles"] += 1
+            if selected == "hi":
+                week_counts[wk]["hi_toggles"] += 1
+
+    hi_n = len(users_hi)
+    # Bounce-back: users who switched to Hindi AND back to English — the
+    # "tried Hindi, flipped back" comprehension/content-quality signal.
+    bounce_back = len(users_hi & users_en)
+
+    return {
+        "total_toggles": total,
+        "distinct_toggle_users": len(users_all),
+        "hi_adopters": hi_n,
+        "bounce_back_users": bounce_back,
+        "bounce_back_rate_pct": (
+            round(100.0 * bounce_back / hi_n, 2) if hi_n else None
+        ),
+        "active_tab_mix": sorted(
+            ({"active_tab": t, "toggles": n} for t, n in tab_counts.items()),
+            key=lambda x: -x["toggles"],
+        ),
+        "toggles_by_week": [
+            {"week": w, **week_counts[w]} for w in sorted(week_counts)
+        ],
+    }
 
 
 def _seconds_between(start_iso, end_iso) -> float | None:
@@ -1089,6 +1206,7 @@ def _write_manifest(
     tables: list[str],
     margin_notes: dict | None = None,
     conversion_funnel: dict | None = None,
+    language_adoption: dict | None = None,
 ) -> None:
     """Mirror the asset_search / grip_connect _manifest.json convention so
     the frontend `Project.manifest` shape is populated and the dashboard
@@ -1115,6 +1233,8 @@ def _write_manifest(
         manifest["margin_notes"] = margin_notes
     if conversion_funnel is not None:
         manifest["conversion_funnel"] = conversion_funnel
+    if language_adoption is not None:
+        manifest["language_adoption"] = language_adoption
     # Atomic write — same pattern as write_csv_atomic. Without this, the
     # backend's get_project() endpoint (which read-parses _manifest.json
     # on every request) can catch a half-written file mid-cron and 500.
@@ -1291,6 +1411,25 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
             )
         )
 
+    # ─── Language adoption (V3 — content health, Hindi toggle PT-38392) ─────
+    # Independent of the A/B experiment. Non-fatal: the Hindi toggle may not
+    # have produced events yet, and a query error here must not sink the
+    # weekly tracker. Populates the manifest's `language_adoption` section.
+    language_adoption = None
+    try:
+        toggle_rows = fetch_language_toggles_paginated(client, weeks=WEEKS_OF_HISTORY)
+        language_adoption = aggregate_language_adoption(toggle_rows)
+        if language_adoption:
+            log.append(
+                f"language adoption: {language_adoption['hi_adopters']} hi-adopters, "
+                f"{language_adoption['distinct_toggle_users']} toggle users, "
+                f"bounce-back={language_adoption['bounce_back_rate_pct']}%"
+            )
+        else:
+            log.append("language adoption: no learn_language_toggled events yet")
+    except MetabaseError as e:
+        log.append(f"language toggle query failed (non-fatal) — {e}")
+
     out_path = data_dir / "weekly_ab_tracker.csv"
     n_written = write_csv_atomic(out_path, summary_rows, CANONICAL_COLUMNS)
     log.append(f"wrote {n_written} rows → {out_path.relative_to(data_dir.parent)}")
@@ -1317,6 +1456,7 @@ def run(client, data_dir, *, today: date | None = None) -> dict:
         tables=["weekly_ab_tracker", "hourly_breakdown"],
         margin_notes=margin_notes,
         conversion_funnel=conversion_funnel,
+        language_adoption=language_adoption,
     )
 
     return {

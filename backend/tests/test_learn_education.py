@@ -25,12 +25,14 @@ class FakeClient:
     """Mirrors MetabaseClient.run_sql(database_id, sql) -> (rows, cols)."""
 
     def __init__(self, *, learn_page_count=0, experiment_count=0,
-                 engagement_rows=None, fti_rows=None, daily_orders=0):
+                 engagement_rows=None, fti_rows=None, daily_orders=0,
+                 toggle_rows=None):
         self.learn_page_count = learn_page_count
         self.experiment_count = experiment_count
         self.engagement_rows = engagement_rows or []
         self.fti_rows = fti_rows or []
         self.daily_orders = daily_orders
+        self.toggle_rows = toggle_rows or []
         self.calls = []
 
     def run_sql(self, database_id, sql, raw_columns=False):
@@ -46,6 +48,16 @@ class FakeClient:
                 return [{"n": self.learn_page_count}], ["n"]
             if is_probe and "experiment_assigned" in normalized:
                 return [{"n": self.experiment_count}], ["n"]
+            # Language-toggle query (SELECT, paginated). Respects LIMIT/OFFSET.
+            if "learn_language_toggled" in normalized:
+                import re
+                m = re.search(r"LIMIT\s+(\d+)\s+OFFSET\s+(\d+)", normalized, re.IGNORECASE)
+                limit = int(m.group(1)) if m else len(self.toggle_rows)
+                offset = int(m.group(2)) if m else 0
+                return list(self.toggle_rows[offset:offset + limit]), [
+                    "user_id", "selected_language",
+                    "previous_language", "active_tab", "week",
+                ]
             # Engagement query (CTE-heavy). Respects LIMIT/OFFSET to
             # exercise pagination — mirrors the FTI walker pattern.
             import re
@@ -1297,3 +1309,72 @@ def test_manifest_write_preserves_existing_unrelated_keys(tmp_path, v2_engagemen
     assert new_manifest.get("external_marker") == {"set_by_other_project": True}, (
         "Unrelated manifest keys must survive cron writes"
     )
+
+
+# ─── V3 — Language adoption (Hindi toggle, content-health) ─────────────────
+# See specs/2026-06-16-language-and-content-health.md. Pure aggregator over
+# learn_language_toggled rows — no external denominator, fully testable.
+
+def _toggle(user_id, selected, previous="en", active_tab="bond 101",
+            week="2026-06-15"):
+    return {
+        "user_id": user_id, "selected_language": selected,
+        "previous_language": previous, "active_tab": active_tab, "week": week,
+    }
+
+
+def test_language_adoption_none_for_empty():
+    assert learn_education.aggregate_language_adoption([]) is None
+
+
+def test_language_adoption_counts_hi_adopters_distinctly():
+    rows = [
+        _toggle("1", "hi"),
+        _toggle("1", "en", previous="hi"),  # same user toggles back
+        _toggle("2", "hi"),
+    ]
+    out = learn_education.aggregate_language_adoption(rows)
+    assert out["total_toggles"] == 3
+    assert out["distinct_toggle_users"] == 2
+    assert out["hi_adopters"] == 2
+
+
+def test_language_adoption_computes_bounce_back():
+    """A user who switched to hi AND back to en is a bounce-back; a user who
+    only went to hi is not."""
+    rows = [
+        _toggle("1", "hi"),
+        _toggle("1", "en", previous="hi"),  # bounced back
+        _toggle("2", "hi"),                 # stayed
+    ]
+    out = learn_education.aggregate_language_adoption(rows)
+    assert out["bounce_back_users"] == 1
+    assert out["bounce_back_rate_pct"] == 50.0
+
+
+def test_language_adoption_active_tab_mix_sorted_desc():
+    rows = [
+        _toggle("1", "hi", active_tab="advanced"),
+        _toggle("2", "hi", active_tab="bond 101"),
+        _toggle("3", "hi", active_tab="bond 101"),
+    ]
+    out = learn_education.aggregate_language_adoption(rows)
+    assert out["active_tab_mix"][0] == {"active_tab": "bond 101", "toggles": 2}
+
+
+def test_language_adoption_excludes_test_users_in_sql():
+    sql = learn_education.build_language_toggle_sql(weeks=8)
+    assert "client_web.learn_language_toggled" in sql
+    for u in learn_education.TEST_USERS:
+        assert f"'{u}'" in sql
+
+
+def test_run_writes_language_adoption_into_manifest(tmp_path, sample_engagement_rows, sample_fti_rows):
+    client = FakeClient(
+        learn_page_count=100, experiment_count=10000,
+        engagement_rows=sample_engagement_rows, fti_rows=sample_fti_rows,
+        toggle_rows=[_toggle("900", "hi"), _toggle("901", "hi")],
+    )
+    learn_education.run(client, tmp_path)
+    manifest = json.loads((tmp_path / "_manifest.json").read_text())
+    assert manifest["language_adoption"]["hi_adopters"] == 2
