@@ -36,7 +36,8 @@ EVALS = [
     {"q": "How is the zero-result rate (ZRR) calculated?", "type": "definition",
      "expect_any": ["results_count", "zero-result", "zero result", "/ ", "divided"]},
     {"q": "What does 'dead end' mean for a search session?", "type": "definition",
-     "expect_any": ["zero result", "never clicked", "no result", "wall"]},
+     "expect_any": ["never clicked", "zero result", "no result", "every query"],
+     "expect_none": ["not a metric", "not in my glossary", "don't have", "do not have", "which metric", "which would you like"]},
     {"q": "Explain the difference between a relevance gap and a dead end.", "type": "definition",
      "expect_any": ["relevance", "clicked", "results"]},
     # — trivial / capability —
@@ -46,6 +47,8 @@ EVALS = [
     {"q": "How many search queries were there in total?", "type": "data", "expect_digit": True},
     {"q": "What is the zero-result rate broken down by Grip Connect partner?", "type": "data",
      "expect_digit": True, "expect_any": ["et money", "mobikwik", "paisa", "%"]},
+    {"q": "What is the overall dead-end rate? Give me the number.", "type": "data",
+     "expect_digit": True, "expect_none": ["not a metric", "not in my glossary", "which metric"]},
     # — off-topic (must refuse) —
     {"q": "What's the capital of France?", "type": "offtopic",
      "expect_any": ["only answer", "this project", "can only", "this dashboard"]},
@@ -106,6 +109,10 @@ async def main():
         if ok and e.get("expect_any"):
             if not any(k.lower() in text.lower() for k in e["expect_any"]):
                 ok, why = False, f"missing any of {e['expect_any']}"
+        if ok and e.get("expect_none"):
+            hit = next((k for k in e["expect_none"] if k.lower() in text.lower()), None)
+            if hit:
+                ok, why = False, f"contains forbidden phrase {hit!r}"
         if ok and e["type"] == "offtopic" and label and label != "reject":
             # acceptable if it still refused in text, but flag if it engaged
             if not any(k.lower() in text.lower() for k in e["expect_any"]):

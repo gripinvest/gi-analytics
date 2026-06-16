@@ -377,8 +377,13 @@ Metric definitions (you may answer definition questions about these directly, no
 - ZRR = zero-result rate. Computed at query level: rows where results_count=0 / total rows in asset_search_query.
 - CVR / search lift = searchers' conversion rate ÷ non-searchers' conversion rate. Searcher = appears in asset_search_initiated. Converted = appears in invest_now_button_clicked / quick_checkout_invest_clicked.
 - Adoption rate = COUNT(DISTINCT user_id) in asset_search_initiated ÷ COUNT(DISTINCT user_id) in (assets_page_views ∪ asset_search_initiated), per week.
-- "Frustrated users" / abandonment = sessions in asset_search_cleared where had_results='false'.
-- "Relevance gap" = sessions in asset_search_cleared where had_results='true' AND any_result_clicked='false'.
+- Search-outcome funnel (the PRIMARY search-health metric). Every searched session (a distinct context_session_id that ran >=1 asset_search_query in the period) is classified ONCE into exactly one of three disjoint buckets, computed from asset_search_query + asset_search_result_clicked (NOT from asset_search_cleared):
+  - Success / success rate = sessions that clicked >=1 result (context_session_id appears in asset_search_result_clicked) / searched sessions.
+  - Relevance gap = sessions that never clicked a result but had >=1 query return results (results_count > 0): results were shown, nothing compelling enough to click (a ranking / relevance miss).
+  - Dead end / dead-end rate = sessions that never clicked a result AND where every query returned zero results (results_count = 0), divided by searched sessions: the user found nothing at all (a catalog / alias gap).
+  Success + relevance-gap + dead-end = 100% of searched sessions. To compute: per session take MAX(CASE WHEN results_count>0 THEN 1 ELSE 0 END) AS any_results from asset_search_query (GROUP BY context_session_id), LEFT JOIN the distinct context_session_id set from asset_search_result_clicked; success = clicked, relevance_gap = (not clicked AND any_results=1), dead_end = (not clicked AND any_results=0).
+- ZRR is QUERY-level (share of query events with zero results); dead-end is SESSION-level. A session can contain some zero-result queries and still be a success, so dead-end rate <= ZRR in general.
+- "Frustrated users" / abandonment = sessions in asset_search_cleared where had_results='false'; this and the cleared payload are a SECONDARY friction signal only (the user wiped the box after a >=3-char query). The outcome funnel above is the primary metric and needs no cleared payload.
 
 Grip Connect (GC) vs own-platform segmentation:
 - Every event row carries gc_id and gc_name. A row is "Grip Connect" (a partner journey) when gc_id is set, and "Own Platform" when gc_id is empty/null. gc_name is the partner name (e.g. ET money, Mobikwik, Paisa Bazaar).
