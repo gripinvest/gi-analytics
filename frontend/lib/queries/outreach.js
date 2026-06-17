@@ -158,6 +158,44 @@ export function notifyMeOutreachDetail({ tables } = {}) {
   `;
 }
 
+/**
+ * Per-user search timeline for the Outreach drill-down modal. One row per
+ * search event (W4+ only — where investment_status/gc_name exist), with the
+ * assets the user clicked for that query LEFT-JOINed in. Returns null for a
+ * non-integer userId or no W4+ tables.
+ */
+export function userSearchTimeline({ tables, userId } = {}) {
+  const uid = Number(userId);
+  if (!Number.isInteger(uid)) return null;
+  const w4 = (list) => (list || []).filter((t) => (wkOf(t) || 0) >= GC_FROM_WEEK);
+  const qTables = w4(tables && tables.query);
+  if (qTables.length === 0) return null;
+  const cTables = w4(tables && tables.result_clicked);
+
+  const searches = qTables
+    .map((t) => `SELECT user_id, timestamp, query_text, results_count, is_refinement, active_tab, investment_status, gc_name, obpp_kyc_status FROM "${t}" WHERE user_id = ${uid}`)
+    .join("\nUNION ALL\n");
+  const clicks = cTables.length
+    ? cTables.map((t) => `SELECT user_id, query_text, clicked_asset_name, clicked_asset_type FROM "${t}" WHERE user_id = ${uid}`).join("\nUNION ALL\n")
+    : `SELECT CAST(NULL AS BIGINT) AS user_id, CAST(NULL AS VARCHAR) AS query_text, CAST(NULL AS VARCHAR) AS clicked_asset_name, CAST(NULL AS VARCHAR) AS clicked_asset_type WHERE FALSE`;
+
+  return `
+    WITH s AS (${searches}),
+    c AS (
+      SELECT query_text,
+             STRING_AGG(DISTINCT clicked_asset_name, ', ') AS clicked_assets,
+             STRING_AGG(DISTINCT clicked_asset_type, ', ') AS clicked_types
+      FROM (${clicks}) GROUP BY query_text
+    )
+    SELECT s.timestamp AS ts, CAST(s.timestamp AS DATE) AS day, s.query_text,
+           s.results_count, s.is_refinement, s.active_tab,
+           c.clicked_assets, c.clicked_types,
+           s.investment_status AS invested, s.gc_name, s.obpp_kyc_status AS kyc
+    FROM s LEFT JOIN c ON c.query_text = s.query_text
+    ORDER BY s.timestamp DESC
+  `;
+}
+
 // ── client-side enrichment ──────────────────────────────────────────────────
 
 const ISSUER_CATEGORY_BY_NAME = Object.fromEntries(
