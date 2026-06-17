@@ -2,7 +2,7 @@
 # Transitive deps + hashes are resolved into requirements.lock by
 # `pip-compile --generate-hashes`. Dependabot keeps the lock in sync.
 
-fastapi==0.115.0
+fastapi==0.137.1
 uvicorn[standard]==0.30.6
 duckdb==1.1.0
 anthropic==0.34.0
