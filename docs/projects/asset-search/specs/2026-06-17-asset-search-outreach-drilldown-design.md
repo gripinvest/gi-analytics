@@ -86,6 +86,19 @@ Verified facts (not assumptions):
 - Mobile-first (standing rule for grip-analytics UI); match the existing
   Editorial / data-dense conventions in `AssetSearchOutreachSection`.
 
+### Real-data-only + loading clarity (added per user, 2026-06-17)
+
+Now that V2 is live, the dashboard must not show dummy/sample numbers. The
+underlying pain is **ambiguous loading**: live sections show skeletons while
+fetching, but the mock-backed sections (the V1-vs-V2 cutover strip and the
+outreach section) render sample numbers immediately with no loading affordance,
+so mid-load the dashboard looks inconsistent and people panic (the only signal
+is an easy-to-miss top-right sample/live badge). Fix: both sections become
+**three-state — loading skeleton → live data → "waiting for live data" pending
+panel**, never mock. Remove the mock datasets (`engineHealthMockSample`,
+`engineOutcomeMockSample`, `outreachMockSample`) and their dead exports. Bundled
+into the Phase-1 deploy with the modal.
+
 ### Delivery sequencing (per user)
 
 Ship in two phases, with a hard checkpoint between them:
