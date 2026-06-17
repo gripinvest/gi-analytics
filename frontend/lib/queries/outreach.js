@@ -1,4 +1,4 @@
-// Outreach query builder + mock dataset for the Asset Search dashboard's
+// Outreach query builder for the Asset Search dashboard's
 // CS-facing Outreach section.
 //
 // The list is intent-driven: every user who hit a failed search (zero-result
@@ -78,7 +78,7 @@ function unionAll(tableList, cols, extraWhere) {
  * the warmest leads bubble to the top.
  *
  * Returns null when no failed-search tables exist; the section then
- * renders mock data + a pending pill.
+ * renders the pending "waiting for live data" state.
  */
 export function notifyMeOutreachDetail({ tables } = {}) {
   // Zero-result rows of the query event — the strongest failure signal
