@@ -41,6 +41,19 @@ function colsWithEngineVersion(baseCols) {
   };
 }
 
+const GC_FROM_WEEK = 4; // gc_name/gc_id/obpp_kyc_status/investment_status first appear in W4
+
+/** Like colsWithEngineVersion, but also NULL-projects gc_name (VARCHAR) for
+ *  pre-W4 weeks so the all-week union binds. */
+function colsWithEngineVersionAndGc(baseCols) {
+  const withEv = colsWithEngineVersion(baseCols);
+  return (t) => {
+    const w = wkOf(t);
+    const gc = w != null && w >= GC_FROM_WEEK ? "gc_name" : "CAST(NULL AS VARCHAR) AS gc_name";
+    return `${withEv(t)}, ${gc}`;
+  };
+}
+
 /** UNION ALL helper — applies the test-user exclusion in one place. `cols` is
  *  either a string (same columns from every table) or a `(table) => string`
  *  function for per-table projection (e.g. NULL-filling a late-added column).
@@ -74,7 +87,7 @@ export function notifyMeOutreachDetail({ tables } = {}) {
   // column) so the all-week union binds; seen_v2 coalesces NULL → 'v1'.
   const queryFailures = unionAll(
     tables && tables.query,
-    colsWithEngineVersion("user_id, query_text, timestamp, active_tab"),
+    colsWithEngineVersionAndGc("user_id, query_text, timestamp, active_tab"),
     "results_count = 0 AND user_id IS NOT NULL AND query_text IS NOT NULL"
   );
   // Empty-state event — fires whether the failure was zero-result or
@@ -82,7 +95,7 @@ export function notifyMeOutreachDetail({ tables } = {}) {
   // this covers all flavours of dead-end on the search dropdown.
   const emptyStates = unionAll(
     tables && tables.empty_state,
-    colsWithEngineVersion("user_id, query_text, timestamp, active_tab"),
+    colsWithEngineVersionAndGc("user_id, query_text, timestamp, active_tab"),
     "user_id IS NOT NULL AND query_text IS NOT NULL"
   );
   if (!queryFailures && !emptyStates) return null;
@@ -103,7 +116,7 @@ export function notifyMeOutreachDetail({ tables } = {}) {
       ${failureUnion}
     ),
     classified AS (
-      SELECT user_id, query_text, timestamp, active_tab, engine_version,
+      SELECT user_id, query_text, timestamp, active_tab, engine_version, gc_name,
              ${issuerCaseExpr("query_text")} AS mapped_issuer
       FROM failures
     ),
@@ -116,7 +129,8 @@ export function notifyMeOutreachDetail({ tables } = {}) {
              -- "assume V1 if not found": pre-cutover weeks NULL-project
              -- engine_version, COALESCE'd to 'v1', so only a real 'v2' counts.
              MAX(CASE WHEN COALESCE(engine_version, 'v1') = 'v2' THEN 1 ELSE 0 END) AS seen_v2,
-             MAX(active_tab)                           AS active_tab
+             MAX(active_tab)                           AS active_tab,
+             MAX(gc_name)                              AS gc_name
       FROM classified
       WHERE mapped_issuer IS NOT NULL
       GROUP BY user_id, mapped_issuer
@@ -134,6 +148,7 @@ export function notifyMeOutreachDetail({ tables } = {}) {
       r.top_searches,
       r.active_tab,
       r.seen_v2,
+      r.gc_name,
       CASE WHEN n.user_id IS NOT NULL THEN 1 ELSE 0 END AS notified
     FROM rolled r
     LEFT JOIN notified n
@@ -162,6 +177,7 @@ const PRIORITY_BY_CATEGORY = {
 export function decorateOutreachRow(row) {
   const category = ISSUER_CATEGORY_BY_NAME[row.mapped_issuer] || "healthy";
   const priority = PRIORITY_BY_CATEGORY[category] || PRIORITY_BY_CATEGORY.healthy;
+  const gc = (row.gc_name || "").trim();
   return {
     ...row,
     issuer_category: category,
@@ -169,65 +185,10 @@ export function decorateOutreachRow(row) {
     priority_label: priority.label,
     notified: Number(row.notified) === 1 || row.notified === true,
     seen_v2: Number(row.seen_v2) === 1 || row.seen_v2 === true,
+    is_gc: gc.length > 0,
+    source_label: gc.length > 0 ? `GC · ${gc}` : "Platform",
   };
 }
-
-// ── mock data (used until events flow) ──────────────────────────────────────
-
-/**
- * Mock dataset sized to reflect realistic per-week volume per the V1
- * analytics — Vedika ~310 zero-result queries across 8 weeks (~39/week),
- * Muthoot ~187, Keertana ~140. The `notified` flag is set on a minority
- * (most demand never clicks the CTA — Notify Me is one signal of many).
- *
- * Schema matches the live SQL: user_id only (no PII). Mock user_ids are
- * obviously synthetic seven-digit numbers; the real CRM has the contact
- * detail, the dashboard surfaces the intent.
- */
-const _MOCK_USER_BASE = 9000000;
-const _M = (i, issuer, qs, hits, opts = {}) => ({
-  user_id: _MOCK_USER_BASE + i,
-  mapped_issuer: issuer,
-  query_text: qs[0],
-  top_searches: qs.join(" | "),
-  active_tab: opts.tab || "bonds",
-  hit_count: hits,
-  first_active: opts.first || "2026-05-20T13:00:00+05:30",
-  last_active: opts.last || "2026-05-26T18:00:00+05:30",
-  notified: opts.notified === true ? 1 : 0,
-  seen_v2: opts.v2 === false ? 0 : 1,
-});
-const _MOCK_RAW = [
-  // Vedika — catalog_gap, the strongest persistent demand
-  _M(1, "Vedika Credit",     ["vedika credit", "vedika", "ved"], 3, { notified: true,  last: "2026-05-26T09:14:22+05:30" }),
-  _M(2, "Vedika Credit",     ["vedika", "vedik"],                 2, {                  last: "2026-05-26T11:38:01+05:30" }),
-  _M(3, "Vedika Credit",     ["vedik"],                           1, {                  last: "2026-05-25T17:21:47+05:30" }),
-  _M(4, "Vedika Credit",     ["ved", "vedika credit"],            3, { notified: true,  last: "2026-05-26T08:02:09+05:30" }),
-  _M(5, "Vedika Credit",     ["vedika credit"],                   1, {                  last: "2026-05-24T20:11:55+05:30" }),
-  // Muthoot — availability, cycles in/out
-  _M(6, "Muthoot Finance",   ["muthoot", "muthoot finance"],      2, { notified: true,  last: "2026-05-26T10:55:12+05:30" }),
-  _M(7, "Muthoot Finance",   ["muth"],                            1, {                  last: "2026-05-26T16:08:30+05:30" }),
-  _M(8, "Muthoot Finance",   ["muthoot finance"],                 1, {                  last: "2026-05-25T11:45:01+05:30" }),
-  _M(9, "Muthoot Finance",   ["muthoot"],                         1, {                  last: "2026-05-24T09:38:44+05:30" }),
-  // Keertana — availability
-  _M(10, "Keertana",         ["keertana", "keer"],                2, {                  last: "2026-05-26T07:18:33+05:30" }),
-  _M(11, "Keertana",         ["keer"],                            1, {                  last: "2026-05-26T13:42:50+05:30" }),
-  _M(12, "Keertana",         ["keerthana"],                       1, {                  last: "2026-05-25T15:14:09+05:30" }),
-  // Mufin — alias + availability
-  _M(13, "Mufin Finance",    ["mufin"],                           1, {                  last: "2026-05-26T19:55:00+05:30" }),
-  _M(14, "Mufin Finance",    ["mufin green", "mufin"],            2, { notified: true,  last: "2026-05-26T11:02:17+05:30" }),
-  // Govt / RBI — catalog_gap (category-level)
-  _M(15, "Govt / RBI Bonds", ["rbi", "rbi floating rate bond"],   2, {                  last: "2026-05-26T08:08:08+05:30" }),
-  _M(16, "Govt / RBI Bonds", ["govt", "government bond"],         2, {                  last: "2026-05-26T16:33:21+05:30" }),
-  _M(17, "Govt / RBI Bonds", ["rbi"],                             1, {                  last: "2026-05-25T20:01:42+05:30" }),
-  // Akara — alias gap, low priority
-  _M(18, "Akara Capital",    ["akara", "akar"],                   2, {                  last: "2026-05-26T14:22:55+05:30" }),
-  _M(19, "Akara Capital",    ["aka"],                             1, {                  last: "2026-05-26T09:11:30+05:30" }),
-  // Unifinz — alias gap
-  _M(20, "Unifinz",          ["unifinz", "unifin"],               2, { notified: true,  last: "2026-05-26T12:48:11+05:30" }),
-  _M(21, "Unifinz",          ["unif"],                            1, {                  last: "2026-05-26T17:55:44+05:30" }),
-];
-export const outreachMockSample = _MOCK_RAW;
 
 // ── data-state classifier ───────────────────────────────────────────────────
 

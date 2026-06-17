@@ -757,15 +757,14 @@ export default function AssetSearchDashboardEditorial({ project }) {
       )}
 
       {section === "outreach" && (
-        // Wired to the live notify-me click rollup (outreach_detail). The
-        // section's dataState() flips pending→sparse→live based on row
-        // count; when the cutover-window tables are missing or empty the
-        // SQL spec returns null → run() yields rows=[], section falls
-        // back to its own mock-sample state. sectionNumber stays in
-        // sync with the dynamic nav numbering (V/VI based on convOk).
+        // Wired to the live notify-me click rollup (outreach_detail).
+        // sectionNumber stays in sync with the dynamic nav numbering
+        // (V/VI based on convOk). loading is passed through so the
+        // section shows a skeleton while the dashboard fetches.
         <AssetSearchOutreachSection
           liveRows={rowsOf(data, "outreach_detail")}
           sectionNumber={sections.find((s) => s.key === "outreach")?.no ?? "VI"}
+          loading={loading}
         />
       )}
 
@@ -804,9 +803,10 @@ function OverviewSection({ loading, data, adoptionSeries, healthSeries, funnelSe
       />
 
       {/* V1 vs V2 release-cut comparison. Reads `engine_version` from
-          asset_search_* event payloads (NULL = V1, 'v2' = V2). Auto-switches
-          from the strip's own mock-sample to live data the moment the
-          cutover-window query returns at least one v2 row. */}
+          asset_search_* event payloads (NULL = V1, 'v2' = V2). Renders a
+          loading skeleton, a 'waiting for live data' pending panel, or the
+          live V1-vs-V2 comparison based on the dashboard `loading` flag and
+          engineDataState(). */}
       <AssetSearchCutoverStrip
         healthRows={rowsOf(data, "engine_health")}
         outcomeRows={rowsOf(data, "engine_outcome")}
