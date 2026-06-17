@@ -52,6 +52,12 @@ Verified facts (not assumptions):
   "15 per") — search-as-you-type. `is_refinement` distinguishes refinements.
 - `ISSUER_MAP` resolves **search keyword → issuer name** for ~11 curated
   issuers (keyword-prefix match). It does **not** resolve clicked asset codes.
+- **GC vs platform user is cleanly distinguishable.** `gc_name`/`gc_id`
+  populated ⇒ a **Grip Connect (partner) user**, and `gc_name` names the partner
+  ("ET money", "Mobikwik", "Paisa Bazaar", …); empty ⇒ a **direct platform
+  user**. ~17% GC in W10. `external_user_id` (the partner's user id) is
+  populated for exactly the GC rows. Matters for outreach: GC users are often
+  reached via the partner, not directly.
 
 ### Field feasibility
 
@@ -74,6 +80,9 @@ Verified facts (not assumptions):
 - **Modal content = summary scorecard (top) + chronological search timeline
   (below)** — a mix of stats-first and narrative.
 - **Scope `invested` to W4+;** earlier weeks carry `invested = unknown`.
+- **Add a user-source identifier (GC vs platform) to both the base outreach
+  table and the modal — secondary.** Derived from `gc_name` (present ⇒
+  `GC · <partner>`, empty ⇒ `Platform`).
 - Mobile-first (standing rule for grip-analytics UI); match the existing
   Editorial / data-dense conventions in `AssetSearchOutreachSection`.
 
@@ -93,8 +102,9 @@ Ship in two phases, with a hard checkpoint between them:
 
 **Content:**
 - **Header / scorecard:** `user_id`, invested (Yes/No), KYC status
-  (`obpp_kyc_status`), active date range, and totals — searches, distinct
-  keywords, result-clicks, zero-result searches, notify-me clicks.
+  (`obpp_kyc_status`), **user source** (Platform, or `GC · <partner name>` —
+  secondary), active date range, and totals — searches, distinct keywords,
+  result-clicks, zero-result searches, notify-me clicks.
 - **Chronological search timeline:** one entry per search — date, keyword
   (→ issuer via `ISSUER_MAP` where it maps), `results_count` (or a "dead-end"
   flag when 0), assets clicked shown as `type · code`, refinement flag.
