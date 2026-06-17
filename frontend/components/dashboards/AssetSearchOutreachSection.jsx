@@ -215,15 +215,20 @@ export default function AssetSearchOutreachSection({
 
   // ── per-user history modal state ────────────────────────────────────────
   const [modal, setModal] = React.useState(null); // { userId, loading, rows, error } | null
+  const reqRef = React.useRef(0);
   const openUserHistory = React.useCallback(async (userId) => {
+    const reqId = ++reqRef.current;
     setModal({ userId, loading: true, rows: null, error: null });
     const sql = userSearchTimeline({ tables, userId });
-    if (!sql || !projectId) { setModal({ userId, loading: false, rows: [], error: null }); return; }
+    if (!sql || !projectId) {
+      if (reqRef.current === reqId) setModal({ userId, loading: false, rows: [], error: null });
+      return;
+    }
     try {
       const res = await runQuery(projectId, sql, 2000);
-      setModal({ userId, loading: false, rows: (res && res.rows) || [], error: res && res.error });
+      if (reqRef.current === reqId) setModal({ userId, loading: false, rows: (res && res.rows) || [], error: res && res.error });
     } catch (e) {
-      setModal({ userId, loading: false, rows: null, error: String((e && e.message) || e) });
+      if (reqRef.current === reqId) setModal({ userId, loading: false, rows: null, error: String((e && e.message) || e) });
     }
   }, [projectId, tables]);
 
