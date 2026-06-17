@@ -810,6 +810,7 @@ function OverviewSection({ loading, data, adoptionSeries, healthSeries, funnelSe
       <AssetSearchCutoverStrip
         healthRows={rowsOf(data, "engine_health")}
         outcomeRows={rowsOf(data, "engine_outcome")}
+        loading={loading}
       />
 
       {showAdoption && (
