@@ -28,7 +28,10 @@ import {
   setOutreachStatus,
   statusKey,
   OUTREACH_STATUSES,
+  userSearchTimeline,
 } from "@/lib/queries/outreach";
+import { runQuery } from "@/lib/api";
+import UserSearchHistoryModal from "./UserSearchHistoryModal";
 
 // ── status pill (color + icon + text — never colour-only per a11y) ──────────
 
@@ -203,10 +206,26 @@ export default function AssetSearchOutreachSection({
   liveRows,
   sectionNumber = "VI",
   loading = false,
+  projectId,
+  tables,
 }) {
   const live = Array.isArray(liveRows) ? liveRows : [];
   const state = dataState(live);
   const sourceRows = live; // real data only — no mock fallback
+
+  // ── per-user history modal state ────────────────────────────────────────
+  const [modal, setModal] = React.useState(null); // { userId, loading, rows, error } | null
+  const openUserHistory = React.useCallback(async (userId) => {
+    setModal({ userId, loading: true, rows: null, error: null });
+    const sql = userSearchTimeline({ tables, userId });
+    if (!sql || !projectId) { setModal({ userId, loading: false, rows: [], error: null }); return; }
+    try {
+      const res = await runQuery(projectId, sql, 2000);
+      setModal({ userId, loading: false, rows: (res && res.rows) || [], error: res && res.error });
+    } catch (e) {
+      setModal({ userId, loading: false, rows: null, error: String((e && e.message) || e) });
+    }
+  }, [projectId, tables]);
 
   // ── filter state ────────────────────────────────────────────────────────
   const [issuerFilter, setIssuerFilter] = React.useState(ALL_ISSUER);
@@ -630,11 +649,12 @@ export default function AssetSearchOutreachSection({
                   }}
                 >
                   <td style={cellStyle}>
-                    <span
-                      style={{ color: "var(--ed-ink, #1b1818)", fontWeight: 500 }}
-                    >
+                    <button type="button" onClick={() => openUserHistory(row.user_id)} title="View this user's search history"
+                      className="ed-caption"
+                      style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--ed-ink, #1b1818)",
+                               fontWeight: 500, font: "inherit", textDecoration: "underline", textDecorationStyle: "dotted" }}>
                       {row.user_id}
-                    </span>
+                    </button>
                   </td>
                   <td style={cellStyle}>
                     <PriorityTag rank={row.priority_rank} label={row.priority_label} />
@@ -743,6 +763,10 @@ export default function AssetSearchOutreachSection({
         browser — they don’t persist across devices yet.
       </p>
         </>
+      )}
+      {modal && (
+        <UserSearchHistoryModal userId={modal.userId} rows={modal.rows} loading={modal.loading} error={modal.error}
+          onClose={() => setModal(null)} />
       )}
     </section>
   );

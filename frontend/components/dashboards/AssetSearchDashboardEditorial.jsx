@@ -765,6 +765,8 @@ export default function AssetSearchDashboardEditorial({ project }) {
           liveRows={rowsOf(data, "outreach_detail")}
           sectionNumber={sections.find((s) => s.key === "outreach")?.no ?? "VI"}
           loading={loading}
+          projectId={project.id}
+          tables={Q.groupTables(project.tables || []).tables}
         />
       )}
 
