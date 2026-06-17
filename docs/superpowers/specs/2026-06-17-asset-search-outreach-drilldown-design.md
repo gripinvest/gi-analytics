@@ -77,6 +77,16 @@ Verified facts (not assumptions):
 - Mobile-first (standing rule for grip-analytics UI); match the existing
   Editorial / data-dense conventions in `AssetSearchOutreachSection`.
 
+### Delivery sequencing (per user)
+
+Ship in two phases, with a hard checkpoint between them:
+
+1. **Phase 1 — drill-down modal only.** Build + verify the per-user history
+   modal on the outreach table. **Commit and deploy to `main`** before any CSV
+   work. (Note: org move may have broken Vercel/Render auto-deploy — confirm the
+   deploy actually lands; a manual trigger may be needed.)
+2. **Phase 2 — raw CSV export.** Only after Phase 1 is on `main` and deployed.
+
 ## 4. Surface 1 — Per-user history modal (primary)
 
 **Trigger:** click a row (the `user_id`) in the existing outreach table.
