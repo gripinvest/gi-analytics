@@ -124,48 +124,6 @@ export function engineOutcomeCutover({ queryTbl, clickTbl }) {
   `;
 }
 
-// ── mock data ───────────────────────────────────────────────────────────────
-
-/**
- * Pre/post-cutover snapshot. V1 numbers track the W1–W8 baseline (~50K
- * queries, 28% query-level ZRR, 52% session success). V2 numbers are
- * CONSERVATIVE projections. The UI labels them "projected" so leadership
- * never mistakes them for real measurements.
- */
-export const engineHealthMockSample = [
-  {
-    engine: "v1",
-    queries: 50441,
-    sessions: 9252,
-    zrr_pct: 28.3,
-    refinement_pct: 58.4,
-  },
-  {
-    engine: "v2",
-    queries: 6800,   // projected first-week post-deploy
-    sessions: 1320,
-    zrr_pct: 19.1,
-    refinement_pct: 51.8,
-  },
-];
-
-export const engineOutcomeMockSample = [
-  {
-    engine: "v1",
-    searched: 9252,
-    success: 4811,        // 52.0%
-    relevance_gap: 2683,  // 29.0%
-    dead_end: 1758,       // 19.0%
-  },
-  {
-    engine: "v2",
-    searched: 1320,       // projected
-    success: 871,         // 66.0%
-    relevance_gap: 290,   // 22.0%
-    dead_end: 159,        // 12.0%
-  },
-];
-
 // ── data-state classifier ──────────────────────────────────────────────────
 
 /**

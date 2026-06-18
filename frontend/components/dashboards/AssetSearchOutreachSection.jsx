@@ -22,14 +22,16 @@
 
 import * as React from "react";
 import {
-  outreachMockSample,
   dataState,
   decorateOutreachRow,
   getAllStatuses,
   setOutreachStatus,
   statusKey,
   OUTREACH_STATUSES,
+  userSearchTimeline,
 } from "@/lib/queries/outreach";
+import { runQuery } from "@/lib/api";
+import UserSearchHistoryModal from "./UserSearchHistoryModal";
 
 // ── status pill (color + icon + text — never colour-only per a11y) ──────────
 
@@ -203,15 +205,32 @@ const STATUS_RANK = OUTREACH_STATUSES.reduce((m, s, i) => {
 export default function AssetSearchOutreachSection({
   liveRows,
   sectionNumber = "VI",
+  loading = false,
+  projectId,
+  tables,
 }) {
   const live = Array.isArray(liveRows) ? liveRows : [];
   const state = dataState(live);
-  // Show live rows whenever any exist — even sparse. The dataState badge
-  // still surfaces "sparse" so CS knows the sample is small, but the rows
-  // themselves are real (the previous behaviour swapped to mock under 5
-  // rows, which is what made the dashboard look "stuck on sample" once
-  // the first real notify-me clicks landed).
-  const sourceRows = live.length > 0 ? live : outreachMockSample;
+  const sourceRows = live; // real data only — no mock fallback
+
+  // ── per-user history modal state ────────────────────────────────────────
+  const [modal, setModal] = React.useState(null); // { userId, loading, rows, error } | null
+  const reqRef = React.useRef(0);
+  const openUserHistory = React.useCallback(async (userId) => {
+    const reqId = ++reqRef.current;
+    setModal({ userId, loading: true, rows: null, error: null });
+    const sql = userSearchTimeline({ tables, userId });
+    if (!sql || !projectId) {
+      if (reqRef.current === reqId) setModal({ userId, loading: false, rows: [], error: null });
+      return;
+    }
+    try {
+      const res = await runQuery(projectId, sql, 2000);
+      if (reqRef.current === reqId) setModal({ userId, loading: false, rows: (res && res.rows) || [], error: res && res.error });
+    } catch (e) {
+      if (reqRef.current === reqId) setModal({ userId, loading: false, rows: null, error: String((e && e.message) || e) });
+    }
+  }, [projectId, tables]);
 
   // ── filter state ────────────────────────────────────────────────────────
   const [issuerFilter, setIssuerFilter] = React.useState(ALL_ISSUER);
@@ -330,6 +349,7 @@ export default function AssetSearchOutreachSection({
       "User ID",
       "Priority",
       "Issuer",
+      "Source",
       "Category",
       "Hits",
       "Top searches",
@@ -349,6 +369,7 @@ export default function AssetSearchOutreachSection({
         r.user_id,
         r.priority_label,
         r.mapped_issuer,
+        r.source_label,
         r.issuer_category,
         r.hit_count,
         r.top_searches,
@@ -392,27 +413,31 @@ export default function AssetSearchOutreachSection({
         against your CRM; no PII lives here.
       </p>
 
-      {/* Pending-data callout — only shows when no rows */}
-      {state === "pending" && (
-        <div
-          className="ed-prose-italic"
-          style={{
-            marginTop: 18,
-            padding: "10px 14px",
-            background: "var(--ed-gold-tint, rgba(184, 135, 10, 0.10))",
-            borderLeft: "3px solid var(--ed-gold, #b8870a)",
-            color: "var(--ed-ink-soft, #2c2926)",
-            fontSize: 13,
-          }}
-          role="status"
-        >
-          <strong style={{ fontStyle: "normal", fontWeight: 600 }}>
-            Sample data — no failed-search rows in current window.
-          </strong>{" "}
-          The rows below preview the queue shape. Once the daily refresh
-          pulls a window with real failures, this panel switches to live.
+      {loading ? (
+        <div className="mt-8 flex flex-col gap-2" aria-label="loading">
+          {[0, 1, 2, 3, 4].map((i) => <span key={i} className="ed-skeleton" style={{ height: 28, width: "100%" }} />)}
         </div>
-      )}
+      ) : (
+        <>
+          {/* Pending-data callout — only shows when no live rows */}
+          {state === "pending" && (
+            <div
+              className="ed-prose-italic"
+              style={{
+                marginTop: 18,
+                padding: "10px 14px",
+                background: "var(--ed-gold-tint, rgba(184, 135, 10, 0.10))",
+                borderLeft: "3px solid var(--ed-gold, #b8870a)",
+                color: "var(--ed-ink-soft, #2c2926)",
+                fontSize: 13,
+              }}
+              role="status"
+            >
+              <strong style={{ fontStyle: "normal", fontWeight: 600 }}>
+                Waiting for live data — no failed-search rows in the current window yet.
+              </strong>
+            </div>
+          )}
 
       {/* ── KPI exhibits ─────────────────────────────────────────────────── */}
       <div
@@ -586,6 +611,7 @@ export default function AssetSearchOutreachSection({
               <HeaderCell field="user_id"        label="USER ID"      sort={sort} setSort={setSort} />
               <HeaderCell field="priority_rank"  label="PRIORITY"     sort={sort} setSort={setSort} />
               <HeaderCell field="mapped_issuer"  label="ISSUER"       sort={sort} setSort={setSort} />
+              <HeaderCell field="source_label"   label="SOURCE"       sort={sort} setSort={setSort} />
               <HeaderCell field="top_searches"   label="TOP SEARCHES" sort={sort} setSort={setSort} />
               <HeaderCell field="hit_count"      label="HITS"         sort={sort} setSort={setSort} align="right" />
               <HeaderCell field="last_active"    label="LAST SEEN"    sort={sort} setSort={setSort} />
@@ -609,7 +635,7 @@ export default function AssetSearchOutreachSection({
             {sortedRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={10}
                   className="ed-prose-italic"
                   style={{ padding: 24, textAlign: "center", opacity: 0.7 }}
                 >
@@ -628,11 +654,12 @@ export default function AssetSearchOutreachSection({
                   }}
                 >
                   <td style={cellStyle}>
-                    <span
-                      style={{ color: "var(--ed-ink, #1b1818)", fontWeight: 500 }}
-                    >
+                    <button type="button" onClick={() => openUserHistory(row.user_id)} title="View this user's search history"
+                      className="ed-caption"
+                      style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--ed-ink, #1b1818)",
+                               fontWeight: 500, font: "inherit", textDecoration: "underline", textDecorationStyle: "dotted" }}>
                       {row.user_id}
-                    </span>
+                    </button>
                   </td>
                   <td style={cellStyle}>
                     <PriorityTag rank={row.priority_rank} label={row.priority_label} />
@@ -652,6 +679,11 @@ export default function AssetSearchOutreachSection({
                        row.issuer_category === "alias"         ? "ALIAS GAP" :
                                                                   "HEALTHY"}
                     </div>
+                  </td>
+                  <td style={cellStyle}>
+                    <span className="ed-caption" style={{ letterSpacing: 0.4, opacity: row.is_gc ? 1 : 0.7 }}>
+                      {row.source_label || "Platform"}
+                    </span>
                   </td>
                   <td
                     style={{
@@ -735,6 +767,12 @@ export default function AssetSearchOutreachSection({
         outreach tool. Status changes here are stored locally to your
         browser — they don’t persist across devices yet.
       </p>
+        </>
+      )}
+      {modal && (
+        <UserSearchHistoryModal userId={modal.userId} rows={modal.rows} loading={modal.loading} error={modal.error}
+          onClose={() => setModal(null)} />
+      )}
     </section>
   );
 }

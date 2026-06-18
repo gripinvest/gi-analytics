@@ -8,8 +8,6 @@
 
 import * as React from "react";
 import {
-  engineHealthMockSample,
-  engineOutcomeMockSample,
   engineDataState,
   pairByEngine,
   ppDelta,
@@ -103,12 +101,12 @@ function MetricRow({ label, v1, v2, formatter = pct, goodIsDown = true, deltaSuf
   );
 }
 
-export default function AssetSearchCutoverStrip({ healthRows, outcomeRows }) {
+export default function AssetSearchCutoverStrip({ healthRows, outcomeRows, loading = false }) {
   const health = Array.isArray(healthRows) ? healthRows : [];
   const outcome = Array.isArray(outcomeRows) ? outcomeRows : [];
-  const combinedState = engineDataState(health) === "live" ? "live" : "pending";
-  const sourceHealth = combinedState === "live" ? health : engineHealthMockSample;
-  const sourceOutcome = combinedState === "live" ? outcome : engineOutcomeMockSample;
+  const combinedState = loading ? "loading" : engineDataState(health) === "live" ? "live" : "pending";
+  const sourceHealth = health;
+  const sourceOutcome = outcome;
 
   const { v1: h1, v2: h2 } = pairByEngine(sourceHealth);
   const { v1: o1, v2: o2 } = pairByEngine(sourceOutcome);
@@ -158,7 +156,7 @@ export default function AssetSearchCutoverStrip({ healthRows, outcomeRows }) {
             <em>V1 vs V2 — did the push move the needle?</em>
           </h3>
         </div>
-        {combinedState === "pending" ? (
+        {combinedState === "loading" ? (
           <span
             className="ed-caption"
             style={{
@@ -170,7 +168,21 @@ export default function AssetSearchCutoverStrip({ healthRows, outcomeRows }) {
               letterSpacing: 0.4,
             }}
           >
-            SAMPLE — V2 ROLLOUT PENDING
+            LOADING…
+          </span>
+        ) : combinedState === "pending" ? (
+          <span
+            className="ed-caption"
+            style={{
+              padding: "4px 10px",
+              background: "var(--ed-gold-tint, rgba(184, 135, 10, 0.10))",
+              borderLeft: `3px solid ${ED_GOLD}`,
+              color: ED_INK,
+              fontWeight: 600,
+              letterSpacing: 0.4,
+            }}
+          >
+            WAITING FOR LIVE V2 DATA
           </span>
         ) : (
           <span
@@ -182,70 +194,83 @@ export default function AssetSearchCutoverStrip({ healthRows, outcomeRows }) {
         )}
       </div>
 
-      {/* Column headers */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(140px, 1.4fr) 1fr 1fr 80px",
-          gap: 12,
-          padding: "6px 0",
-          borderBottom: `1px solid ${ED_RULE_FAINT}`,
-        }}
-      >
-        <div className="ed-caption" style={{ color: ED_INK_MUTED, fontWeight: 600 }}>
-          METRIC
+      {combinedState === "loading" ? (
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }} aria-label="loading">
+          {[0, 1, 2, 3, 4].map((i) => <span key={i} className="ed-skeleton" style={{ height: 22, width: "100%" }} />)}
         </div>
-        <div className="ed-caption" style={{ color: ED_INK_MUTED, fontWeight: 600 }}>
-          V1 (pre-cutover)
-        </div>
-        <div className="ed-caption" style={{ color: ED_INK_MUTED, fontWeight: 600 }}>
-          V2 {combinedState === "pending" ? "(projected)" : "(post-cutover)"}
-        </div>
-        <div
-          className="ed-caption"
-          style={{ color: ED_INK_MUTED, fontWeight: 600, textAlign: "right" }}
-        >
-          DELTA
-        </div>
-      </div>
+      ) : combinedState === "pending" ? (
+        <p className="ed-prose-italic" style={{ marginTop: 12, maxWidth: "70ch" }}>
+          V2 is live. This comparison appears once the daily refresh has fetched
+          post-cutover events — no sample numbers are shown.
+        </p>
+      ) : (
+        <>
+          {/* Column headers */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(140px, 1.4fr) 1fr 1fr 80px",
+              gap: 12,
+              padding: "6px 0",
+              borderBottom: `1px solid ${ED_RULE_FAINT}`,
+            }}
+          >
+            <div className="ed-caption" style={{ color: ED_INK_MUTED, fontWeight: 600 }}>
+              METRIC
+            </div>
+            <div className="ed-caption" style={{ color: ED_INK_MUTED, fontWeight: 600 }}>
+              V1 (pre-cutover)
+            </div>
+            <div className="ed-caption" style={{ color: ED_INK_MUTED, fontWeight: 600 }}>
+              V2 (post-cutover)
+            </div>
+            <div
+              className="ed-caption"
+              style={{ color: ED_INK_MUTED, fontWeight: 600, textAlign: "right" }}
+            >
+              DELTA
+            </div>
+          </div>
 
-      <MetricRow
-        label="Search success rate"
-        note="share of searched sessions that clicked a result — primary metric"
-        v1={successPct(o1)}
-        v2={successPct(o2)}
-        goodIsDown={false}
-      />
-      <MetricRow
-        label="Dead-end rate"
-        note="zero results, no click — what V2 alias map + fallbacks target"
-        v1={deadEndPct(o1)}
-        v2={deadEndPct(o2)}
-        goodIsDown={true}
-      />
-      <MetricRow
-        label="Zero-result rate"
-        note="query-level ZRR across all searches"
-        v1={h1?.zrr_pct}
-        v2={h2?.zrr_pct}
-        goodIsDown={true}
-      />
-      <MetricRow
-        label="Refinement rate"
-        note="user iterating mid-search — engine ranking proxy"
-        v1={h1?.refinement_pct}
-        v2={h2?.refinement_pct}
-        goodIsDown={true}
-      />
-      <MetricRow
-        label="Total queries"
-        note="search-volume baseline (sample sizes)"
-        v1={h1?.queries}
-        v2={h2?.queries}
-        formatter={num}
-        goodIsDown={false}
-        deltaSuffix=""
-      />
+          <MetricRow
+            label="Search success rate"
+            note="share of searched sessions that clicked a result — primary metric"
+            v1={successPct(o1)}
+            v2={successPct(o2)}
+            goodIsDown={false}
+          />
+          <MetricRow
+            label="Dead-end rate"
+            note="zero results, no click — what V2 alias map + fallbacks target"
+            v1={deadEndPct(o1)}
+            v2={deadEndPct(o2)}
+            goodIsDown={true}
+          />
+          <MetricRow
+            label="Zero-result rate"
+            note="query-level ZRR across all searches"
+            v1={h1?.zrr_pct}
+            v2={h2?.zrr_pct}
+            goodIsDown={true}
+          />
+          <MetricRow
+            label="Refinement rate"
+            note="user iterating mid-search — engine ranking proxy"
+            v1={h1?.refinement_pct}
+            v2={h2?.refinement_pct}
+            goodIsDown={true}
+          />
+          <MetricRow
+            label="Total queries"
+            note="search-volume baseline (sample sizes)"
+            v1={h1?.queries}
+            v2={h2?.queries}
+            formatter={num}
+            goodIsDown={false}
+            deltaSuffix=""
+          />
+        </>
+      )}
 
       {/* Foot note */}
       <p
@@ -254,9 +279,9 @@ export default function AssetSearchCutoverStrip({ healthRows, outcomeRows }) {
       >
         Reads <code style={{ fontFamily: "var(--ed-mono)" }}>engine_version</code> on every{" "}
         <code style={{ fontFamily: "var(--ed-mono)" }}>asset_search_*</code> event payload (V1 rows: NULL · V2 rows: <code style={{ fontFamily: "var(--ed-mono)" }}>'v2'</code>).{" "}
-        {combinedState === "pending"
-          ? "Sample numbers shown until V2 deploys; auto-switches to live data the moment events start flowing."
-          : "Live data — sampled across a 4-week window straddling the cutover."}
+        {combinedState === "live"
+          ? "Live data — sampled across a 4-week window straddling the cutover."
+          : "Comparison appears once live V2 events are fetched."}
       </p>
     </div>
   );

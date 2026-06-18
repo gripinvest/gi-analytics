@@ -446,6 +446,20 @@ export function issuerCaseExpr(col = "query_text") {
   return `CASE ${arms.join(" ")} ELSE NULL END`;
 }
 
+/** Pure-JS mirror of issuerCaseExpr: map a query string to an issuer name
+ *  using the same prefix-match semantics, or null when unmapped. */
+export function issuerForQuery(text) {
+  const q = (text || "").toLowerCase().trim();
+  if (!q) return null;
+  for (const m of ISSUER_MAP) {
+    for (const k of m.keywords) {
+      const kw = k.toLowerCase().trim();
+      if (q.startsWith(kw) || kw.startsWith(q)) return m.name;
+    }
+  }
+  return null;
+}
+
 /** Sessions / queries / ZRR / refinement per issuer per feature week. */
 export function issuerHealthByWeek({ tables, weeks }) {
   const raw = unionAllWeeks(tables.query, weeks, "context_session_id, query_text, results_count, is_refinement");
