@@ -28,8 +28,11 @@ export default function UserSearchHistoryModal({ userId, rows, loading, error, o
     if (data.length === 0) return null;
     const keywords = new Set(data.map((r) => (r.query_text || "").trim()).filter(Boolean));
     const days = data.map((r) => r.day).filter(Boolean).sort();
-    const gc = data.map((r) => (r.gc_name || "").trim()).find(Boolean);
-    const kyc = data.map((r) => (r.kyc || "").trim()).find(Boolean);
+    // gc_name is VARCHAR but String()-coerce defensively; kyc (obpp_kyc_status)
+    // is a BOOLEAN — never call string methods on it (a raw `.trim()` on `true`
+    // throws and crashes the whole modal render).
+    const gc = data.map((r) => String(r.gc_name ?? "").trim()).find(Boolean);
+    const kycDone = data.some((r) => isTrue(r.kyc));
     return {
       searches: data.length,
       distinct: keywords.size,
@@ -38,7 +41,7 @@ export default function UserSearchHistoryModal({ userId, rows, loading, error, o
       first: days[0], last: days[days.length - 1],
       invested: data.some((r) => isTrue(r.invested)),
       source: gc ? `GC · ${gc}` : "Platform",
-      kyc: kyc || "—",
+      kyc: kycDone ? "Yes" : "No",
     };
   }, [data]);
 
