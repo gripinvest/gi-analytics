@@ -1,13 +1,13 @@
 partner,metric,mtd,lmtd,delta_pct,unit
-ET Money,AUM,2.88,2.33,23.61,cr
-ET Money,FTI,57.0,47.0,21.28,count
-ET Money,Repeat,94.0,102.0,-7.84,count
-Paisa Bazaar,AUM,2.1,2.04,2.94,cr
-Paisa Bazaar,FTI,42.0,55.0,-23.64,count
-Paisa Bazaar,Repeat,105.0,118.0,-11.02,count
-Mobikwik,AUM,1.07,0.85,25.88,cr
-Mobikwik,FTI,24.0,33.0,-27.27,count
-Mobikwik,Repeat,92.0,100.0,-8.0,count
-Tata Digital,AUM,2.13,1.5,42.0,cr
-Tata Digital,FTI,24.0,32.0,-25.0,count
-Tata Digital,Repeat,137.0,174.0,-21.26,count
+ET Money,AUM,3.41,2.35,45.11,cr
+ET Money,FTI,67.0,56.0,19.64,count
+ET Money,Repeat,117.0,121.0,-3.31,count
+Paisa Bazaar,AUM,2.44,2.04,19.61,cr
+Paisa Bazaar,FTI,52.0,67.0,-22.39,count
+Paisa Bazaar,Repeat,124.0,137.0,-9.49,count
+Mobikwik,AUM,1.26,0.85,48.24,cr
+Mobikwik,FTI,32.0,40.0,-20.0,count
+Mobikwik,Repeat,112.0,118.0,-5.08,count
+Tata Digital,AUM,2.48,1.51,64.24,cr
+Tata Digital,FTI,29.0,43.0,-32.56,count
+Tata Digital,Repeat,174.0,206.0,-15.53,count
