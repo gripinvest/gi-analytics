@@ -1,5 +1,5 @@
 {
-  "refreshed_at": "2026-08-05T19:07:31.369218+00:00",
+  "refreshed_at": "2026-08-07T18:57:12.865464+00:00",
   "tables": {
     "W7_may14-may20_asset_search_initiated": {
       "last_refreshed_at": "2026-06-08T12:06:23.697298+00:00"
@@ -347,61 +347,67 @@
       "last_refreshed_at": "2026-08-04T19:12:33.667329+00:00"
     },
     "W18_jul30-aug05_asset_search_initiated": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W18_jul30-aug05_asset_search_query": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W18_jul30-aug05_asset_search_result_clicked": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W18_jul30-aug05_asset_search_empty_state": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W18_jul30-aug05_asset_search_cleared": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W18_jul30-aug05_asset_search_suggestion_clicked": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W18_jul30-aug05_asset_search_chip_clicked": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W18_jul30-aug05_assets_page_views": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W18_jul30-aug05_invest_now_button_clicked": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W18_jul30-aug05_quick_checkout_invest_clicked": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W18_jul30-aug05_asset_search_notify_me_clicked": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W19_aug06-aug12_asset_search_initiated": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W19_aug06-aug12_asset_search_query": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W19_aug06-aug12_asset_search_result_clicked": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W19_aug06-aug12_asset_search_empty_state": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W19_aug06-aug12_asset_search_cleared": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W19_aug06-aug12_assets_page_views": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W19_aug06-aug12_invest_now_button_clicked": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     },
     "W19_aug06-aug12_quick_checkout_invest_clicked": {
-      "last_refreshed_at": "2026-08-05T19:07:31.369218+00:00"
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
+    },
+    "W19_aug06-aug12_asset_search_suggestion_clicked": {
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
+    },
+    "W19_aug06-aug12_asset_search_chip_clicked": {
+      "last_refreshed_at": "2026-08-07T18:57:12.865464+00:00"
     }
   }
 }
