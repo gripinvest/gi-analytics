@@ -1,5 +1,5 @@
 partner,week,reg_success_pct,email_verified_pct,mobile_verified_pct,landed_pan_pct,kyc_init_pct,ucc_kyc_init_pct
-ET Money,2026-08-17,100.0,100.0,100.0,0.0,,100.0
-Paisa Bazaar,2026-08-17,100.0,13.77,13.04,0.0,,100.0
-Mobikwik,2026-08-17,100.0,16.36,16.36,0.0,,100.0
-Tata Digital,2026-08-17,100.0,4.0,4.0,0.0,,100.0
+ET Money,2026-08-17,100.0,100.0,100.0,7.71,75.0,41.67
+Paisa Bazaar,2026-08-17,100.0,11.62,10.77,8.49,84.56,36.51
+Mobikwik,2026-08-17,100.0,11.92,11.3,8.98,77.59,37.78
+Tata Digital,2026-08-17,100.0,7.85,7.44,4.55,109.09,58.33

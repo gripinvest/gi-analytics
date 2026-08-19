@@ -1,26 +1,26 @@
 {
-  "refreshed_at": "2026-08-17T03:49:32.738393+00:00",
+  "refreshed_at": "2026-08-19T03:49:11.865022+00:00",
   "tables": {
     "card_3841_summary_wow": {
-      "last_refreshed_at": "2026-08-17T03:49:32.738393+00:00"
+      "last_refreshed_at": "2026-08-19T03:49:11.865022+00:00"
     },
     "card_4499_kyc_funnel": {
-      "last_refreshed_at": "2026-08-17T03:49:32.738393+00:00"
+      "last_refreshed_at": "2026-08-19T03:49:11.865022+00:00"
     },
     "card_3843_summary_dod": {
-      "last_refreshed_at": "2026-08-17T03:49:32.738393+00:00"
+      "last_refreshed_at": "2026-08-19T03:49:11.865022+00:00"
     },
     "card_5042_retention_d1": {
-      "last_refreshed_at": "2026-08-17T03:49:32.738393+00:00"
+      "last_refreshed_at": "2026-08-19T03:49:11.865022+00:00"
     },
     "card_5046_retention_d2": {
-      "last_refreshed_at": "2026-08-17T03:49:32.738393+00:00"
+      "last_refreshed_at": "2026-08-19T03:49:11.865022+00:00"
     },
     "01_north_star": {
-      "last_refreshed_at": "2026-08-17T03:49:32.738393+00:00"
+      "last_refreshed_at": "2026-08-19T03:49:11.865022+00:00"
     },
     "02_reg_to_kyc": {
-      "last_refreshed_at": "2026-08-17T03:49:32.738393+00:00"
+      "last_refreshed_at": "2026-08-19T03:49:11.865022+00:00"
     }
   }
 }
