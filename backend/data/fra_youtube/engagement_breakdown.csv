@@ -1301,3 +1301,17 @@ channel_handle,snapshot_date,dimension,bucket,video_count,engagement_rate_pct,li
 @fixedreturnsacademy,2026-08-21,category,Other,25,1.816,1.497,0.318
 @fixedreturnsacademy,2026-08-21,category,Risk/Safety,54,1.853,1.719,0.133
 @fixedreturnsacademy,2026-08-21,category,Taxation,63,1.338,1.17,0.168
+@fixedreturnsacademy,2026-08-22,overall,all,260,1.715,1.508,0.207
+@fixedreturnsacademy,2026-08-22,duration,short,17,1.968,1.699,0.269
+@fixedreturnsacademy,2026-08-22,duration,medium,243,1.71,1.505,0.205
+@fixedreturnsacademy,2026-08-22,category,Asset Comparison,11,1.97,1.637,0.333
+@fixedreturnsacademy,2026-08-22,category,Bond Basics,21,1.996,1.711,0.285
+@fixedreturnsacademy,2026-08-22,category,Bond Types,24,2.018,1.879,0.139
+@fixedreturnsacademy,2026-08-22,category,FD Comparison,14,1.947,1.8,0.147
+@fixedreturnsacademy,2026-08-22,category,Grip Platform,5,2.861,2.5,0.361
+@fixedreturnsacademy,2026-08-22,category,Income Strategy,29,1.846,1.677,0.17
+@fixedreturnsacademy,2026-08-22,category,Macro/RBI,7,1.423,1.402,0.021
+@fixedreturnsacademy,2026-08-22,category,Myths/Mistakes,7,3.485,2.577,0.908
+@fixedreturnsacademy,2026-08-22,category,Other,25,1.814,1.496,0.318
+@fixedreturnsacademy,2026-08-22,category,Risk/Safety,54,1.85,1.717,0.133
+@fixedreturnsacademy,2026-08-22,category,Taxation,63,1.338,1.171,0.167
