@@ -1,5 +1,5 @@
 {
-  "refreshed_at": "2026-09-04T18:44:54.640032+00:00",
+  "refreshed_at": "2026-09-05T18:44:22.651941+00:00",
   "tables": {
     "W7_may14-may20_asset_search_initiated": {
       "last_refreshed_at": "2026-06-08T12:06:23.697298+00:00"
@@ -479,70 +479,70 @@
       "last_refreshed_at": "2026-09-01T18:47:55.524728+00:00"
     },
     "W22_aug27-sep02_asset_search_initiated": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W22_aug27-sep02_asset_search_query": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W22_aug27-sep02_asset_search_result_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W22_aug27-sep02_asset_search_empty_state": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W22_aug27-sep02_asset_search_cleared": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W22_aug27-sep02_assets_page_views": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W22_aug27-sep02_invest_now_button_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W22_aug27-sep02_quick_checkout_invest_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W22_aug27-sep02_asset_search_suggestion_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W22_aug27-sep02_asset_search_chip_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W22_aug27-sep02_asset_search_notify_me_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W23_sep03-sep09_asset_search_initiated": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W23_sep03-sep09_asset_search_query": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W23_sep03-sep09_asset_search_result_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W23_sep03-sep09_asset_search_empty_state": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W23_sep03-sep09_asset_search_cleared": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W23_sep03-sep09_asset_search_suggestion_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W23_sep03-sep09_asset_search_chip_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W23_sep03-sep09_assets_page_views": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W23_sep03-sep09_invest_now_button_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W23_sep03-sep09_quick_checkout_invest_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     },
     "W23_sep03-sep09_asset_search_notify_me_clicked": {
-      "last_refreshed_at": "2026-09-04T18:44:54.640032+00:00"
+      "last_refreshed_at": "2026-09-05T18:44:22.651941+00:00"
     }
   }
 }
