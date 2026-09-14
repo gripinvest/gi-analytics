@@ -1,54 +1,41 @@
 {
-  "refreshed_at": "2026-06-11T20:33:46Z",
+  "refreshed_at": "2026-09-14T19:46:34Z",
   "tables": {
     "weekly_ab_tracker": {
-      "last_refreshed_at": "2026-06-11T20:33:46Z"
+      "last_refreshed_at": "2026-09-14T19:46:34Z"
     },
     "hourly_breakdown": {
-      "last_refreshed_at": "2026-06-11T20:33:46Z"
+      "last_refreshed_at": "2026-09-14T19:46:34Z"
     }
   },
   "margin_notes": {
-    "as_of_week": "2026-06-08",
+    "as_of_week": "2026-08-03",
     "srm": {
-      "control_n": 3497,
-      "treatment_n": 3303,
-      "p_value": 0.0186,
-      "verdict": "ok"
+      "verdict": "insufficient_data"
     },
     "control_leak": {
-      "control_visitors": 0,
-      "control_cohort": 3497,
-      "leak_pct": 0.0,
-      "verdict": "ok"
+      "verdict": "insufficient_data"
     },
     "fti_lift_ci": {
-      "control_pct": 1.97,
-      "treatment_pct": 2.36,
-      "delta_pp": 0.39,
-      "ci_lower_pp": -0.3,
-      "ci_upper_pp": 1.08,
-      "verdict": "ok"
+      "verdict": "insufficient_data"
     },
     "mde": {
-      "n_per_arm": 3303,
-      "pooled_rate_pct": 2.16,
-      "mde_abs_pp": 1.0,
-      "mde_rel_pct": 46.4
+      "n_per_arm": 0,
+      "mde_abs_pp": null
     }
   },
   "conversion_funnel": {
-    "as_of_week": "2026-06-08",
-    "prior_week": "2026-06-01",
+    "as_of_week": "2026-08-03",
+    "prior_week": "2026-07-27",
     "variants": {
-      "control": {
+      "treatment": {
         "bands": [
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 3497,
-            "fti_n": 69,
-            "fti_rate_pct": 1.97
+            "cohort_n": 1,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
           },
           {
             "depth": "visited",
@@ -80,74 +67,19 @@
           }
         ],
         "by_entry_source": [],
-        "days_to_fti_median": 0.03,
-        "days_to_fti_n": 69
-      },
-      "treatment": {
-        "bands": [
-          {
-            "depth": "bucketed",
-            "label": "Bucketed (all)",
-            "cohort_n": 3303,
-            "fti_n": 78,
-            "fti_rate_pct": 2.36
-          },
-          {
-            "depth": "visited",
-            "label": "Visited /learn",
-            "cohort_n": 374,
-            "fti_n": 27,
-            "fti_rate_pct": 7.22
-          },
-          {
-            "depth": "played",
-            "label": "Played \u22651 video",
-            "cohort_n": 62,
-            "fti_n": 6,
-            "fti_rate_pct": 9.68
-          },
-          {
-            "depth": "multi_played",
-            "label": "Played multiple",
-            "cohort_n": 32,
-            "fti_n": 3,
-            "fti_rate_pct": 9.38
-          },
-          {
-            "depth": "completed",
-            "label": "Completed (\u226575%)",
-            "cohort_n": 22,
-            "fti_n": 6,
-            "fti_rate_pct": 27.27
-          }
-        ],
-        "by_entry_source": [
-          {
-            "source": "bottom_nav",
-            "cohort_n": 320,
-            "fti_n": 24,
-            "fti_rate_pct": 7.5
-          },
-          {
-            "source": "top_chip",
-            "cohort_n": 54,
-            "fti_n": 3,
-            "fti_rate_pct": 5.56
-          }
-        ],
-        "days_to_fti_median": 0.03,
-        "days_to_fti_n": 78
+        "days_to_fti_median": null,
+        "days_to_fti_n": 0
       }
     },
     "prior_variants": {
-      "control": {
+      "treatment": {
         "bands": [
           {
             "depth": "bucketed",
             "label": "Bucketed (all)",
-            "cohort_n": 6577,
-            "fti_n": 196,
-            "fti_rate_pct": 2.98
+            "cohort_n": 1,
+            "fti_n": 0,
+            "fti_rate_pct": 0.0
           },
           {
             "depth": "visited",
@@ -179,64 +111,53 @@
           }
         ],
         "by_entry_source": [],
-        "days_to_fti_median": 0.7,
-        "days_to_fti_n": 196
-      },
-      "treatment": {
-        "bands": [
-          {
-            "depth": "bucketed",
-            "label": "Bucketed (all)",
-            "cohort_n": 6399,
-            "fti_n": 190,
-            "fti_rate_pct": 2.97
-          },
-          {
-            "depth": "visited",
-            "label": "Visited /learn",
-            "cohort_n": 773,
-            "fti_n": 77,
-            "fti_rate_pct": 9.96
-          },
-          {
-            "depth": "played",
-            "label": "Played \u22651 video",
-            "cohort_n": 155,
-            "fti_n": 20,
-            "fti_rate_pct": 12.9
-          },
-          {
-            "depth": "multi_played",
-            "label": "Played multiple",
-            "cohort_n": 95,
-            "fti_n": 14,
-            "fti_rate_pct": 14.74
-          },
-          {
-            "depth": "completed",
-            "label": "Completed (\u226575%)",
-            "cohort_n": 72,
-            "fti_n": 14,
-            "fti_rate_pct": 19.44
-          }
-        ],
-        "by_entry_source": [
-          {
-            "source": "bottom_nav",
-            "cohort_n": 670,
-            "fti_n": 69,
-            "fti_rate_pct": 10.3
-          },
-          {
-            "source": "top_chip",
-            "cohort_n": 103,
-            "fti_n": 8,
-            "fti_rate_pct": 7.77
-          }
-        ],
-        "days_to_fti_median": 0.21,
-        "days_to_fti_n": 190
+        "days_to_fti_median": null,
+        "days_to_fti_n": 0
       }
     }
+  },
+  "language_adoption": {
+    "total_toggles": 227,
+    "distinct_toggle_users": 128,
+    "hi_adopters": 128,
+    "bounce_back_users": 30,
+    "bounce_back_rate_pct": 23.44,
+    "active_tab_mix": [
+      {
+        "active_tab": "basic",
+        "toggles": 202
+      },
+      {
+        "active_tab": "advanced",
+        "toggles": 25
+      }
+    ],
+    "toggles_by_week": [
+      {
+        "week": "2026-06-22T00:00:00+05:30",
+        "toggles": 87,
+        "hi_toggles": 59
+      },
+      {
+        "week": "2026-06-29T00:00:00+05:30",
+        "toggles": 36,
+        "hi_toggles": 30
+      },
+      {
+        "week": "2026-07-06T00:00:00+05:30",
+        "toggles": 41,
+        "hi_toggles": 29
+      },
+      {
+        "week": "2026-07-13T00:00:00+05:30",
+        "toggles": 54,
+        "hi_toggles": 48
+      },
+      {
+        "week": "2026-07-20T00:00:00+05:30",
+        "toggles": 9,
+        "hi_toggles": 8
+      }
+    ]
   }
 }
