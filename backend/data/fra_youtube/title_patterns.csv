@@ -398,3 +398,6 @@ channel_handle,snapshot_date,pattern,video_count,avg_views
 @fixedreturnsacademy,2026-09-30,question_title,155,1997.0
 @fixedreturnsacademy,2026-09-30,rupee_or_number,95,2233.0
 @fixedreturnsacademy,2026-09-30,emoji,6,2081.7
+@fixedreturnsacademy,2026-10-01,question_title,155,2008.1
+@fixedreturnsacademy,2026-10-01,rupee_or_number,95,2239.8
+@fixedreturnsacademy,2026-10-01,emoji,6,2087.0
