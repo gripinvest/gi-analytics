@@ -1,13 +1,13 @@
 partner,metric,mtd,lmtd,delta_pct,unit
-ET Money,AUM,2.45,3.45,-28.99,cr
+ET Money,AUM,2.9,3.48,-16.67,cr
 ET Money,FTI,,,,count
 ET Money,Repeat,,,,count
-Paisa Bazaar,AUM,,2.81,,cr
+Paisa Bazaar,AUM,,1.85,,cr
 Paisa Bazaar,FTI,,,,count
 Paisa Bazaar,Repeat,,,,count
-Mobikwik,AUM,0.89,1.0,-11.0,cr
+Mobikwik,AUM,1.05,1.0,5.0,cr
 Mobikwik,FTI,,,,count
 Mobikwik,Repeat,,,,count
-Tata Digital,AUM,1.85,2.71,-31.73,cr
+Tata Digital,AUM,2.34,2.74,-14.6,cr
 Tata Digital,FTI,,,,count
 Tata Digital,Repeat,,,,count
